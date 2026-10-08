@@ -1,6 +1,6 @@
 # Employee Onboarding Companion
 
-**Project stage:** M1 second independent STOP remediation candidate CI-qualified (8 October 2026); **focused independent GO still pending, M2 blocked**. This is not a working end-to-end onboarding product.
+**Project stage:** M1 third independent STOP remediation candidate CI-qualified (8 October 2026); **focused independent GO still pending, M2 blocked**. This is not a working end-to-end onboarding product.
 
 This is an independent private repository. Governing requirements: Product Requirements v1.1 (28 functional requirements), Business Journey v1.0 (four roles, ten exceptions, five hosted journeys), Architecture Handoff v1.0.
 
@@ -8,7 +8,7 @@ This is an independent private repository. Governing requirements: Product Requi
 
 - M0: Django 5.2, PostgreSQL 17 and Procrastinate 3.10; atomic operation/audit/queued-job commit, rollback and real worker crash/recovery.
 - M1: email-login and Argon2, session and CSRF enforcement, four-role membership checks, scoped employee/owner case reads, HR reassignment with optimistic version + idempotency key, immutable audit-event UPDATE/DELETE trigger and hash-chain append function, single-use invitation/reset tokens, and error/denial paths.
-- Remediation CI: **56 PostgreSQL-backed tests passed** including M0 regressions, real two-session security races, restricted-role audit append/denial probes, React build, same-origin API smoke, Docker build and zero current npm audit advisories.
+- Remediation CI: **62 PostgreSQL-backed tests passed** including M0 regressions, real two-session security races, restricted-role audit append/denial probes, React build, same-origin API smoke, Docker build and zero current npm audit advisories.
 
 See [M0 qualification](docs/qualification/m0-20261008.md), [original M1 qualification](docs/qualification/m1-20261008.md), and [M1 adversarial correction handoff](docs/qualification/m1-security-remediation-20261008.md). The last is a candidate for independent re-review, not a security certification. See [second focused re-review remediation](docs/qualification/m1-second-review-remediation-20261008.md) for the latest source/CI and remaining limits.
 
