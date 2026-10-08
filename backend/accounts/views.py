@@ -33,7 +33,9 @@ def me(request):
         if member is None:
             return error('UNAUTHENTICATED',401)
         return JsonResponse({'user_id':str(request.user.pk),'display_name':request.user.display_name,
-                             'role':member.role,'organization_id':str(member.organization_id)})
+                             'role':member.role,'organization_id':str(member.organization_id),
+                             'capabilities':{'manage_templates':bool(member.can_manage_templates),
+                                             'coordinate_ownership':bool(member.can_coordinate_ownership)}})
     except DatabaseError as exc:
         return transient_db_response(exc,preflight=True)
 

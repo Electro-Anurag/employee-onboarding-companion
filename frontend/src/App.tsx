@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import './App.css';
 
-type Me = { display_name:string;role:'HR'|'IT'|'MANAGER'|'EMPLOYEE';user_id:string };
+type Me = { display_name:string;role:'HR'|'IT'|'MANAGER'|'EMPLOYEE';user_id:string;capabilities?:{manage_templates:boolean;coordinate_ownership:boolean} };
 type Progress = { mandatory_total:number;mandatory_completed:number;mandatory_remaining:number;percent:number };
 type Case = {id:string; status:string;joining_date:string;employee_name:string;version:number;progress?:Progress};
 type Task = {id:string;key:string;kind:string;title:string;state:string;owner_role:string;
@@ -265,19 +265,19 @@ export default function App(){
           </article>)}</div>}
         </section>}
         {tab==='templates'&&me.role==='HR'&&<section className="panel"><h2>Versioned templates</h2>
-          <button disabled={busy} onClick={()=>void createDefault()}>Create default synthetic 17-task template</button>
+          {me.capabilities?.manage_templates&&<button disabled={busy} onClick={()=>void createDefault()}>Create default synthetic 17-task template</button>}
           {!templates.length&&<p>No templates published or drafted yet.</p>}
           <div className="case-list">{templates.map(t=><button key={t.version_id} className="quiet" disabled={busy} onClick={()=>void showTemplate(t)}>
             {t.name} — v{t.version} {t.state} (revision {t.revision})
           </button>)}</div>
           {template&&<section className="subpanel"><h3>{template.name} v{template.version} — {template.state}</h3>
             <p>Content SHA-256: <code>{template.content_hash||'Not published'}</code></p>
-            {template.state==='DRAFT'?<><label>Draft tasks and dependency JSON
+            {template.state==='DRAFT'&&me.capabilities?.manage_templates?<><label>Draft tasks and dependency JSON
               <textarea className="json-editor" value={editor} onChange={e=>setEditor(e.target.value)}/>
             </label><div className="actions"><button disabled={busy} onClick={()=>void saveDraft()}>Save draft</button>
               <button disabled={busy} onClick={()=>void publish()}>Validate and publish</button></div></>
              :<><p>Published versions are immutable. Active cases retain their original snapshot.</p>
-               <button disabled={busy} onClick={()=>void clone()}>Create next version draft</button></>}
+               {template.state==='PUBLISHED'&&me.capabilities?.manage_templates&&<button disabled={busy} onClick={()=>void clone()}>Create next version draft</button>}</>}
           </section>}
         </section>}
         {me.role==='HR'&&tab==='cases'&&<section className="panel"><h2>Create an onboarding case</h2>

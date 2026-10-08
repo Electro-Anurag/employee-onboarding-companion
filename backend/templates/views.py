@@ -1,6 +1,6 @@
 """Scoped template HTTP endpoints. No publish, update or clone bypasses service authority."""
 from django.core.exceptions import PermissionDenied
-from django.db import transaction,DatabaseError
+from django.db import transaction,DatabaseError,IntegrityError
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_protect
 from django.views.decorators.http import require_http_methods,require_POST
@@ -25,6 +25,7 @@ def _apply(request,route,tag,payload,execute,success=200):
     except services.TemplateFailure as exc: return error(exc.code,exc.status)
     except InputError as exc:return error(exc.code,exc.status)
     except PermissionDenied:return error('FORBIDDEN',403)
+    except IntegrityError:return error('CONFLICTING_TEMPLATE_STATE',409)
     except DatabaseError as exc:return transient_db_response(exc,idempotent=True)
 
 @csrf_protect
