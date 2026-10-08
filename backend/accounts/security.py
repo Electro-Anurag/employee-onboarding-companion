@@ -33,6 +33,13 @@ def actor_context(user, *, locked=False):
     except (Membership.DoesNotExist, Membership.MultipleObjectsReturned):
         raise InvalidActor()
 
+def _bounded_credential_transaction():
+    if not connection.in_atomic_block:
+        raise RuntimeError('Credential lock timeouts require a transaction')
+    with connection.cursor() as cursor:
+        cursor.execute("SET LOCAL statement_timeout = '5s'")
+        cursor.execute("SET LOCAL lock_timeout = '2s'")
+
 def digest_token(raw):
     return hashlib.sha256(raw.encode('utf8')).hexdigest()
 
@@ -45,6 +52,7 @@ def issue_token(user,purpose,issuer=None):
         raise InvalidActor()
     raw=secrets.token_urlsafe(36)
     with transaction.atomic():
+        _bounded_credential_transaction()
         # Stable user lock protects the *empty pending-token set* as well.
         current=User.objects.select_for_update().get(pk=user.pk)
         if not current.is_active:
@@ -64,6 +72,7 @@ def redeem_token(raw,purpose,password):
     if not isinstance(password,str):
         raise InvalidActor()
     with transaction.atomic():
+        _bounded_credential_transaction()
         # Lookup is only a hint to find the stable lock. Re-read token after locking.
         initial=OneTimeToken.objects.filter(token_hash=digest_token(raw),purpose=purpose).values('user_id').first()
         if initial is None:
@@ -93,6 +102,7 @@ def change_password_locked(user,old_password,new_password):
     if not isinstance(old_password,str) or not isinstance(new_password,str):
         raise InvalidActor()
     with transaction.atomic():
+        _bounded_credential_transaction()
         current=User.objects.select_for_update().filter(pk=user.pk,is_active=True).first()
         if current is None or not current.check_password(old_password):
             raise InvalidActor()
