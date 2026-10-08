@@ -58,26 +58,29 @@ def test_r3_issuer_only_membership_cannot_change_identity(case_context):
     issuer.refresh_from_db()
     assert issuer.organization_id==org.pk and issuer.user_id==original.pk and issuer.role=='IT'
 
+
 @pytest.mark.django_db(transaction=True)
 def test_r3_migration_preflight_rejects_legacy_malformed_root(case_context):
     org,employee_user,employee,case,hr_user,hr=case_context
     foreign=Organization.objects.create(name='Old invalid org')
     migration=importlib.import_module('backend.onboarding.migrations.0004_immutable_roots_and_issuer_guard')
-    # Simulate a malformed 0001 legacy row using the schema-owner privilege in
-    # an isolated rollback-only test transaction. Normal web roles cannot do this.
-    with pytest.raises(DatabaseError):
-        with transaction.atomic():
-            with connection.cursor() as cursor:
-                cursor.execute('ALTER TABLE public.onboarding_onboardingcase DISABLE TRIGGER m1_case_root_immutable')
-                cursor.execute('ALTER TABLE public.onboarding_onboardingcase DISABLE TRIGGER m1_case_links')
-                cursor.execute('UPDATE public.onboarding_onboardingcase SET organization_id=%s WHERE id=%s',
-                    [foreign.pk,case.pk])
-                cursor.execute('ALTER TABLE public.onboarding_onboardingcase ENABLE TRIGGER m1_case_links')
-                cursor.execute('ALTER TABLE public.onboarding_onboardingcase ENABLE TRIGGER m1_case_root_immutable')
-                cursor.execute(migration.PREFLIGHT_SQL)
+    # All fixture DDL/DML MUST succeed. Re-enabling triggers before commit
+    # would itself fail on pending FK events, masking the intended preflight.
+    with transaction.atomic():
+        with connection.cursor() as cursor:
+            cursor.execute('ALTER TABLE public.onboarding_onboardingcase DISABLE TRIGGER m1_case_root_immutable')
+            cursor.execute('ALTER TABLE public.onboarding_onboardingcase DISABLE TRIGGER m1_case_links')
+            cursor.execute('UPDATE public.onboarding_onboardingcase SET organization_id=%s WHERE id=%s',
+                           [foreign.pk,case.pk])
+        with pytest.raises(DatabaseError) as failure:
+            with transaction.atomic():
+                with connection.cursor() as cursor:
+                    cursor.execute(migration.PREFLIGHT_SQL)
+        assert getattr(failure.value.__cause__,'sqlstate',None)=='23514'
+        assert 'M1 migration blocked: invalid legacy case employee/org/role' in str(failure.value)
+        transaction.set_rollback(True)  # restores fixture and trigger configuration
     case.refresh_from_db()
     assert case.organization_id==org.pk
-
 @pytest.mark.django_db(transaction=True)
 def test_r5_denied_login_identifiers_create_no_persistent_rows():
     ip='198.51.100.200'
@@ -214,6 +217,7 @@ def test_c3_missing_role_is_bounded_4xx_without_effect(case_context):
     assert CommandReceipt.objects.count()==0 and AuditEvent.objects.count()==0
 
 
+
 @pytest.mark.django_db(transaction=True)
 def test_r3_legacy_issuer_migration_preflight_aborts(case_context):
     org,employee_user,employee,case,hr_user,hr=case_context
@@ -225,17 +229,20 @@ def test_r3_legacy_issuer_migration_preflight_aborts(case_context):
                                   effective_from=timezone.now())
     foreign=Organization.objects.create(name='Legacy foreign')
     migration=importlib.import_module('backend.onboarding.migrations.0004_immutable_roots_and_issuer_guard')
-    with pytest.raises(DatabaseError):
-        with transaction.atomic():
-            with connection.cursor() as cursor:
-                cursor.execute('ALTER TABLE public.accounts_membership DISABLE TRIGGER m1_member_links')
-                cursor.execute('UPDATE public.accounts_membership SET organization_id=%s WHERE id=%s',
-                               [foreign.pk,issuer.pk])
-                cursor.execute('ALTER TABLE public.accounts_membership ENABLE TRIGGER m1_member_links')
-                cursor.execute(migration.PREFLIGHT_SQL)
+    with transaction.atomic():
+        with connection.cursor() as cursor:
+            cursor.execute('ALTER TABLE public.accounts_membership DISABLE TRIGGER m1_member_links')
+            cursor.execute('UPDATE public.accounts_membership SET organization_id=%s WHERE id=%s',
+                           [foreign.pk,issuer.pk])
+        with pytest.raises(DatabaseError) as failure:
+            with transaction.atomic():
+                with connection.cursor() as cursor:
+                    cursor.execute(migration.PREFLIGHT_SQL)
+        assert getattr(failure.value.__cause__,'sqlstate',None)=='23514'
+        assert 'M1 migration blocked: invalid legacy assignment/issuer relationship' in str(failure.value)
+        transaction.set_rollback(True)
     issuer.refresh_from_db()
     assert issuer.organization_id==org.pk
-
 @pytest.mark.django_db(transaction=True)
 def test_r2_employee_revocation_while_issuance_holds_case_lock(case_context):
     from backend.onboarding.services import issue_credential_for_case
@@ -416,3 +423,160 @@ def test_r3_parent_and_child_lock_order_child_first(case_context):
         assert b.result(timeout=12)=='REJECTED'
     assert CaseAssignment.objects.get(case=case,role='IT').member_id==it.pk
     assert OnboardingCase.objects.get(pk=case.pk).organization_id==org.pk
+
+
+@pytest.mark.django_db(transaction=True)
+def test_r3_legacy_assignment_member_mismatch_rejected_by_preflight(case_context):
+    org,employee_user,employee,case,hr_user,hr=case_context
+    migration=importlib.import_module('backend.onboarding.migrations.0004_immutable_roots_and_issuer_guard')
+    foreign=Organization.objects.create(name='Old unrelated org')
+    different=User.objects.create_user(email='malformedforeign@example.test',password='StrongPassword!2026')
+    foreign_hr=Membership.objects.create(user=different,organization=foreign,role='HR')
+    assignment=CaseAssignment.objects.get(case=case,role='HR')
+    with transaction.atomic():
+        with connection.cursor() as cursor:
+            cursor.execute('ALTER TABLE public.onboarding_caseassignment DISABLE TRIGGER m1_assignment_links')
+            cursor.execute('UPDATE public.onboarding_caseassignment SET member_id=%s WHERE id=%s',
+                           [foreign_hr.pk,assignment.pk])
+        with pytest.raises(DatabaseError) as failure:
+            with transaction.atomic():
+                with connection.cursor() as cursor:
+                    cursor.execute(migration.PREFLIGHT_SQL)
+        assert getattr(failure.value.__cause__,'sqlstate',None)=='23514'
+        assert 'M1 migration blocked: invalid legacy assignment/issuer relationship' in str(failure.value)
+        transaction.set_rollback(True)
+    assignment.refresh_from_db()
+    assert assignment.member_id==hr.pk
+
+@pytest.mark.django_db(transaction=True)
+def test_r3_legacy_assignment_role_mismatch_rejected_by_preflight(case_context):
+    org,employee_user,employee,case,hr_user,hr=case_context
+    migration=importlib.import_module('backend.onboarding.migrations.0004_immutable_roots_and_issuer_guard')
+    it_user=User.objects.create_user(email='malformedit@example.test',password='StrongPassword!2026')
+    it=Membership.objects.create(user=it_user,organization=org,role='IT')
+    assignment=CaseAssignment.objects.get(case=case,role='HR')
+    with transaction.atomic():
+        with connection.cursor() as cursor:
+            cursor.execute('ALTER TABLE public.onboarding_caseassignment DISABLE TRIGGER m1_assignment_links')
+            cursor.execute('UPDATE public.onboarding_caseassignment SET member_id=%s WHERE id=%s',
+                           [it.pk,assignment.pk])
+        with pytest.raises(DatabaseError) as failure:
+            with transaction.atomic():
+                with connection.cursor() as cursor:
+                    cursor.execute(migration.PREFLIGHT_SQL)
+        assert getattr(failure.value.__cause__,'sqlstate',None)=='23514'
+        assert 'M1 migration blocked: invalid legacy assignment/issuer relationship' in str(failure.value)
+        transaction.set_rollback(True)
+    assignment.refresh_from_db()
+    assert assignment.member_id==hr.pk
+
+@pytest.mark.django_db(transaction=True)
+def test_r3_migration_preflight_accepts_valid_nonempty_fixture(case_context):
+    import importlib
+    migration=importlib.import_module('backend.onboarding.migrations.0004_immutable_roots_and_issuer_guard')
+    org,employee_user,employee,case,hr_user,hr=case_context
+    with transaction.atomic():
+        with connection.cursor() as cursor:
+            cursor.execute(migration.PREFLIGHT_SQL)
+        transaction.set_rollback(True)
+    assert OnboardingCase.objects.filter(pk=case.pk,organization=org).exists()
+
+@pytest.mark.django_db(transaction=True)
+def test_c4_receipt_replays_after_candidate_deactivation_and_later_reassignment(case_context):
+    org,employee_user,employee,case,hr_user,hr=case_context
+    old_user=User.objects.create_user(email='c4old@example.test',password='StrongPassword!2026')
+    old=Membership.objects.create(user=old_user,organization=org,role='IT')
+    CaseAssignment.objects.create(case=case,member=old,role='IT',effective_from=timezone.now())
+    target_user=User.objects.create_user(email='c4target@example.test',password='StrongPassword!2026')
+    target=Membership.objects.create(user=target_user,organization=org,role='IT')
+    second_user=User.objects.create_user(email='c4second@example.test',password='StrongPassword!2026')
+    second=Membership.objects.create(user=second_user,organization=org,role='IT')
+    args=dict(actor=hr_user,case_id=case.pk,role='IT',new_member_id=target.pk,
+              reason='Primary change',key=uuid.uuid4(),expected_version=1)
+    first=reassign_owner(**args)
+    target_user.is_active=False
+    target_user.save(update_fields=['is_active'])
+    target.available=False
+    target.active=False
+    target.save(update_fields=['available','active'])
+    assert reassign_owner(**args)==first
+    followup=reassign_owner(actor=hr_user,case_id=case.pk,role='IT',
+        new_member_id=second.pk,reason='Replacement',key=uuid.uuid4(),expected_version=2)
+    assert followup[1]==200
+    assert reassign_owner(**args)==first
+    assert OnboardingCase.objects.get(pk=case.pk).version==3
+    assert AuditEvent.objects.filter(event_type='OWNER_REASSIGNED').count()==2
+    assert CommandReceipt.objects.count()==2
+    with pytest.raises(CommandFailure) as denied_new:
+        reassign_owner(actor=hr_user,case_id=case.pk,role='IT',new_member_id=target.pk,
+            reason='Invalid new assignment',key=uuid.uuid4(),expected_version=3)
+    assert denied_new.value.code=='INVALID_ASSIGNEE'
+    hr.active=False
+    hr.save(update_fields=['active'])
+    with pytest.raises(CommandFailure) as denied_old_actor:
+        reassign_owner(**args)
+    assert denied_old_actor.value.status==404
+    assert AuditEvent.objects.filter(event_type='OWNER_REASSIGNED').count()==2
+
+@pytest.mark.django_db(transaction=True)
+def test_c6_post_commit_password_session_failure_reports_committed(case_context):
+    from backend.accounts.security import issue_token
+    from backend.accounts.models import OneTimeToken
+    org,employee_user,employee,case,hr_user,hr=case_context
+    token=issue_token(hr_user,'RESET')
+    client=Client(enforce_csrf_checks=True)
+    csrf=client.get('/api/v1/auth/csrf').json()['csrf_token']
+    login=client.post('/api/v1/auth/login',json.dumps({
+        'email':hr_user.email,'password':'StrongSecretPassword!2026'}),
+        content_type='application/json',HTTP_X_CSRFTOKEN=csrf)
+    assert login.status_code==200,login.content
+    csrf=client.get('/api/v1/auth/csrf').json()['csrf_token']
+    class PostCommitAbort(OperationalError):
+        sqlstate='57014'
+    with patch('backend.accounts.views.update_session_auth_hash',
+               side_effect=PostCommitAbort('synthetic session rotation failure')):
+        response=client.post('/api/v1/auth/password/change',json.dumps({
+            'old_password':'StrongSecretPassword!2026',
+            'new_password':'AfterCommittedChange!2026'}),
+            content_type='application/json',HTTP_X_CSRFTOKEN=csrf)
+    assert response.status_code==503,response.content
+    assert response.json()['error']['outcome']=='COMMAND_COMMITTED'
+    hr_user.refresh_from_db()
+    assert hr_user.check_password('AfterCommittedChange!2026')
+    assert not hr_user.check_password('StrongSecretPassword!2026')
+    assert OneTimeToken.objects.filter(user=hr_user,used_at__isnull=True).count()==0
+    assert AuditEvent.objects.filter(event_type='PASSWORD_CHANGED').count()==1
+    assert AuditEvent.objects.count()==1
+    assert OneTimeToken.objects.filter(user=hr_user).count()==1
+
+@pytest.mark.django_db(transaction=True)
+def test_c6_credential_rollback_and_logout_mutation_outcome(case_context):
+    from backend.accounts.security import issue_token
+    from backend.accounts.models import OneTimeToken
+    org,employee_user,employee,case,hr_user,hr=case_context
+    token=issue_token(hr_user,'RESET')
+    client=Client(enforce_csrf_checks=True)
+    csrf=client.get('/api/v1/auth/csrf').json()['csrf_token']
+    login=client.post('/api/v1/auth/login',json.dumps({
+        'email':hr_user.email,'password':'StrongSecretPassword!2026'}),
+        content_type='application/json',HTTP_X_CSRFTOKEN=csrf)
+    assert login.status_code==200,login.content
+    csrf=client.get('/api/v1/auth/csrf').json()['csrf_token']
+    class KnownAbort(OperationalError):
+        sqlstate='57014'
+    with patch('backend.accounts.views.append_event',side_effect=KnownAbort('forced audit abort')):
+        denied=client.post('/api/v1/auth/password/change',json.dumps({
+            'old_password':'StrongSecretPassword!2026',
+            'new_password':'MustNotCommit!2026'}),
+            content_type='application/json',HTTP_X_CSRFTOKEN=csrf)
+    assert denied.status_code==409,denied.content
+    assert denied.json()['error']['outcome']=='ROLLED_BACK'
+    hr_user.refresh_from_db()
+    assert hr_user.check_password('StrongSecretPassword!2026')
+    assert OneTimeToken.objects.filter(user=hr_user,used_at__isnull=True).count()==1
+    assert AuditEvent.objects.count()==0
+    with patch('backend.accounts.views.logout',side_effect=KnownAbort('logout deletion uncertain')):
+        uncertain=client.post('/api/v1/auth/logout','{}',content_type='application/json',
+                              HTTP_X_CSRFTOKEN=csrf)
+    assert uncertain.status_code==503,uncertain.content
+    assert uncertain.json()['error']['outcome']=='UNKNOWN'
