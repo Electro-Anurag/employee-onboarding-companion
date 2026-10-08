@@ -41,7 +41,8 @@ def _validate_graph(tasks,edges):
         evidence=item.get('evidence_spec')
         available=item.get('available_offset_days')
         due=item.get('due_offset_days')
-        if (kind not in KINDS or role not in KIND_ROLE.get(kind,set())
+        if (not isinstance(kind,str) or not isinstance(role,str)
+                or kind not in KINDS or role not in KIND_ROLE.get(kind,set())
                 or not isinstance(title,str) or not 1<=len(title)<=160
                 or type(item.get('required')) is not bool
                 or type(available) is not int or type(due) is not int

@@ -2,7 +2,7 @@
 import hashlib
 import json
 import uuid
-from django.db import transaction, connection
+from django.db import transaction, connection, models
 from django.utils import timezone
 from backend.accounts.models import Membership, User, OneTimeToken
 from backend.accounts.security import actor_context, issue_token
@@ -33,6 +33,10 @@ def authorize_case(member,case):
     if (not member.active or not member.user.is_active or member.organization_id!=case.organization_id
             or not valid_case_root(case)):
         return False
+    # New M2 cases are private to their creating HR until activation; legacy
+    # M1 setup-shell cases retain their originally qualified visibility.
+    if case.status=='CREATED' and case.created_by_id is not None:
+        return member.role==Membership.HR and member.user_id==case.created_by_id
     if member.role==Membership.EMPLOYEE:
         return case.employee_id==member.pk
     return case.assignments.filter(member=member,role=member.role,effective_to__isnull=True,
@@ -50,6 +54,8 @@ def scoped_cases(user):
     qs=OnboardingCase.objects.filter(organization_id=member.organization_id,
         employee__role=Membership.EMPLOYEE,employee__organization_id=member.organization_id,
         employee__active=True,employee__user__is_active=True)
+    qs=qs.filter(models.Q(created_by__isnull=True) | ~models.Q(status='CREATED')
+                 | models.Q(created_by=member.user))
     if member.role==Membership.EMPLOYEE:
         return qs.filter(employee=member)
     return qs.filter(assignments__member=member,assignments__role=member.role,
@@ -60,6 +66,9 @@ def case_summary(member,case):
     base={'id':str(case.pk),'joining_date':case.joining_date.isoformat(),'status':case.status,
           'version':case.version,'my_role':member.role,'allowed_actions':[]}
     base['employee_name']=case.employee.user.display_name
+    if case.template_version_id is not None:
+        from backend.onboarding.state_machine import case_progress
+        base['progress']=case_progress(case)
     if member.role==Membership.HR:
         base['employee_email']=case.employee.user.email
         base['allowed_actions']=['REASSIGN_IT','REASSIGN_MANAGER']
@@ -202,6 +211,9 @@ def reassign_owner(*,actor,case_id,role,new_member_id,reason,key,expected_versio
                         effective_from=now,assigned_by=member,reason=reason)
         case.version+=1
         case.save(update_fields=['version'])
+        if case.status in ('PRE_JOINING','ACTIVE') and case.template_version_id is not None:
+            from backend.onboarding.state_machine import recompute
+            recompute(case)
         append_event(stream_key=f'case:{case.pk}',actor=actor,event_type='OWNER_REASSIGNED',entity_id=case.pk,
                      command_id=command_id,changes={'role':role,
                          'previous_assignment_id':str(existing.pk),
