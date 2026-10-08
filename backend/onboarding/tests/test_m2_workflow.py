@@ -465,3 +465,63 @@ def test_m2_local_clock_fields_are_versioned_and_drive_case_schedule(world):
     with pytest.raises(TemplateFailure):
         create_template(actor=p['HR'][0],key='invalid_time',name='Invalid clocks',
             tasks=invalid,edges=draft['dependencies'])
+
+
+@pytest.mark.django_db(transaction=True)
+def test_m2_two_connection_activation_conflict_is_atomic(world):
+    org,p=world
+    v=published(world)
+    created,_=create(world,v)
+    case_id=uuid.UUID(created['case_id'])
+    barrier=Barrier(2)
+    def execute():
+        close_old_connections()
+        try:
+            barrier.wait(timeout=12)
+            try:
+                response,status=activate_case(actor=p['HR'][0],case_id=case_id,
+                    key=uuid.uuid4(),expected_version=1)
+                return ('COMMITTED',status)
+            except CommandFailure as exc:
+                return ('REJECTED',exc.code)
+        finally:close_old_connections()
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        a=pool.submit(execute)
+        b=pool.submit(execute)
+        answers=sorted([a.result(timeout=20),b.result(timeout=20)])
+    assert answers==[('COMMITTED',200),('REJECTED','STALE_VERSION')]
+    assert OnboardingCase.objects.get(pk=case_id).version==2
+    assert Task.objects.filter(case_id=case_id).count()==17
+    assert AuditEvent.objects.filter(event_type='CASE_ACTIVATED').count()==1
+    assert CommandReceipt.objects.filter(route='m2-activate').count()==1
+
+@pytest.mark.django_db(transaction=True)
+def test_m2_two_connection_start_task_conflict_is_atomic(world):
+    org,p=world
+    v=published(world)
+    created,_=create(world,v)
+    case_id=uuid.UUID(created['case_id'])
+    activate_case(actor=p['HR'][0],case_id=case_id,key=uuid.uuid4(),expected_version=1)
+    task=Task.objects.get(case_id=case_id,key='manager_preparation')
+    barrier=Barrier(2)
+    def execute():
+        close_old_connections()
+        try:
+            barrier.wait(timeout=12)
+            try:
+                response,status=start_task(actor=p['MANAGER'][0],case_id=case_id,
+                    task_id=task.pk,key=uuid.uuid4(),expected_version=2)
+                return ('COMMITTED',status)
+            except CommandFailure as exc:
+                return ('REJECTED',exc.code)
+        finally:close_old_connections()
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        a=pool.submit(execute);b=pool.submit(execute)
+        answers=sorted([a.result(timeout=20),b.result(timeout=20)])
+    assert answers==[('COMMITTED',200),('REJECTED','STALE_VERSION')]
+    task.refresh_from_db()
+    assert task.execution_state=='IN_PROGRESS'
+    assert task.work_started_at is not None
+    assert OnboardingCase.objects.get(pk=case_id).version==3
+    assert AuditEvent.objects.filter(event_type='TASK_STARTED').count()==1
+    assert CommandReceipt.objects.filter(route='m2-task-start').count()==1
