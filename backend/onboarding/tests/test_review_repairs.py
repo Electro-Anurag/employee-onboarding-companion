@@ -122,10 +122,11 @@ def test_r8_held_case_lock_returns_bounded_conflict_without_mutation(setup):
                   content_type='application/json',HTTP_X_CSRFTOKEN=csrf)
         assert login.status_code==200
         csrf=c.get('/api/v1/auth/csrf').json()['csrf_token']
+        request_key=str(uuid.uuid4())
+        data={'role':'IT','new_member_id':str(new.pk),'reason':'Blocked while locked'}
         response=c.post(f'/api/v1/cases/{case.pk}/assignments',
-                 json.dumps({'role':'IT','new_member_id':str(new.pk),'reason':'Blocked while locked'}),
-                 content_type='application/json',HTTP_X_CSRFTOKEN=csrf,
-                 HTTP_IDEMPOTENCY_KEY=str(uuid.uuid4()),HTTP_IF_MATCH=f'"case:{case.pk}:v1"')
+                 json.dumps(data),content_type='application/json',HTTP_X_CSRFTOKEN=csrf,
+                 HTTP_IDEMPOTENCY_KEY=request_key,HTTP_IF_MATCH=f'"case:{case.pk}:v1"')
         release.set()
         future.result(timeout=12)
     assert response.status_code==409,response.content
@@ -133,6 +134,18 @@ def test_r8_held_case_lock_returns_bounded_conflict_without_mutation(setup):
     assert OnboardingCase.objects.get(pk=case.pk).version==1
     assert CommandReceipt.objects.count()==0
     assert AuditEvent.objects.count()==0
+    # Retry exactly the same operation after the blocked transaction rolled back.
+    successful=c.post(f'/api/v1/cases/{case.pk}/assignments',
+              json.dumps(data),content_type='application/json',HTTP_X_CSRFTOKEN=csrf,
+              HTTP_IDEMPOTENCY_KEY=request_key,HTTP_IF_MATCH=f'"case:{case.pk}:v1"')
+    assert successful.status_code==200,successful.content
+    replay=c.post(f'/api/v1/cases/{case.pk}/assignments',
+              json.dumps(data),content_type='application/json',HTTP_X_CSRFTOKEN=csrf,
+              HTTP_IDEMPOTENCY_KEY=request_key,HTTP_IF_MATCH=f'"case:{case.pk}:v1"')
+    assert replay.status_code==200 and replay.json()==successful.json()
+    assert CommandReceipt.objects.count()==1
+    assert AuditEvent.objects.filter(event_type='OWNER_REASSIGNED').count()==1
+    assert OnboardingCase.objects.get(pk=case.pk).version==2
 
 @pytest.mark.django_db(transaction=True)
 def test_n1_malformed_uuid_types_return_bounded_error(setup):
