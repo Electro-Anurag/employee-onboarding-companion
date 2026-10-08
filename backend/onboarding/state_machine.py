@@ -5,10 +5,11 @@ from django.utils import timezone
 from backend.accounts.models import Membership
 from backend.onboarding.models import Task,TaskDependency,CaseAssignment
 
-def scheduled_at(joining_date,offset,zone,hour):
+def scheduled_at(joining_date,offset,zone,local_clock):
     try: tz=ZoneInfo(zone)
     except ZoneInfoNotFoundError: raise ValueError('INVALID_ORGANIZATION_TIMEZONE')
-    return datetime.combine(joining_date+timedelta(days=offset),time(hour=hour),tzinfo=tz)
+    hour,minute=[int(x) for x in local_clock.split(':')]
+    return datetime.combine(joining_date+timedelta(days=offset),time(hour=hour,minute=minute),tzinfo=tz)
 
 def current_assignments(case,now):
     current=CaseAssignment.objects.filter(case=case,effective_to__isnull=True,effective_from__lte=now)

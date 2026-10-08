@@ -48,6 +48,8 @@ class TemplateTask(models.Model):
     position=models.PositiveSmallIntegerField(default=0)
     available_offset_days=models.SmallIntegerField(default=0)
     due_offset_days=models.SmallIntegerField(default=0)
+    available_local_time=models.CharField(max_length=5,default='09:00')
+    due_local_time=models.CharField(max_length=5,default='17:00')
     evidence_spec=models.JSONField(default=dict)
     class Meta:
         constraints=[

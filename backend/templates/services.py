@@ -30,7 +30,7 @@ def _validate_graph(tasks,edges):
         raise TemplateFailure('INVALID_TEMPLATE_SIZE')
     keys={}
     for i,item in enumerate(tasks):
-        if not isinstance(item,dict) or set(item)-set(('key','kind','title','description','owner_role','required','available_offset_days','due_offset_days','evidence_spec','position')):
+        if not isinstance(item,dict) or set(item)-set(('key','kind','title','description','owner_role','required','available_offset_days','due_offset_days','evidence_spec','position','available_local_time','due_local_time')):
             raise TemplateFailure('INVALID_TEMPLATE_TASK')
         key=item.get('key')
         if not isinstance(key,str) or not KEY.fullmatch(key) or key in keys:
@@ -41,12 +41,20 @@ def _validate_graph(tasks,edges):
         evidence=item.get('evidence_spec')
         available=item.get('available_offset_days')
         due=item.get('due_offset_days')
+        available_clock=item.get('available_local_time','09:00')
+        due_clock=item.get('due_local_time','17:00')
+        def valid_clock(value):
+            return (isinstance(value,str) and len(value)==5 and value[2]==':'
+                    and value[:2].isdigit() and value[3:].isdigit()
+                    and 0<=int(value[:2])<=23 and 0<=int(value[3:])<=59)
         if (not isinstance(kind,str) or not isinstance(role,str)
                 or kind not in KINDS or role not in KIND_ROLE.get(kind,set())
                 or not isinstance(title,str) or not 1<=len(title)<=160
                 or type(item.get('required')) is not bool
                 or type(available) is not int or type(due) is not int
                 or not (-90<=available<=due<=365)
+                or not valid_clock(available_clock) or not valid_clock(due_clock)
+                or (available==due and available_clock>due_clock)
                 or not isinstance(evidence,dict) or evidence.get('type')!=kind
                 or len(json.dumps(evidence))>1000
                 or not isinstance(item.get('description',''),str)
@@ -100,7 +108,10 @@ def _replace_draft(version,tasks,edges):
             version=version,key=item['key'],kind=item['kind'],title=item['title'],
             description=item.get('description',''),owner_role=item['owner_role'],
             required=item['required'],position=n,available_offset_days=item['available_offset_days'],
-            due_offset_days=item['due_offset_days'],evidence_spec=item['evidence_spec'])
+            due_offset_days=item['due_offset_days'],
+            available_local_time=item.get('available_local_time','09:00'),
+            due_local_time=item.get('due_local_time','17:00'),
+            evidence_spec=item['evidence_spec'])
     for edge in edges:
         TemplateDependency.objects.create(version=version,
             predecessor=rows[edge['predecessor']],successor=rows[edge['successor']])
@@ -108,7 +119,8 @@ def _replace_draft(version,tasks,edges):
 
 def _snapshot(version):
     rows=list(version.tasks.order_by('position','key').values('key','kind','title','description',
-        'owner_role','required','position','available_offset_days','due_offset_days','evidence_spec'))
+        'owner_role','required','position','available_offset_days','due_offset_days',
+        'available_local_time','due_local_time','evidence_spec'))
     edges=list(version.edges.select_related('predecessor','successor').all())
     pairs=sorted([{'predecessor':e.predecessor.key,'successor':e.successor.key} for e in edges],
                  key=lambda x:(x['predecessor'],x['successor']))

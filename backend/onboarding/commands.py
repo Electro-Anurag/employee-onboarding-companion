@@ -10,7 +10,7 @@ from datetime import date
 from django.db import transaction,connection
 from django.utils import timezone
 from django.core.exceptions import PermissionDenied
-from backend.accounts.models import User,Membership
+from backend.accounts.models import User,Membership,OneTimeToken
 from backend.accounts.security import actor_context
 from backend.onboarding.models import (OnboardingCase,CaseAssignment,Task,TaskDependency,
     ManagerAttestation,TaskCompletion)
@@ -145,6 +145,10 @@ def activate_case(*,actor,case_id,key,expected_version):
                 raise CommandFailure('ASSIGNMENT_NOT_READY',422)
         if not case.employee.active or not case.employee.available or not case.employee.user.is_active:
             raise CommandFailure('EMPLOYEE_NOT_READY',422)
+        if (not case.employee.user.has_usable_password()
+                and not OneTimeToken.objects.filter(user=case.employee.user,purpose='INVITE',
+                   used_at__isnull=True,expires_at__gt=timezone.now()).exists()):
+            raise CommandFailure('EMPLOYEE_CREDENTIAL_REQUIRED',422)
         instance={}
         for keyname in ordered:
             row=next(x for x in entries if x['key']==keyname)
@@ -154,8 +158,8 @@ def activate_case(*,actor,case_id,key,expected_version):
                 title=row['title'],description=row['description'],owner_role=row['owner_role'],
                 required=row['required'],evidence_spec=row['evidence_spec'],
                 owner_assignment=assigned.get(row['owner_role']),
-                available_at=scheduled_at(case.joining_date,row['available_offset_days'],case.organization.timezone,9),
-                due_at=scheduled_at(case.joining_date,row['due_offset_days'],case.organization.timezone,17))
+                available_at=scheduled_at(case.joining_date,row['available_offset_days'],case.organization.timezone,row['available_local_time']),
+                due_at=scheduled_at(case.joining_date,row['due_offset_days'],case.organization.timezone,row['due_local_time']))
         for edge in edges:
             TaskDependency.objects.create(case=case,
                 predecessor=instance[edge['predecessor']],successor=instance[edge['successor']])
