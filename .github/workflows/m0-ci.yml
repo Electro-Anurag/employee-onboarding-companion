@@ -54,7 +54,7 @@ jobs:
           uv run python manage.py procrastinate healthchecks
           uv run pytest -q
       - name: Hard-kill worker recovery and idempotency qualification
-        run: uv run python scripts/m0_worker_recovery.py
+        run: uv run python -m scripts.m0_worker_recovery
       - name: Same-origin compiled UI smoke test
         run: |
           uv run python - <<'PY'
