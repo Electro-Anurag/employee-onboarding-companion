@@ -118,8 +118,13 @@ def _lock_case_authority(case,actor,candidate_member_id=None):
     if not member.user.is_active or not root.user.is_active:
         raise CommandFailure('NOT_FOUND',404)
     candidate=locked_members.get(candidate_member_id) if candidate_member_id is not None else None
-    # Do not judge candidate activity, availability, relationship or existence
-    # until AFTER a matching committed idempotency receipt is considered.
+    # Inconsistent/missing candidate identity must reject NEW transitions, but
+    # must never suppress a historical receipt for an authorized caller.
+    if candidate is not None and (candidate_hint is None
+            or candidate.user_id!=candidate_hint['user_id']
+            or locked_users.get(candidate.user_id) is None
+            or not locked_users[candidate.user_id].is_active):
+        candidate=None
     return member,root,candidate
 
 
