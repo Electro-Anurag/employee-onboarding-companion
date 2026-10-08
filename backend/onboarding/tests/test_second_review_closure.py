@@ -305,7 +305,7 @@ def test_r8_discarded_reply_can_recover_committed_receipt(case_context):
     # that this test severed TCP during PostgreSQL COMMIT acknowledgement.
     unknown=transient_db_response(OperationalError('lost connection'),idempotent=True)
     assert unknown.status_code==503
-    assert unknown.json()['error']['outcome']=='UNKNOWN'
+    assert json.loads(unknown.content)['error']['outcome']=='UNKNOWN'
     recovered=reassign_owner(**options)
     assert recovered==first
     assert AuditEvent.objects.count()==1 and CommandReceipt.objects.count()==1
