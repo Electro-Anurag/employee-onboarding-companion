@@ -1,40 +1,35 @@
 # Employee Onboarding Companion
 
-**Current status:** M0 foundation locally/CI qualified (2026-10-08); **not** a working onboarding product. See [M0 test evidence](docs/qualification/m0-20261008.md).
+**Project stage:** M1 identity, authorization and audit foundation qualified in local/CI (8 October 2026). **This is not yet a working end-to-end onboarding application.**
 
-Private, independent project. Governing documents: Product Requirements v1.1, Business Journey v1.0, Architecture Handoff v1.0.
+This is an independent private repository. Governing requirements: Product Requirements v1.1 (28 functional requirements), Business Journey v1.0 (four roles, ten exceptions, five hosted journeys), Architecture Handoff v1.0.
 
-## M0 objective
+## Verified foundations
 
-Prove a Django 5.2 + PostgreSQL 17 + Procrastinate 3.10 foundation with **atomic business + audit + durable-job insertion** and idempotent job replay. The frontend currently displays a truthful foundation status page.
+- M0: Django 5.2, PostgreSQL 17 and Procrastinate 3.10; atomic operation/audit/queued-job commit, rollback and real worker crash/recovery.
+- M1: email-login and Argon2, session and CSRF enforcement, four-role membership checks, scoped employee/owner case reads, HR reassignment with optimistic version + idempotency key, immutable audit-event UPDATE/DELETE trigger and hash-chain append function, single-use invitation/reset tokens, and error/denial paths.
+- CI: 23 PostgreSQL-backed tests including M0 regressions, two-session concurrent commands; restricted-role audit append/denial probe; React build, same-origin API smoke and Docker build.
 
-## Prerequisites
+See [M0 qualification](docs/qualification/m0-20261008.md) and [M1 qualification](docs/qualification/m1-20261008.md) for exact evidence and limits.
 
-Python 3.13, Node.js 22, PostgreSQL 17, uv, npm and (for local Compose) Docker. The committed `uv.lock` and `frontend/package-lock.json` must be used unchanged for reproducible installation.
+## Local development
 
-For a local qualification with a reachable Postgres database:
+Requires Python 3.13, Node.js 22, uv 0.12.23, PostgreSQL 17 and optional Docker. Use separate development-only credentials; never put secrets or real employee data into source or test fixtures.
 
 ```sh
-uv sync --locked
-cd frontend && npm ci && npm run build && cd ..
-export DJANGO_SECRET_KEY='replace-with-local-random-secret'
-export POSTGRES_HOST='127.0.0.1' POSTGRES_PORT=5432
-export POSTGRES_DB='onboarding_m0' POSTGRES_USER='onboarding'
-export POSTGRES_PASSWORD='set-locally-not-in-repository'
-uv run python manage.py migrate
+uv lock --check && uv sync --locked
+(cd frontend && npm ci && npm run build)
+cp .env.example .env
+# Set unique LOCAL credentials and database settings in .env or the shell.
+# Confirm PostgreSQL 17 is running and the database exists.
+uv run python manage.py migrate --noinput
 uv run python manage.py procrastinate healthchecks
 uv run pytest -q
 uv run python manage.py runserver
 ```
 
-Worker (separate shell): `uv run python manage.py procrastinate worker`.
+The Django application serves the compiled frontend from the same origin. The UI includes a real session sign-in/out shell and scoped case previews; **no permanent demo account bootstrap or full employee onboarding workflow exists yet**. PostgreSQL test fixtures are synthetic and independent from a runnable public demo. The external AWS, AI and Render services are not connected.
 
-Use `docker compose` after lockfiles exist, providing `.env` values; run `python manage.py migrate` before starting workers. Docker Compose cannot be tested in this execution environment and is **not** claimed as verified.
+Local database permissions require proper configuration; the CI audit role probe uses a disposable restricted role and **does not mean real application runtime credentials have been provisioned as least privileged**.
 
-No demo credentials, secrets, private employee information, cloud keys, or integration accounts belong in this repo.
-
-## Scope and qualification
-
-See `docs/decisions/0001-m0.md` and the CI workflow. GitHub Actions passed PostgreSQL integration, crash/recovery and container-build checks for M0. See the evidence record; local Apple Silicon and hosted runtime behavior remain unqualified.
-
-CI additionally runs `scripts/m0_worker_recovery.py`: it intentionally terminates a real background worker after domain commit but before job acknowledgment; the test must recover/retry the stalled job without duplicate business effects. No public deployment or paid provisioning is authorized. The five final hosted product journeys belong to later milestones.
+To run the M0 worker tests, use GitHub Actions M1 integration workflow. The resulting CI checks and Docker build are not a hosted-app qualification. Public publishing, paid services and M2 development require separate owner decisions.

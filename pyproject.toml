@@ -5,6 +5,7 @@ description = "M0 foundation qualification for Employee Onboarding Companion"
 requires-python = ">=3.13,<3.14"
 dependencies = [
   "Django>=5.2,<5.3",
+  "argon2-cffi>=23,<26",
   "djangorestframework>=3.16,<3.17",
   "procrastinate[django]==3.10.0",
   "psycopg[binary]>=3.2,<3.4",

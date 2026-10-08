@@ -1,0 +1,93 @@
+name: M1 identity authorization audit integration
+on:
+  push:
+    branches: ['feature/m1-identity-authorization-audit']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  foundation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:17@sha256:2d2b8998d31037bf721cfdf764d76ba74171b4fab3431b7f72c27c56ddbdf9e3
+        env:
+          POSTGRES_USER: onboarding
+          POSTGRES_PASSWORD: ci-temporary-only
+          POSTGRES_DB: onboarding_m0
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 3s --health-timeout 3s --health-retries 15
+    env:
+      DJANGO_SECRET_KEY: ci-only-no-production-secret-not-used-outside-runner
+      DJANGO_DEBUG: '0'
+      DJANGO_ALLOWED_HOSTS: localhost,127.0.0.1,testserver
+      POSTGRES_HOST: localhost
+      POSTGRES_PORT: '5432'
+      POSTGRES_DB: onboarding_m0
+      POSTGRES_USER: onboarding
+      POSTGRES_PASSWORD: ci-temporary-only
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e
+        with:
+          python-version: '3.13'
+          version: '0.12.23'
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+      - name: Resolve Python dependencies
+        run: uv lock --check && uv sync --locked
+      - name: Resolve frontend dependencies
+        working-directory: frontend
+        run: npm ci && npm run build
+      - name: Syntax and framework checks
+        run: |
+          uv run python -m compileall -q backend manage.py
+          uv run python manage.py check
+          uv run python manage.py makemigrations --check --dry-run
+      - name: Migrate queue and domain schema
+        run: uv run python manage.py migrate --noinput
+      - name: M0 regression and M1 authorization / audit tests
+        run: |
+          uv run python manage.py procrastinate healthchecks
+          uv run pytest -q
+      - name: Hard-kill worker recovery and idempotency qualification
+        run: uv run python -m scripts.m0_worker_recovery
+      - name: Same-origin compiled UI smoke test
+        run: |
+          uv run python - <<'PY'
+          import os
+          os.environ.setdefault('DJANGO_SETTINGS_MODULE','backend.config.settings')
+          import django
+          django.setup()
+          from django.test import Client
+          r=Client().get('/')
+          assert r.status_code == 200, r.status_code
+          assert b'<!doctype html>' in b''.join(r.streaming_content).lower()
+          assert Client().get('/health/ready').status_code==200
+          print('UI and API served on same Django origin: smoke PASS')
+          PY
+      - name: Restricted audit-role feasibility check
+        env:
+          PGPASSWORD: ci-temporary-only
+        run: psql -v ON_ERROR_STOP=1 -h localhost -p 5432 -U onboarding -d onboarding_m0 -f scripts/m0_grant_probe.sql
+      - name: Real restricted-runtime audit append and denial probe
+        env:
+          PGPASSWORD: ci-temporary-only
+        run: psql -v ON_ERROR_STOP=1 -h localhost -p 5432 -U onboarding -d onboarding_m0 -f scripts/m1_runtime_audit_probe.sql
+      - name: Build immutable M1 container source
+        run: docker build --tag onboarding-m1:${{ github.sha }} .
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: m1-resolved-build
+          path: |
+            uv.lock
+            frontend/package-lock.json
+            backend/accounts/migrations/
+            backend/onboarding/migrations/
+            backend/audit/migrations/
+          if-no-files-found: warn

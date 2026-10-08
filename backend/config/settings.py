@@ -12,6 +12,7 @@ ALLOWED_HOSTS = [x.strip() for x in os.environ.get("DJANGO_ALLOWED_HOSTS", "loca
 INSTALLED_APPS = [
     "django.contrib.auth", "django.contrib.contenttypes", "django.contrib.sessions", "django.contrib.staticfiles",
     "procrastinate.contrib.django", "backend.jobs.apps.JobsConfig", "backend.foundation.apps.FoundationConfig",
+    "backend.accounts.apps.AccountsConfig", "backend.onboarding.apps.OnboardingConfig", "backend.audit.apps.AuditConfig",
 ]
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
@@ -20,6 +21,7 @@ MIDDLEWARE = [
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
+    "backend.accounts.middleware.SessionGuard",
 ]
 ROOT_URLCONF = "backend.config.urls"
 TEMPLATES = [{"BACKEND": "django.template.backends.django.DjangoTemplates", "DIRS": [], "APP_DIRS": True,
@@ -45,3 +47,22 @@ SECURE_CONTENT_TYPE_NOSNIFF = True
 SESSION_COOKIE_HTTPONLY = True
 SESSION_COOKIE_SECURE = not DEBUG
 CSRF_COOKIE_SECURE = not DEBUG
+
+AUTH_USER_MODEL = 'accounts.User'
+PASSWORD_HASHERS = ['django.contrib.auth.hashers.Argon2PasswordHasher']
+AUTH_PASSWORD_VALIDATORS = [
+    {'NAME':'django.contrib.auth.password_validation.MinimumLengthValidator','OPTIONS':{'min_length':12}},
+    {'NAME':'django.contrib.auth.password_validation.CommonPasswordValidator'},
+    {'NAME':'django.contrib.auth.password_validation.NumericPasswordValidator'},
+    {'NAME':'django.contrib.auth.password_validation.UserAttributeSimilarityValidator'},
+]
+SESSION_ENGINE = 'django.contrib.sessions.backends.db'
+SESSION_COOKIE_AGE = 1800
+SESSION_SAVE_EVERY_REQUEST = True
+SESSION_COOKIE_SAMESITE = 'Lax'
+CSRF_COOKIE_SAMESITE = 'Lax'
+CSRF_COOKIE_HTTPONLY = True
+SECURE_REFERRER_POLICY = 'strict-origin-when-cross-origin'
+X_FRAME_OPTIONS = 'DENY'
+CSRF_TRUSTED_ORIGINS = [s for s in __import__('os').environ.get('DJANGO_CSRF_TRUSTED_ORIGINS','').split(',') if s]
+DATA_UPLOAD_MAX_MEMORY_SIZE = 262144
