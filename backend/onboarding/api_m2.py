@@ -154,7 +154,7 @@ def case_timeline(request,case_id):
         member,case=get_authorized_case(request.user,case_id)
         from backend.audit.models import AuditEvent
         stream='case:'+str(case.pk)
-        qs=AuditEvent.objects.filter(stream_id=stream).select_related('actor').order_by('sequence')[:100]
+        qs=AuditEvent.objects.filter(stream_id=stream).select_related('actor').order_by('sequence')
         role=member.role
         if role in ('IT','MANAGER'):
             task_ids=list(Task.objects.filter(case=case,owner_role=role,
@@ -165,7 +165,7 @@ def case_timeline(request,case_id):
             task_ids=list(Task.objects.filter(case=case,owner_role='EMPLOYEE').values_list('pk',flat=True))
             qs=qs.filter(entity_id__in=task_ids,event_type__in=['TASK_STARTED','TASK_COMPLETED'])
         payload=[]
-        for event in qs:
+        for event in qs[:100]:
             row={'id':str(event.pk),'sequence':event.sequence,'event_type':event.event_type,
                  'created_at':event.created_at.isoformat()}
             if role=='HR':
