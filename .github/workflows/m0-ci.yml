@@ -34,14 +34,15 @@ jobs:
       - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e
         with:
           python-version: '3.13'
+          version: '0.12.23'
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: '22'
       - name: Resolve Python dependencies
-        run: uv lock && uv sync --locked
+        run: uv lock --check && uv sync --locked
       - name: Resolve frontend dependencies
         working-directory: frontend
-        run: npm install --package-lock-only && npm ci && npm run build
+        run: npm ci && npm run build
       - name: Syntax and framework checks
         run: |
           uv run python -m compileall -q backend manage.py
@@ -69,6 +70,12 @@ jobs:
           assert Client().get('/health/ready').status_code==200
           print('UI and API served on same Django origin: smoke PASS')
           PY
+      - name: Restricted audit-role feasibility check
+        env:
+          PGPASSWORD: ci-temporary-only
+        run: psql -v ON_ERROR_STOP=1 -h localhost -p 5432 -U onboarding -d onboarding_m0 -f scripts/m0_grant_probe.sql
+      - name: Build immutable M0 container source
+        run: docker build --tag onboarding-m0:${{ github.sha }} .
       - name: Commit resolved dependency locks after qualified gates
         if: success()
         run: |
