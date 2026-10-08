@@ -245,3 +245,138 @@ def test_m2_reassignment_moves_incomplete_task_ownership(world):
     assert all(x.owner_assignment.member_id==new_member.pk for x in tasks)
     assert Task.objects.filter(case=case,owner_role='IT',execution_state='BLOCKED').count()==2
     assert case.tasks.filter(execution_state='COMPLETED').count()==0
+
+
+@pytest.mark.django_db(transaction=True)
+def test_m2_db_guards_make_activated_graph_and_evidence_immutable(world):
+    org,p=world
+    v=published(world)
+    created,_=create(world,v)
+    case=OnboardingCase.objects.get(pk=created['case_id'])
+    activate_case(actor=p['HR'][0],case_id=case.pk,key=uuid.uuid4(),expected_version=1)
+    manager=Task.objects.get(case=case,key='manager_preparation')
+    intro=Task.objects.get(case=case,key='team_introduction')
+    with pytest.raises(DatabaseError):
+        with transaction.atomic():
+            Task.objects.filter(pk=manager.pk).update(key='silently_swapped')
+    with pytest.raises(DatabaseError):
+        with transaction.atomic():
+            TaskDependency.objects.create(case=case,predecessor=manager,successor=intro)
+    with pytest.raises(DatabaseError):
+        with transaction.atomic():
+            TaskDependency.objects.filter(case=case).delete()
+    fields={'first_week_plan':'Attend synthetic orientation','buddy_name':'Sample Buddy',
+            'workstation_ready':True}
+    outcome,_=attest_manager(actor=p['MANAGER'][0],case_id=case.pk,task_id=manager.pk,
+         fields=fields,note='Evidence captured by responsible manager',
+         key=uuid.uuid4(),expected_version=2)
+    assert outcome['result']['state']=='COMPLETED'
+    with pytest.raises(DatabaseError):
+        with transaction.atomic():
+            Task.objects.filter(pk=manager.pk).update(execution_state='READY')
+    with pytest.raises(DatabaseError):
+        with transaction.atomic():
+            ManagerAttestation.objects.filter(task=manager).update(note='Modified later')
+    with pytest.raises(DatabaseError):
+        with transaction.atomic():
+            TaskCompletion.objects.filter(task=manager).update(evidence_hash='f'*64)
+    manager.refresh_from_db()
+    assert manager.execution_state=='COMPLETED'
+    assert TaskCompletion.objects.filter(task=manager).count()==1
+
+@pytest.mark.django_db(transaction=True)
+def test_m2_activated_case_role_workspaces_and_cross_employee_isolation(world):
+    org,p=world
+    version=published(world)
+    created,_=create(world,version)
+    case=OnboardingCase.objects.get(pk=created['case_id'])
+    def as_actor(role):
+        client=Client(enforce_csrf_checks=True)
+        token=client.get('/api/v1/auth/csrf').json()['csrf_token']
+        r=client.post('/api/v1/auth/login',json.dumps({
+            'email':p[role][0].email,'password':'VerifiedStrongPassword!2026'}),
+            content_type='application/json',HTTP_X_CSRFTOKEN=token)
+        assert r.status_code==200,r.content
+        return client
+    for role in ('EMPLOYEE','IT','MANAGER'):
+        client=as_actor(role)
+        assert client.get('/api/v1/cases/'+str(case.pk)).status_code==404
+    activate_case(actor=p['HR'][0],case_id=case.pk,key=uuid.uuid4(),expected_version=1)
+    for role in ('EMPLOYEE','IT','MANAGER','HR'):
+        client=as_actor(role)
+        assert client.get('/api/v1/cases/'+str(case.pk)).status_code==200
+        payload=client.get('/api/v1/workspaces/me').json()['results']
+        assert payload and all(x['case_id']==str(case.pk) and x['owner_role']==role for x in payload)
+        assert client.get('/api/v1/cases/'+str(case.pk)+'/tasks').status_code==200
+    other=User.objects.create_user(email='outsideremployee@astervalelabs.test',password='VerifiedStrongPassword!2026')
+    Membership.objects.create(user=other,organization=org,role='EMPLOYEE',active=True)
+    c=Client(enforce_csrf_checks=True);token=c.get('/api/v1/auth/csrf').json()['csrf_token']
+    assert c.post('/api/v1/auth/login',json.dumps({'email':other.email,
+          'password':'VerifiedStrongPassword!2026'}),content_type='application/json',
+          HTTP_X_CSRFTOKEN=token).status_code==200
+    assert c.get('/api/v1/cases/'+str(case.pk)).status_code==404
+    assert c.get('/api/v1/cases/'+str(case.pk)+'/tasks').status_code==404
+    assert c.get('/api/v1/workspaces/me').json()['results']==[]
+
+@pytest.mark.django_db(transaction=True)
+def test_m2_created_hr_reassignment_hides_from_former_owner(world):
+    org,p=world
+    version=published(world)
+    created,_=create(world,version)
+    case=OnboardingCase.objects.get(pk=created['case_id'])
+    next_user=User.objects.create_user(email='newhr@astervalelabs.test',password='VerifiedStrongPassword!2026')
+    next_hr=Membership.objects.create(user=next_user,organization=org,role='HR')
+    _,status=reassign_owner(actor=p['HR'][0],case_id=case.pk,role='HR',
+            new_member_id=next_hr.pk,reason='Owner reassigned before start',
+            key=uuid.uuid4(),expected_version=1)
+    assert status==200
+    from backend.onboarding.services import get_authorized_case,scoped_cases
+    with pytest.raises(CommandFailure):
+        get_authorized_case(p['HR'][0],case.pk)
+    member,current=get_authorized_case(next_user,case.pk)
+    assert current.pk==case.pk
+    assert scoped_cases(p['HR'][0]).filter(pk=case.pk).count()==0
+    assert scoped_cases(next_user).filter(pk=case.pk).count()==1
+    with pytest.raises(CommandFailure):
+        activate_case(actor=p['HR'][0],case_id=case.pk,key=uuid.uuid4(),expected_version=2)
+    result,status=activate_case(actor=next_user,case_id=case.pk,key=uuid.uuid4(),expected_version=2)
+    assert status==200 and result['result']['status']=='PRE_JOINING'
+    assert Task.objects.filter(case=case).count()==17
+
+@pytest.mark.django_db(transaction=True)
+def test_m2_api_idempotency_and_stale_case_preconditions(world):
+    org,p=world
+    draft=create_default(actor=p['HR'][0])
+    publish_template(actor=p['HR'][0],template_id=uuid.UUID(draft['id']),revision=1)
+    c=Client(enforce_csrf_checks=True)
+    csrf=c.get('/api/v1/auth/csrf').json()['csrf_token']
+    assert c.post('/api/v1/auth/login',json.dumps({
+            'email':p['HR'][0].email,'password':'VerifiedStrongPassword!2026'}),
+            content_type='application/json',HTTP_X_CSRFTOKEN=csrf).status_code==200
+    csrf=c.get('/api/v1/auth/csrf').json()['csrf_token']
+    body={'employee_id':str(p['EMPLOYEE'][1].pk),'template_version_id':draft['version_id'],
+          'joining_date':(timezone.localdate()+timedelta(days=28)).isoformat(),
+          'owners':{'IT':str(p['IT'][1].pk),'MANAGER':str(p['MANAGER'][1].pk)}}
+    key=str(uuid.uuid4())
+    def create_req(k,payload=body):
+        return c.post('/api/v1/cases',json.dumps(payload),content_type='application/json',
+            HTTP_X_CSRFTOKEN=csrf,HTTP_IDEMPOTENCY_KEY=k)
+    first=create_req(key)
+    assert first.status_code==201,first.content
+    assert create_req(key).status_code==201
+    assert create_req(key).json()==first.json()
+    different=create_req(key,{**body,'joining_date':(timezone.localdate()+timedelta(days=29)).isoformat()})
+    assert different.status_code==409 and different.json()['error']['code']=='IDEMPOTENCY_KEY_REUSED'
+    case_id=first.json()['case_id']
+    early=c.post('/api/v1/cases/'+case_id+'/activate','{}',content_type='application/json',
+        HTTP_X_CSRFTOKEN=csrf,HTTP_IDEMPOTENCY_KEY=str(uuid.uuid4()))
+    assert early.status_code==428
+    success=c.post('/api/v1/cases/'+case_id+'/activate','{}',content_type='application/json',
+        HTTP_X_CSRFTOKEN=csrf,HTTP_IDEMPOTENCY_KEY=str(uuid.uuid4()),
+        HTTP_IF_MATCH='"case:'+case_id+':v1"')
+    assert success.status_code==200,success.content
+    retry=c.post('/api/v1/cases/'+case_id+'/activate','{}',content_type='application/json',
+        HTTP_X_CSRFTOKEN=csrf,HTTP_IDEMPOTENCY_KEY=str(uuid.uuid4()),
+        HTTP_IF_MATCH='"case:'+case_id+':v1"')
+    assert retry.status_code==409 and retry.json()['error']['code']=='STALE_VERSION'
+    assert Task.objects.filter(case_id=case_id).count()==17
