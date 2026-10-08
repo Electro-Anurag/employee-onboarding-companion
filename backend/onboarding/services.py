@@ -65,38 +65,85 @@ def case_summary(member,case):
         base['allowed_actions']=['REASSIGN_IT','REASSIGN_MANAGER']
     return base
 
-def issue_credential_for_case(*,actor,case_id,purpose):
-    """Case lock -> actor User -> actor Membership -> target User is canonical order.
+def _lock_case_authority(case,actor,candidate_member_id=None):
+    """Canonical case -> sorted User IDs -> sorted Membership IDs ordering.
 
-    A stale HR may not issue a token after a reassignment or account revocation.
+    Preliminary unlocked lookups are IDs only; no authorization claim is accepted
+    until *all* rows have been locked and the relationships are revalidated.
+    Never use select_related with select_for_update on the initial case.
     """
+    actor_hints=list(Membership.objects.filter(user_id=actor.pk,active=True)
+                     .values_list('pk',flat=True)[:2])
+    if len(actor_hints)!=1:
+        raise CommandFailure('NOT_FOUND',404)
+    actor_mid=actor_hints[0]
+    root_hint=Membership.objects.filter(pk=case.employee_id).values('user_id').first()
+    candidate_hint=(Membership.objects.filter(pk=candidate_member_id).values('user_id').first()
+                    if candidate_member_id is not None else None)
+    if root_hint is None:
+        raise CommandFailure('NOT_FOUND',404)
+    if candidate_member_id is not None and candidate_hint is None:
+        raise CommandFailure('INVALID_ASSIGNEE',422)
+
+    user_ids={actor.pk,root_hint['user_id']}
+    if candidate_hint is not None:
+        user_ids.add(candidate_hint['user_id'])
+    locked_users={}
+    for uid in sorted(user_ids,key=str):
+        locked_users[uid]=User.objects.select_for_update().filter(pk=uid).first()
+    if any(u is None or not u.is_active for u in locked_users.values()):
+        raise CommandFailure('NOT_FOUND',404)
+
+    mids={actor_mid,case.employee_id}
+    if candidate_member_id is not None:
+        mids.add(candidate_member_id)
+    locked_members={}
+    for mid in sorted(mids,key=str):
+        locked_members[mid]=Membership.objects.select_for_update().filter(pk=mid).first()
+    if any(m is None for m in locked_members.values()):
+        raise CommandFailure('NOT_FOUND',404)
+    member=locked_members[actor_mid]
+    root=locked_members[case.employee_id]
+    if not member.active or member.user_id!=actor.pk:
+        raise CommandFailure('NOT_FOUND',404)
+    if (not root.active or root.user_id!=root_hint['user_id']
+            or root.organization_id!=case.organization_id
+            or root.role!=Membership.EMPLOYEE):
+        raise CommandFailure('NOT_FOUND',404)
+
+    # FKs cannot change under an M1 case root; the fresh locked lookup is
+    # authoritative even if actor's in-memory session user was loaded earlier.
+    if not member.user.is_active or not root.user.is_active:
+        raise CommandFailure('NOT_FOUND',404)
+    candidate=locked_members.get(candidate_member_id) if candidate_member_id is not None else None
+    if candidate is not None and (candidate.user_id!=candidate_hint['user_id']
+                                  or not candidate.user.is_active):
+        raise CommandFailure('INVALID_ASSIGNEE',422)
+    return member,root,candidate
+
+
+def issue_credential_for_case(*,actor,case_id,purpose,_test_after_case_lock=None):
+    """Recheck HR + employee authority while holding stable ordered row locks."""
     if purpose not in (OneTimeToken.INVITE,OneTimeToken.RESET):
         raise CommandFailure('INVALID_PURPOSE',422)
     with transaction.atomic():
         set_command_timeouts()
-        case=OnboardingCase.objects.select_for_update().select_related('employee__user').filter(pk=case_id).first()
+        case=OnboardingCase.objects.select_for_update(of=('self',)).filter(pk=case_id).first()
         if case is None:
             raise CommandFailure('NOT_FOUND',404)
-        member=actor_context(actor,locked=True)
+        if _test_after_case_lock is not None:
+            _test_after_case_lock()  # internal regression instrumentation only
+        member,root,_=_lock_case_authority(case,actor)
         if member.role!=Membership.HR or not authorize_case(member,case):
             raise CommandFailure('NOT_FOUND',404)
-        # Target revocation is independently serialized: User lock, then Membership.
-        # The case employee FK is stable under the case lock.
-        target=User.objects.select_for_update().filter(pk=case.employee.user_id,is_active=True).first()
-        if target is None:
-            raise CommandFailure('NOT_FOUND',404)
-        target_member=Membership.objects.select_for_update().filter(pk=case.employee_id,
-            user_id=target.pk,active=True,role=Membership.EMPLOYEE,
-            organization_id=case.organization_id).first()
-        if target_member is None:
-            raise CommandFailure('NOT_FOUND',404)
+        target=root.user
         token=issue_token(target,purpose,actor)
         append_event(stream_key=f'case:{case.pk}',actor=actor,
                      event_type='INVITATION_ISSUED' if purpose==OneTimeToken.INVITE else 'RESET_ISSUED',
-                     entity_id=case.pk,changes={'target_user_id':str(case.employee.user.pk)})
+                     entity_id=case.pk,changes={'target_user_id':str(target.pk)})
         return token
 
-def reassign_owner(*,actor,case_id,role,new_member_id,reason,key,expected_version,command_id=None,fail_after_audit=False):
+def reassign_owner(*,actor,case_id,role,new_member_id,reason,key,expected_version,command_id=None,fail_after_audit=False,_test_after_case_lock=None):
     if role not in (Membership.IT,Membership.MANAGER,Membership.HR):
         raise CommandFailure('INVALID_ROLE',422)
     if not isinstance(reason,str) or not reason.strip() or len(reason)>240:
@@ -109,17 +156,13 @@ def reassign_owner(*,actor,case_id,role,new_member_id,reason,key,expected_versio
     digest=hashlib.sha256(canonical.encode()).hexdigest()
     with transaction.atomic():
         set_command_timeouts()
-        case=OnboardingCase.objects.select_for_update().select_related('employee__user').filter(pk=case_id).first()
+        case=OnboardingCase.objects.select_for_update(of=('self',)).filter(pk=case_id).first()
         if case is None:
             raise CommandFailure('NOT_FOUND',404)
-        member=actor_context(actor,locked=True)
+        if _test_after_case_lock is not None:
+            _test_after_case_lock()  # deterministic two-case interleaving test
+        member,root,new=_lock_case_authority(case,actor,candidate_member_id=new_member_id)
         if not authorize_case(member,case) or member.role!=Membership.HR:
-            raise CommandFailure('NOT_FOUND',404)
-        # Case root state may be revoked independently of a case-row mutation.
-        employee_user=User.objects.select_for_update().filter(pk=case.employee.user_id,is_active=True).first()
-        if employee_user is None or not Membership.objects.select_for_update().filter(
-                pk=case.employee_id,user_id=employee_user.pk,active=True,
-                organization_id=case.organization_id,role=Membership.EMPLOYEE).exists():
             raise CommandFailure('NOT_FOUND',404)
         if role==Membership.HR and not member.can_coordinate_ownership:
             raise CommandFailure('FORBIDDEN',403)
@@ -136,17 +179,8 @@ def reassign_owner(*,actor,case_id,role,new_member_id,reason,key,expected_versio
             return receipt.response,receipt.status_code
         if case.version!=expected_version:
             raise CommandFailure('STALE_VERSION',409)
-        candidate=Membership.objects.filter(pk=new_member_id).values('user_id').first()
-        if candidate is None:
-            raise CommandFailure('INVALID_ASSIGNEE',422)
-        # A User deactivation must not commit between eligibility and assignment.
-        target_user=User.objects.select_for_update().filter(pk=candidate['user_id'],is_active=True).first()
-        if target_user is None:
-            raise CommandFailure('INVALID_ASSIGNEE',422)
-        new=Membership.objects.select_for_update().filter(pk=new_member_id,
-                        user_id=target_user.pk,organization_id=case.organization_id,
-                        active=True,available=True,role=role).first()
-        if new is None:
+        if (new is None or not new.active or not new.available or new.role!=role
+                or new.organization_id!=case.organization_id):
             raise CommandFailure('INVALID_ASSIGNEE',422)
         existing=CaseAssignment.objects.select_for_update().filter(case=case,role=role,
                         effective_to__isnull=True,effective_from__lte=timezone.now()).first()
