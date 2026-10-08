@@ -18,7 +18,7 @@ jobs:
           POSTGRES_DB: onboarding_m0
         ports: ['5432:5432']
         options: >-
-          --health-cmd 'pg_isready -U onboarding -d onboarding_m0'
+          --health-cmd pg_isready
           --health-interval 3s --health-timeout 3s --health-retries 15
     env:
       DJANGO_SECRET_KEY: ci-only-no-production-secret-not-used-outside-runner
@@ -30,11 +30,11 @@ jobs:
       POSTGRES_USER: onboarding
       POSTGRES_PASSWORD: ci-temporary-only
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e
         with:
           python-version: '3.13'
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: '22'
       - name: Resolve Python dependencies
@@ -69,7 +69,7 @@ jobs:
           assert Client().get('/health/ready').status_code==200
           print('UI and API served on same Django origin: smoke PASS')
           PY
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
           name: m0-resolved-lockfiles
