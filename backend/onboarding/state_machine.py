@@ -71,10 +71,10 @@ def recompute(case,*,now=None):
 
 def summary_task(t,member,case):
     role=member.role
-    ownerscope=(case.employee_id==member.pk if role==Membership.EMPLOYEE
-        else t.owner_assignment_id in [
-            x.pk for x in case.assignments.filter(member=member,role=role,effective_to__isnull=True)
-        ])
+    ownerscope=(t.owner_role==role and (
+        case.employee_id==member.pk if role==Membership.EMPLOYEE else
+        case.assignments.filter(pk=t.owner_assignment_id,member=member,role=role,
+                                effective_to__isnull=True).exists()))
     actions=[]
     if case.status in ('PRE_JOINING','ACTIVE') and ownerscope:
         if t.execution_state=='READY': actions.append('START')
