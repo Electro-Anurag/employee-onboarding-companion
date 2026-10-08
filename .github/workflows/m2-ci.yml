@@ -42,7 +42,7 @@ jobs:
         run: uv lock --check && uv sync --locked
       - name: Resolve frontend dependencies
         working-directory: frontend
-        run: npm ci && npm run build && npx vitest --version
+        run: npm ci && npm run test && npm run build && npx vitest --version
       - name: Strict frozen npm advisory verification
         working-directory: frontend
         run: |
