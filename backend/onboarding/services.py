@@ -82,16 +82,18 @@ def _lock_case_authority(case,actor,candidate_member_id=None):
                     if candidate_member_id is not None else None)
     if root_hint is None:
         raise CommandFailure('NOT_FOUND',404)
-    if candidate_member_id is not None and candidate_hint is None:
-        raise CommandFailure('INVALID_ASSIGNEE',422)
-
+    # Candidate hints/eligibility are not authoritative for a historical
+    # committed receipt; a missing candidate only rejects a NEW transition.
     user_ids={actor.pk,root_hint['user_id']}
     if candidate_hint is not None:
         user_ids.add(candidate_hint['user_id'])
     locked_users={}
     for uid in sorted(user_ids,key=str):
         locked_users[uid]=User.objects.select_for_update().filter(pk=uid).first()
-    if any(u is None or not u.is_active for u in locked_users.values()):
+    # Only currently authorized actor and case-root identities may fail here.
+    # Candidate User may have been deactivated after the original command.
+    if any(locked_users.get(uid) is None or not locked_users[uid].is_active
+           for uid in (actor.pk, root_hint['user_id'])):
         raise CommandFailure('NOT_FOUND',404)
 
     mids={actor_mid,case.employee_id}
@@ -100,7 +102,7 @@ def _lock_case_authority(case,actor,candidate_member_id=None):
     locked_members={}
     for mid in sorted(mids,key=str):
         locked_members[mid]=Membership.objects.select_for_update().filter(pk=mid).first()
-    if any(m is None for m in locked_members.values()):
+    if locked_members.get(actor_mid) is None or locked_members.get(case.employee_id) is None:
         raise CommandFailure('NOT_FOUND',404)
     member=locked_members[actor_mid]
     root=locked_members[case.employee_id]
@@ -116,9 +118,8 @@ def _lock_case_authority(case,actor,candidate_member_id=None):
     if not member.user.is_active or not root.user.is_active:
         raise CommandFailure('NOT_FOUND',404)
     candidate=locked_members.get(candidate_member_id) if candidate_member_id is not None else None
-    if candidate is not None and (candidate.user_id!=candidate_hint['user_id']
-                                  or not candidate.user.is_active):
-        raise CommandFailure('INVALID_ASSIGNEE',422)
+    # Do not judge candidate activity, availability, relationship or existence
+    # until AFTER a matching committed idempotency receipt is considered.
     return member,root,candidate
 
 
@@ -180,7 +181,8 @@ def reassign_owner(*,actor,case_id,role,new_member_id,reason,key,expected_versio
         if case.version!=expected_version:
             raise CommandFailure('STALE_VERSION',409)
         if (new is None or not new.active or not new.available or new.role!=role
-                or new.organization_id!=case.organization_id):
+                or new.organization_id!=case.organization_id
+                or not new.user.is_active):
             raise CommandFailure('INVALID_ASSIGNEE',422)
         existing=CaseAssignment.objects.select_for_update().filter(case=case,role=role,
                         effective_to__isnull=True,effective_from__lte=timezone.now()).first()

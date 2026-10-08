@@ -33,7 +33,7 @@ def required_uuid(value):
     except (ValueError,AttributeError):
         raise InputError('INVALID_UUID',422)
 
-def transient_db_response(exc, *, preflight=False, idempotent=False):
+def transient_db_response(exc, *, preflight=False, idempotent=False, indeterminate=False):
     """Sanitize DB errors; never assert rollback for an unknown COMMIT acknowledgement.
 
     Only a known PostgreSQL transaction abort is a confirmed rollback.
@@ -41,7 +41,7 @@ def transient_db_response(exc, *, preflight=False, idempotent=False):
     must be recovered by querying its durable receipt with the same key.
     """
     state=getattr(exc,'sqlstate',None) or getattr(getattr(exc,'__cause__',None),'sqlstate',None)
-    if state in ('55P03','40P01','40001','57014'):
+    if state in ('55P03','40P01','40001','57014') and not (preflight or indeterminate):
         return error('TRANSIENT_DATABASE_CONFLICT',409,retryable=True,outcome='ROLLED_BACK')
     return error('DATABASE_UNAVAILABLE',503,
                  outcome='NO_COMMAND_EXECUTED' if preflight else 'UNKNOWN',

@@ -72,7 +72,8 @@ def logout_view(request):
         logout(request)
         return JsonResponse({'ok':True})
     except DatabaseError as exc:
-        return transient_db_response(exc,preflight=True)
+        # logout() has already attempted session mutation/flush.
+        return transient_db_response(exc,indeterminate=True)
 
 @csrf_protect
 @require_POST
@@ -86,15 +87,24 @@ def password_change(request):
             member=actor_context(user,locked=True)
             append_event(stream_key=f'org:{member.organization_id}',actor=user,
                          event_type='PASSWORD_CHANGED',entity_id=user.pk,changes={'credential':'changed'})
-        request.user=user
-        update_session_auth_hash(request,user)
-        return JsonResponse({'ok':True})
     except InvalidActor:
         return error('INVALID_PASSWORD',403)
     except (KeyError,TypeError,ValidationError,InputError):
         return error('INVALID_PASSWORD_POLICY',422)
     except DatabaseError as exc:
+        # The atomic credential/audit block did not return successfully.
+        # A lost COMMIT acknowledgement is nevertheless an UNKNOWN outcome.
         return transient_db_response(exc)
+
+    # Transaction.atomic has exited successfully: password, token revocation
+    # and audit are COMMITTED. Session rotation is a separate DB operation.
+    try:
+        request.user=user
+        update_session_auth_hash(request,user)
+    except DatabaseError:
+        return error('SESSION_REFRESH_UNAVAILABLE',503,outcome='COMMAND_COMMITTED',
+                     session_state='UNKNOWN',automatic_replay=False)
+    return JsonResponse({'ok':True})
 
 def _issue(request,purpose):
     try:
