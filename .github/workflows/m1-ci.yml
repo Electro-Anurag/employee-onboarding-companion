@@ -4,7 +4,7 @@ on:
     branches: ['feature/m1-security-review-remediation']
   workflow_dispatch:
 permissions:
-  contents: read
+  contents: write
 jobs:
   foundation:
     runs-on: ubuntu-latest
@@ -42,7 +42,7 @@ jobs:
         run: uv lock --check && uv sync --locked
       - name: Resolve frontend dependencies
         working-directory: frontend
-        run: npm ci && npm run build
+        run: npm install --package-lock-only --ignore-scripts && npm ci && npm run build && npx vitest --version
       - name: Inspect frozen npm security advisories
         working-directory: frontend
         run: |
@@ -102,6 +102,16 @@ jobs:
         run: psql -v ON_ERROR_STOP=1 -h localhost -p 5432 -U onboarding -d onboarding_m0 -f scripts/m1_runtime_audit_probe.sql
       - name: Build immutable M1 container source
         run: docker build --tag onboarding-m1:${{ github.sha }} .
+      - name: Pin reviewed frontend dependency lock
+        if: success()
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add frontend/package-lock.json
+          if ! git diff --cached --quiet; then
+            git commit -m 'build(m1): pin Vitest 5 advisory remediation [skip ci]'
+            git push origin HEAD:refs/heads/feature/m1-security-review-remediation
+          fi
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
