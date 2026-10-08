@@ -33,7 +33,7 @@ def case_detail(request,case_id):
     except (PermissionDenied,CommandFailure) as exc:
         return _denied(exc)
     except DatabaseError as exc:
-        return transient_db_response(exc)
+        return transient_db_response(exc,preflight=True)
 
 @require_POST
 def assignment(request,case_id):
@@ -50,7 +50,7 @@ def assignment(request,case_id):
             expected=int(match[len(prefix):-1])
         except (ValueError,TypeError):
             raise InputError('INVALID_ETAG',422)
-        response,status=reassign_owner(actor=request.user,case_id=case_id,role=data['role'],
+        response,status=reassign_owner(actor=request.user,case_id=case_id,role=data.get('role'),
                     new_member_id=required_uuid(data.get('new_member_id')),
                     reason=data.get('reason'),key=idem,expected_version=expected)
         return JsonResponse(response,status=status)
@@ -61,4 +61,4 @@ def assignment(request,case_id):
     except OnboardingCase.DoesNotExist:
         return error('NOT_FOUND',404)
     except DatabaseError as exc:
-        return transient_db_response(exc)
+        return transient_db_response(exc,idempotent=True)

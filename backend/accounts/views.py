@@ -28,11 +28,14 @@ def safe_context(request):
 
 @require_GET
 def me(request):
-    member=safe_context(request)
-    if member is None:
-        return error('UNAUTHENTICATED',401)
-    return JsonResponse({'user_id':str(request.user.pk),'display_name':request.user.display_name,
-                         'role':member.role,'organization_id':str(member.organization_id)})
+    try:
+        member=safe_context(request)
+        if member is None:
+            return error('UNAUTHENTICATED',401)
+        return JsonResponse({'user_id':str(request.user.pk),'display_name':request.user.display_name,
+                             'role':member.role,'organization_id':str(member.organization_id)})
+    except DatabaseError as exc:
+        return transient_db_response(exc,preflight=True)
 
 @csrf_protect
 @require_POST
@@ -65,15 +68,18 @@ def login_view(request):
 @csrf_protect
 @require_POST
 def logout_view(request):
-    logout(request)
-    return JsonResponse({'ok':True})
+    try:
+        logout(request)
+        return JsonResponse({'ok':True})
+    except DatabaseError as exc:
+        return transient_db_response(exc,preflight=True)
 
 @csrf_protect
 @require_POST
 def password_change(request):
-    if safe_context(request) is None:
-        return error('UNAUTHENTICATED',401)
     try:
+        if safe_context(request) is None:
+            return error('UNAUTHENTICATED',401)
         data=json_payload(request,2048,{'old_password','new_password'})
         with transaction.atomic():
             user=change_password_locked(request.user,data['old_password'],data['new_password'])
@@ -91,12 +97,12 @@ def password_change(request):
         return transient_db_response(exc)
 
 def _issue(request,purpose):
-    member=safe_context(request)
-    if member is None:
-        return error('UNAUTHENTICATED',401)
-    if member.role!=Membership.HR:
-        return error('FORBIDDEN',403)
     try:
+        member=safe_context(request)
+        if member is None:
+            return error('UNAUTHENTICATED',401)
+        if member.role!=Membership.HR:
+            return error('FORBIDDEN',403)
         data=json_payload(request,2048,{'case_id'})
         case_id=required_uuid(data.get('case_id'))
         token=issue_credential_for_case(actor=request.user,case_id=case_id,purpose=purpose)

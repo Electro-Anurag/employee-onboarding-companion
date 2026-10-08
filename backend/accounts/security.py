@@ -141,18 +141,25 @@ def admit_attempt(kind,identifier,client_ip):
             lock_key=int.from_bytes(hashlib.sha256(bucket.encode()).digest()[:8],'big',signed=True)
             with connection.cursor() as cur:
                 cur.execute('SELECT pg_advisory_xact_lock(%s)',[lock_key])
+        # Advisory locks serialize both existing and absent bucket keys.  Do not
+        # create or reset ANY counter until both limits have admitted the attempt.
         now=timezone.now()
-        locked=[]
-        for bucket,limit in sorted(buckets):
-            row,_=LoginThrottle.objects.get_or_create(bucket=bucket)
-            row=LoginThrottle.objects.select_for_update().get(pk=bucket)
-            if (now-row.window_start).total_seconds()>=900:
-                row.window_start=now
-                row.failures=0
-            if row.failures>=limit:
-                return False
-            locked.append(row)
-        for row in locked:
-            row.failures+=1
-            row.save(update_fields=['failures','window_start'])
+        existing={row.bucket:row for row in
+                  LoginThrottle.objects.select_for_update().filter(
+                      bucket__in=[name for name,_ in buckets]).order_by('bucket')}
+        for name,limit in buckets:
+            row=existing.get(name)
+            used=0 if row is None or (now-row.window_start).total_seconds()>=900 else row.failures
+            if used>=limit:
+                return False  # Denial persists *no* new account/token counter rows.
+        for name,limit in buckets:
+            row=existing.get(name)
+            if row is None:
+                LoginThrottle.objects.create(bucket=name,window_start=now,failures=1)
+            else:
+                if (now-row.window_start).total_seconds()>=900:
+                    row.window_start=now
+                    row.failures=0
+                row.failures+=1
+                row.save(update_fields=['failures','window_start'])
     return True

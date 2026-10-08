@@ -33,9 +33,17 @@ def required_uuid(value):
     except (ValueError,AttributeError):
         raise InputError('INVALID_UUID',422)
 
-def transient_db_response(exc):
-    """Call outside transaction.atomic after rollback, never replay uncertain writes."""
+def transient_db_response(exc, *, preflight=False, idempotent=False):
+    """Sanitize DB errors; never assert rollback for an unknown COMMIT acknowledgement.
+
+    Only a known PostgreSQL transaction abort is a confirmed rollback.
+    A connection failure may happen *after* COMMIT, so an idempotent command
+    must be recovered by querying its durable receipt with the same key.
+    """
     state=getattr(exc,'sqlstate',None) or getattr(getattr(exc,'__cause__',None),'sqlstate',None)
     if state in ('55P03','40P01','40001','57014'):
-        return error('TRANSIENT_DATABASE_CONFLICT',409,retryable=True)
-    return error('DATABASE_UNAVAILABLE',503,retryable=True)
+        return error('TRANSIENT_DATABASE_CONFLICT',409,retryable=True,outcome='ROLLED_BACK')
+    return error('DATABASE_UNAVAILABLE',503,
+                 outcome='NO_COMMAND_EXECUTED' if preflight else 'UNKNOWN',
+                 retry_same_idempotency_key=bool(idempotent),
+                 automatic_replay=False)
