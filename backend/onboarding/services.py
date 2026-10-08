@@ -36,7 +36,9 @@ def authorize_case(member,case):
     # New M2 cases are private to their creating HR until activation; legacy
     # M1 setup-shell cases retain their originally qualified visibility.
     if case.status=='CREATED' and case.created_by_id is not None:
-        return member.role==Membership.HR and member.user_id==case.created_by_id
+        return (member.role==Membership.HR and case.assignments.filter(
+            member=member,role=Membership.HR,effective_to__isnull=True,
+            effective_from__lte=timezone.now()).exists())
     if member.role==Membership.EMPLOYEE:
         return case.employee_id==member.pk
     return case.assignments.filter(member=member,role=member.role,effective_to__isnull=True,
@@ -54,8 +56,8 @@ def scoped_cases(user):
     qs=OnboardingCase.objects.filter(organization_id=member.organization_id,
         employee__role=Membership.EMPLOYEE,employee__organization_id=member.organization_id,
         employee__active=True,employee__user__is_active=True)
-    qs=qs.filter(models.Q(created_by__isnull=True) | ~models.Q(status='CREATED')
-                 | models.Q(created_by=member.user))
+    if member.role!=Membership.HR:
+        qs=qs.filter(models.Q(created_by__isnull=True) | ~models.Q(status='CREATED'))
     if member.role==Membership.EMPLOYEE:
         return qs.filter(employee=member)
     return qs.filter(assignments__member=member,assignments__role=member.role,

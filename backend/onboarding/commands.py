@@ -14,7 +14,7 @@ from backend.accounts.models import User,Membership
 from backend.accounts.security import actor_context
 from backend.onboarding.models import (OnboardingCase,CaseAssignment,Task,TaskDependency,
     ManagerAttestation,TaskCompletion)
-from backend.onboarding.services import (CommandFailure,authorize_case,set_command_timeouts)
+from backend.onboarding.services import (CommandFailure,authorize_case,set_command_timeouts,_lock_case_authority)
 from backend.onboarding.state_machine import scheduled_at,recompute,case_progress,current_assignments
 from backend.templates.models import TemplateVersion
 from backend.templates.services import _validate_graph,_snapshot
@@ -108,7 +108,11 @@ def _command_case(actor,case_id,route,key,payload,expected_version,require_hr=Fa
         'employee__user','organization').filter(pk=case_id).first()
     if case is None:
         raise CommandFailure('NOT_FOUND',404)
-    member=_case_actor(case,actor)
+    # Match the independently qualified M1 case -> sorted Users -> sorted
+    # Memberships authority lock sequence. Root revocation is rechecked.
+    member,root,_=_lock_case_authority(case,actor)
+    if not authorize_case(member,case):
+        raise CommandFailure('NOT_FOUND',404)
     if require_hr and member.role!=Membership.HR:
         raise CommandFailure('NOT_FOUND',404)
     prior,digest=_lock_receipt(actor,route,key,case_id,payload)
