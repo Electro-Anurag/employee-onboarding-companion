@@ -4,7 +4,7 @@ on:
     branches: ['feature/m1-security-review-remediation']
   workflow_dispatch:
 permissions:
-  contents: write
+  contents: read
 jobs:
   foundation:
     runs-on: ubuntu-latest
@@ -42,26 +42,31 @@ jobs:
         run: uv lock --check && uv sync --locked
       - name: Resolve frontend dependencies
         working-directory: frontend
-        run: npm install --package-lock-only --ignore-scripts && npm ci && npm run build && npx vitest --version
-      - name: Inspect frozen npm security advisories
+        run: npm ci && npm run build && npx vitest --version
+      - name: Strict frozen npm advisory verification
         working-directory: frontend
         run: |
-          npm audit --json > npm-audit-all.json || true
-          npm audit --omit=dev --json > npm-audit-runtime.json || true
+          set +e
+          npm audit --json > npm-audit-all.json
+          all_status=$?
+          npm audit --omit=dev --json > npm-audit-runtime.json
+          runtime_status=$?
+          set -e
+          if [ "$all_status" -gt 1 ] || [ "$runtime_status" -gt 1 ]; then
+            echo "npm audit service/registry failure; cannot claim qualification"
+            exit 1
+          fi
           node - <<'JS'
           const fs=require('node:fs')
           for(const k of ['all','runtime']){
             const report=JSON.parse(fs.readFileSync('npm-audit-'+k+'.json','utf8'))
-            const vulns=Object.entries(report.vulnerabilities||{}).map(([name,v])=>({
-              name,severity:v.severity,isDirect:v.isDirect,via:v.via.map(x=>typeof x==='string'?x:x.name),
-              range:v.range,fixAvailable:v.fixAvailable
-            }))
-            console.log('NPM_AUDIT_'+k.toUpperCase()+': '+JSON.stringify({
-              counts:report.metadata?.vulnerabilities,entries:vulns
-            }))
-            if(k==='runtime' && vulns.some(x=>x.severity==='critical'||x.severity==='high')){
-              console.error('Production npm dependency has unresolved high/critical advisory')
-              process.exitCode=1
+            if(!report.metadata || !report.metadata.vulnerabilities){
+              throw new Error('npm audit response missing vulnerability metadata: '+k)
+            }
+            const vulns=report.metadata.vulnerabilities
+            console.log('NPM_AUDIT_'+k.toUpperCase()+': '+JSON.stringify(vulns))
+            if(vulns.total!==0){
+              throw new Error('Dependency advisories require explicit triage: '+k)
             }
           }
           JS
@@ -102,16 +107,8 @@ jobs:
         run: psql -v ON_ERROR_STOP=1 -h localhost -p 5432 -U onboarding -d onboarding_m0 -f scripts/m1_runtime_audit_probe.sql
       - name: Build immutable M1 container source
         run: docker build --tag onboarding-m1:${{ github.sha }} .
-      - name: Pin reviewed frontend dependency lock
-        if: success()
-        run: |
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add frontend/package-lock.json
-          if ! git diff --cached --quiet; then
-            git commit -m 'build(m1): pin Vitest 5 advisory remediation [skip ci]'
-            git push origin HEAD:refs/heads/feature/m1-security-review-remediation
-          fi
+      - name: Ensure qualification did not modify dependency locks
+        run: git diff --exit-code -- uv.lock frontend/package-lock.json
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
