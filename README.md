@@ -28,7 +28,7 @@ uv run pytest -q
 uv run python manage.py runserver
 ```
 
-Worker (separate shell): `uv run python manage.py procrastinate worker control`.
+Worker (separate shell): `uv run python manage.py procrastinate worker`.
 
 Use `docker compose` after lockfiles exist, providing `.env` values; run `python manage.py migrate` before starting workers. Docker Compose cannot be tested in this execution environment and is **not** claimed as verified.
 

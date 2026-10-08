@@ -28,7 +28,7 @@ def job_status(job_id):
 
 def start_worker():
     return subprocess.Popen(
-        [sys.executable, "manage.py", "procrastinate", "worker", "control"],
+        [sys.executable, "manage.py", "procrastinate", "worker"],
         stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
     )
 

@@ -4,7 +4,7 @@ on:
     branches: ['feature/m0-foundation-qualification']
   workflow_dispatch:
 permissions:
-  contents: read
+  contents: write
 jobs:
   foundation:
     runs-on: ubuntu-latest
@@ -69,6 +69,16 @@ jobs:
           assert Client().get('/health/ready').status_code==200
           print('UI and API served on same Django origin: smoke PASS')
           PY
+      - name: Commit resolved dependency locks after qualified gates
+        if: success()
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -- uv.lock frontend/package-lock.json
+          if ! git diff --cached --quiet; then
+            git commit -m 'build(m0): pin resolved dependency locks [skip ci]'
+            git push origin HEAD:refs/heads/feature/m0-foundation-qualification
+          fi
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
