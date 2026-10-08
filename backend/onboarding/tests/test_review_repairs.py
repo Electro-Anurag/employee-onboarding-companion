@@ -154,3 +154,16 @@ def test_n1_malformed_uuid_types_return_bounded_error(setup):
              HTTP_IDEMPOTENCY_KEY=str(uuid.uuid4()),HTTP_IF_MATCH=f'"case:{case.pk}:v1"')
         assert response.status_code==422,response.content
     assert AuditEvent.objects.count()==0
+
+
+@pytest.mark.django_db(transaction=True)
+def test_r3_member_identity_cannot_be_transferred_under_a_case(setup):
+    case,people,org=setup
+    replacement=User.objects.create_user(email='identitytransfer@cases.test',
+                        password='AReallyStrongPassword!2026')
+    membership=people['IT'][1]
+    with pytest.raises((IntegrityError,DatabaseError)):
+        with transaction.atomic():
+            Membership.objects.filter(pk=membership.pk).update(user=replacement)
+    membership.refresh_from_db()
+    assert membership.user_id==people['IT'][0].pk
