@@ -413,3 +413,55 @@ def test_m2_case_timeline_filters_events_by_role(world):
     assert all('changes' not in x and 'actor_id' not in x for x in manager)
     assert read_as('IT')==[]
     assert read_as('EMPLOYEE')==[]
+
+
+@pytest.mark.django_db(transaction=True)
+def test_m2_activation_requires_usable_employee_login_or_pending_invite(world):
+    from backend.accounts.security import issue_token
+    from backend.accounts.models import OneTimeToken
+    org,p=world
+    version=published(world)
+    employee=p['EMPLOYEE'][0]
+    employee.set_unusable_password()
+    employee.save(update_fields=['password'])
+    created,_=create(world,version)
+    case=OnboardingCase.objects.get(pk=created['case_id'])
+    with pytest.raises(CommandFailure) as missing:
+        activate_case(actor=p['HR'][0],case_id=case.pk,key=uuid.uuid4(),expected_version=1)
+    assert missing.value.code=='EMPLOYEE_CREDENTIAL_REQUIRED'
+    assert Task.objects.filter(case=case).count()==0
+    invite=issue_token(employee,OneTimeToken.INVITE,issuer=p['HR'][0])
+    assert invite
+    result,status=activate_case(actor=p['HR'][0],case_id=case.pk,key=uuid.uuid4(),expected_version=1)
+    assert status==200 and len(result['affected_task_ids'])==17
+    assert Task.objects.filter(case=case).count()==17
+
+@pytest.mark.django_db(transaction=True)
+def test_m2_local_clock_fields_are_versioned_and_drive_case_schedule(world):
+    from zoneinfo import ZoneInfo
+    org,p=world
+    draft=create_default(actor=p['HR'][0])
+    changed=[]
+    for task in draft['tasks']:
+        if task['key']=='manager_preparation':
+            changed.append({**task,'available_local_time':'07:15','due_local_time':'19:45'})
+        else:changed.append(task)
+    next_d=edit_template(actor=p['HR'][0],template_id=uuid.UUID(draft['id']),
+           revision=1,tasks=changed,edges=draft['dependencies'])
+    assert next_d['revision']==2
+    published_v=publish_template(actor=p['HR'][0],template_id=uuid.UUID(draft['id']),revision=2)
+    assert published_v['tasks'][5]['available_local_time']=='07:15'
+    version=uuid.UUID(published_v['version_id'])
+    created,_=create(world,version)
+    case=OnboardingCase.objects.get(pk=created['case_id'])
+    activate_case(actor=p['HR'][0],case_id=case.pk,key=uuid.uuid4(),expected_version=1)
+    task=Task.objects.get(case=case,key='manager_preparation')
+    assert task.available_at.astimezone(ZoneInfo('Asia/Kolkata')).strftime('%H:%M')=='07:15'
+    assert task.due_at.astimezone(ZoneInfo('Asia/Kolkata')).strftime('%H:%M')=='19:45'
+    assert TemplateTask.objects.get(version_id=version,key='manager_preparation').due_local_time=='19:45'
+    invalid=[{**t,'available_offset_days':0,'due_offset_days':0,
+              'available_local_time':'19:00','due_local_time':'09:00'}
+             if t['key']=='manager_preparation' else t for t in changed]
+    with pytest.raises(TemplateFailure):
+        create_template(actor=p['HR'][0],key='invalid_time',name='Invalid clocks',
+            tasks=invalid,edges=draft['dependencies'])
