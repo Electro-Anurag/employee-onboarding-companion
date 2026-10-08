@@ -55,7 +55,11 @@ class Membership(models.Model):
     can_manage_templates = models.BooleanField(default=False)
     can_coordinate_ownership = models.BooleanField(default=False)
     class Meta:
-        constraints = [models.UniqueConstraint(fields=['organization','user'],name='one_org_membership_per_user')]
+        constraints = [
+            models.UniqueConstraint(fields=['organization','user'],name='one_org_membership_per_user'),
+            models.UniqueConstraint(fields=['user'],condition=models.Q(active=True),name='one_active_membership_per_user'),
+            models.CheckConstraint(condition=models.Q(role__in=['EMPLOYEE','HR','IT','MANAGER']),name='membership_known_role'),
+        ]
 
 class OneTimeToken(models.Model):
     INVITE='INVITE'; RESET='RESET'
@@ -70,6 +74,10 @@ class OneTimeToken(models.Model):
     used_at=models.DateTimeField(null=True)
     class Meta:
         indexes=[models.Index(fields=['user','purpose','used_at'])]
+        constraints=[
+            models.UniqueConstraint(fields=['user','purpose'],condition=models.Q(used_at__isnull=True),name='one_pending_token_per_purpose'),
+            models.CheckConstraint(condition=models.Q(purpose__in=['INVITE','RESET']),name='credential_known_purpose'),
+        ]
 
 class LoginThrottle(models.Model):
     bucket=models.CharField(primary_key=True,max_length=96)

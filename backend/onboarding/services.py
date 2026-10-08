@@ -68,11 +68,11 @@ def reassign_owner(*,actor,case_id,role,new_member_id,reason,key,expected_versio
         if existing is None: raise CommandFailure('ASSIGNMENT_MISSING',409)
         if existing.member_id==new.pk: raise CommandFailure('ALREADY_ASSIGNED',409)
         now=timezone.now(); existing.effective_to=now; existing.save(update_fields=['effective_to'])
-        CaseAssignment.objects.create(case=case,role=role,member=new,effective_from=now,assigned_by=member,reason=reason)
+        created=CaseAssignment.objects.create(case=case,role=role,member=new,effective_from=now,assigned_by=member,reason=reason)
         case.version+=1;case.save(update_fields=['version'])
         append_event(stream_key=f'case:{case.pk}',actor=actor,event_type='OWNER_REASSIGNED',entity_id=case.pk,
                      command_id=command_id,changes={'role':role,'previous_assignment_id':str(existing.pk),
-                     'new_assignment_id':str(new.pk),'case_version':case.version},reason=reason)
+                     'new_assignment_id':str(created.pk),'case_version':case.version},reason=reason)
         if fail_after_audit: raise RuntimeError('M1 injected rollback after audit')
         response={'command_id':str(command_id),'case_id':str(case.pk),'case_version':case.version,
                   'result':{'role':role,'owner_id':str(new.pk)}}

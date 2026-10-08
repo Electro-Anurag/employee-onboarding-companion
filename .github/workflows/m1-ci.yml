@@ -1,7 +1,7 @@
 name: M1 identity authorization audit integration
 on:
   push:
-    branches: ['feature/m1-identity-authorization-audit']
+    branches: ['feature/m1-security-review-remediation']
   workflow_dispatch:
 permissions:
   contents: read

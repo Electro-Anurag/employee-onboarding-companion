@@ -12,9 +12,10 @@ class InvalidActor(PermissionDenied): pass
 
 def actor_context(user):
     if not user.is_authenticated or not user.is_active: raise InvalidActor()
-    member=(Membership.objects.select_related('organization').filter(user=user,active=True).first())
-    if member is None: raise InvalidActor()
-    return member
+    try:
+        return Membership.objects.select_related('organization').get(user=user,active=True)
+    except (Membership.DoesNotExist,Membership.MultipleObjectsReturned):
+        raise InvalidActor()
 
 def digest_token(raw): return hashlib.sha256(raw.encode('utf8')).hexdigest()
 

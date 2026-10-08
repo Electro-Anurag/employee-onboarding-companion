@@ -23,4 +23,8 @@ class CaseAssignment(models.Model):
     assigned_by=models.ForeignKey(Membership,on_delete=models.PROTECT,related_name='assigned_owners',null=True)
     reason=models.CharField(max_length=240,blank=True)
     class Meta:
-        constraints=[models.UniqueConstraint(fields=['case','role'],condition=models.Q(effective_to__isnull=True),name='m1_one_active_assignment_per_role')]
+        constraints=[
+            models.UniqueConstraint(fields=['case','role'],condition=models.Q(effective_to__isnull=True),name='m1_one_active_assignment_per_role'),
+            models.CheckConstraint(condition=models.Q(role__in=['HR','IT','MANAGER']),name='assignment_owner_role'),
+            models.CheckConstraint(condition=models.Q(effective_to__isnull=True)|models.Q(effective_to__gte=models.F('effective_from')),name='assignment_valid_time_range'),
+        ]
