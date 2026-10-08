@@ -1,6 +1,6 @@
 # Employee Onboarding Companion
 
-**Project stage:** M1 identity, authorization and audit foundation qualified in local/CI (8 October 2026). **This is not yet a working end-to-end onboarding application.**
+**Project stage:** M1 security-review remediation candidate CI-qualified (8 October 2026); **independent Astra re-review pending, M2 blocked**. This is not a working end-to-end onboarding product.
 
 This is an independent private repository. Governing requirements: Product Requirements v1.1 (28 functional requirements), Business Journey v1.0 (four roles, ten exceptions, five hosted journeys), Architecture Handoff v1.0.
 
@@ -8,9 +8,9 @@ This is an independent private repository. Governing requirements: Product Requi
 
 - M0: Django 5.2, PostgreSQL 17 and Procrastinate 3.10; atomic operation/audit/queued-job commit, rollback and real worker crash/recovery.
 - M1: email-login and Argon2, session and CSRF enforcement, four-role membership checks, scoped employee/owner case reads, HR reassignment with optimistic version + idempotency key, immutable audit-event UPDATE/DELETE trigger and hash-chain append function, single-use invitation/reset tokens, and error/denial paths.
-- CI: 23 PostgreSQL-backed tests including M0 regressions, two-session concurrent commands; restricted-role audit append/denial probe; React build, same-origin API smoke and Docker build.
+- Remediation CI: **40 PostgreSQL-backed tests passed** including M0 regressions, real two-session security races, restricted-role audit append/denial probes, React build, same-origin API smoke, Docker build and zero current npm audit advisories.
 
-See [M0 qualification](docs/qualification/m0-20261008.md) and [M1 qualification](docs/qualification/m1-20261008.md) for exact evidence and limits.
+See [M0 qualification](docs/qualification/m0-20261008.md), [original M1 qualification](docs/qualification/m1-20261008.md), and [M1 adversarial correction handoff](docs/qualification/m1-security-remediation-20261008.md). The last is a candidate for independent re-review, not a security certification.
 
 ## Local development
 
