@@ -276,7 +276,7 @@ export default function App(){
               <textarea className="json-editor" value={editor} onChange={e=>setEditor(e.target.value)}/>
             </label><div className="actions"><button disabled={busy} onClick={()=>void saveDraft()}>Save draft</button>
               <button disabled={busy} onClick={()=>void publish()}>Validate and publish</button></div></>
-             :<><p>Published versions are immutable. Active cases retain their original snapshot.</p>
+             :<><p>{template.state==='PUBLISHED'?'Published versions are immutable. Active cases retain their original snapshot.':'This draft is read-only for your current role capability.'}</p>
                {template.state==='PUBLISHED'&&me.capabilities?.manage_templates&&<button disabled={busy} onClick={()=>void clone()}>Create next version draft</button>}</>}
           </section>}
         </section>}
