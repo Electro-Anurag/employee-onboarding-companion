@@ -1,0 +1,47 @@
+"""M0 settings. PostgreSQL is required; SQLite is intentionally unsupported."""
+import os
+from pathlib import Path
+from django.core.exceptions import ImproperlyConfigured
+
+BASE_DIR = Path(__file__).resolve().parents[2]
+SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY")
+if not SECRET_KEY or SECRET_KEY == "REPLACE_ME_FOR_LOCAL_ONLY":
+    raise ImproperlyConfigured("Set a non-placeholder DJANGO_SECRET_KEY")
+DEBUG = os.environ.get("DJANGO_DEBUG") == "1"
+ALLOWED_HOSTS = [x.strip() for x in os.environ.get("DJANGO_ALLOWED_HOSTS", "localhost,127.0.0.1").split(",") if x.strip()]
+INSTALLED_APPS = [
+    "django.contrib.auth", "django.contrib.contenttypes", "django.contrib.sessions", "django.contrib.staticfiles",
+    "procrastinate.contrib.django", "backend.jobs.apps.JobsConfig", "backend.foundation.apps.FoundationConfig",
+]
+MIDDLEWARE = [
+    "django.middleware.security.SecurityMiddleware",
+    "whitenoise.middleware.WhiteNoiseMiddleware",
+    "django.contrib.sessions.middleware.SessionMiddleware",
+    "django.middleware.common.CommonMiddleware",
+    "django.middleware.csrf.CsrfViewMiddleware",
+    "django.contrib.auth.middleware.AuthenticationMiddleware",
+]
+ROOT_URLCONF = "backend.config.urls"
+TEMPLATES = [{"BACKEND": "django.template.backends.django.DjangoTemplates", "DIRS": [], "APP_DIRS": True,
+              "OPTIONS": {"context_processors": ["django.template.context_processors.request", "django.contrib.auth.context_processors.auth"]}}]
+WSGI_APPLICATION = "backend.config.wsgi.application"
+DATABASES = {"default": {
+    "ENGINE": "django.db.backends.postgresql",
+    "NAME": os.environ.get("POSTGRES_DB", "onboarding_m0"),
+    "USER": os.environ.get("POSTGRES_USER", "onboarding"),
+    "PASSWORD": os.environ.get("POSTGRES_PASSWORD", ""),
+    "HOST": os.environ.get("POSTGRES_HOST", "localhost"),
+    "PORT": int(os.environ.get("POSTGRES_PORT", "5432")),
+    "CONN_MAX_AGE": 0,
+    "OPTIONS": {"connect_timeout": 5},
+}}
+DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+STATIC_URL = "/static/"
+STATIC_ROOT = BASE_DIR / "backend" / "static"
+STORAGES = {"staticfiles": {"BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage"}}
+USE_TZ = True
+TIME_ZONE = "UTC"
+SECURE_CONTENT_TYPE_NOSNIFF = True
+SESSION_COOKIE_HTTPONLY = True
+SESSION_COOKIE_SECURE = not DEBUG
+CSRF_COOKIE_SECURE = not DEBUG

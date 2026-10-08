@@ -1,0 +1,25 @@
+[project]
+name = "employee-onboarding-companion"
+version = "0.0.1"
+description = "M0 foundation qualification for Employee Onboarding Companion"
+requires-python = ">=3.13,<3.14"
+dependencies = [
+  "Django>=5.2,<5.3",
+  "djangorestframework>=3.16,<3.17",
+  "procrastinate[django]==3.10.0",
+  "psycopg[binary]>=3.2,<3.4",
+  "gunicorn>=23,<24",
+  "whitenoise>=6.9,<7",
+]
+
+[dependency-groups]
+dev = ["pytest>=8,<10", "pytest-django>=4.11,<5", "pytest-cov>=6,<8"]
+
+[tool.uv]
+package = false
+
+[tool.pytest.ini_options]
+DJANGO_SETTINGS_MODULE = "backend.config.settings"
+python_files = ["test_*.py"]
+testpaths = ["backend"]
+addopts = "-ra"

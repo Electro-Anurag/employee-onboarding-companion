@@ -1,0 +1,79 @@
+name: M0 foundation qualification
+on:
+  push:
+    branches: ['feature/m0-foundation-qualification']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  foundation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: onboarding
+          POSTGRES_PASSWORD: ci-temporary-only
+          POSTGRES_DB: onboarding_m0
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd 'pg_isready -U onboarding -d onboarding_m0'
+          --health-interval 3s --health-timeout 3s --health-retries 15
+    env:
+      DJANGO_SECRET_KEY: ci-only-no-production-secret-not-used-outside-runner
+      DJANGO_DEBUG: '0'
+      DJANGO_ALLOWED_HOSTS: localhost,127.0.0.1,testserver
+      POSTGRES_HOST: localhost
+      POSTGRES_PORT: '5432'
+      POSTGRES_DB: onboarding_m0
+      POSTGRES_USER: onboarding
+      POSTGRES_PASSWORD: ci-temporary-only
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: '3.13'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Resolve Python dependencies
+        run: uv lock && uv sync --locked
+      - name: Resolve frontend dependencies
+        working-directory: frontend
+        run: npm install --package-lock-only && npm ci && npm run build
+      - name: Syntax and framework checks
+        run: |
+          uv run python -m compileall -q backend manage.py
+          uv run python manage.py check
+          uv run python manage.py makemigrations --check --dry-run
+      - name: Migrate queue and domain schema
+        run: uv run python manage.py migrate --noinput
+      - name: Queue healthchecks and transaction tests
+        run: |
+          uv run python manage.py procrastinate healthchecks
+          uv run pytest -q
+      - name: Hard-kill worker recovery and idempotency qualification
+        run: uv run python scripts/m0_worker_recovery.py
+      - name: Same-origin compiled UI smoke test
+        run: |
+          uv run python - <<'PY'
+          import os
+          os.environ.setdefault('DJANGO_SETTINGS_MODULE','backend.config.settings')
+          import django
+          django.setup()
+          from django.test import Client
+          r=Client().get('/')
+          assert r.status_code == 200, r.status_code
+          assert b'<!doctype html>' in b''.join(r.streaming_content).lower()
+          assert Client().get('/health/ready').status_code==200
+          print('UI and API served on same Django origin: smoke PASS')
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: m0-resolved-lockfiles
+          path: |
+            uv.lock
+            frontend/package-lock.json
+          if-no-files-found: warn
