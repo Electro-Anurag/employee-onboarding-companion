@@ -43,6 +43,28 @@ jobs:
       - name: Resolve frontend dependencies
         working-directory: frontend
         run: npm ci && npm run build
+      - name: Inspect frozen npm security advisories
+        working-directory: frontend
+        run: |
+          npm audit --json > npm-audit-all.json || true
+          npm audit --omit=dev --json > npm-audit-runtime.json || true
+          node - <<'JS'
+          const fs=require('node:fs')
+          for(const k of ['all','runtime']){
+            const report=JSON.parse(fs.readFileSync('npm-audit-'+k+'.json','utf8'))
+            const vulns=Object.entries(report.vulnerabilities||{}).map(([name,v])=>({
+              name,severity:v.severity,isDirect:v.isDirect,via:v.via.map(x=>typeof x==='string'?x:x.name),
+              range:v.range,fixAvailable:v.fixAvailable
+            }))
+            console.log('NPM_AUDIT_'+k.toUpperCase()+': '+JSON.stringify({
+              counts:report.metadata?.vulnerabilities,entries:vulns
+            }))
+            if(k==='runtime' && vulns.some(x=>x.severity==='critical'||x.severity==='high')){
+              console.error('Production npm dependency has unresolved high/critical advisory')
+              process.exitCode=1
+            }
+          }
+          JS
       - name: Syntax and framework checks
         run: |
           uv run python -m compileall -q backend manage.py
@@ -87,6 +109,8 @@ jobs:
           path: |
             uv.lock
             frontend/package-lock.json
+            frontend/npm-audit-all.json
+            frontend/npm-audit-runtime.json
             backend/accounts/migrations/
             backend/onboarding/migrations/
             backend/audit/migrations/

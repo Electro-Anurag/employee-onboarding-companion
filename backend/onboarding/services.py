@@ -80,9 +80,17 @@ def issue_credential_for_case(*,actor,case_id,purpose):
         member=actor_context(actor,locked=True)
         if member.role!=Membership.HR or not authorize_case(member,case):
             raise CommandFailure('NOT_FOUND',404)
-        if not case.employee.active or not valid_case_root(case):
+        # Target revocation is independently serialized: User lock, then Membership.
+        # The case employee FK is stable under the case lock.
+        target=User.objects.select_for_update().filter(pk=case.employee.user_id,is_active=True).first()
+        if target is None:
             raise CommandFailure('NOT_FOUND',404)
-        token=issue_token(case.employee.user,purpose,actor)
+        target_member=Membership.objects.select_for_update().filter(pk=case.employee_id,
+            user_id=target.pk,active=True,role=Membership.EMPLOYEE,
+            organization_id=case.organization_id).first()
+        if target_member is None:
+            raise CommandFailure('NOT_FOUND',404)
+        token=issue_token(target,purpose,actor)
         append_event(stream_key=f'case:{case.pk}',actor=actor,
                      event_type='INVITATION_ISSUED' if purpose==OneTimeToken.INVITE else 'RESET_ISSUED',
                      entity_id=case.pk,changes={'target_user_id':str(case.employee.user.pk)})
@@ -107,8 +115,20 @@ def reassign_owner(*,actor,case_id,role,new_member_id,reason,key,expected_versio
         member=actor_context(actor,locked=True)
         if not authorize_case(member,case) or member.role!=Membership.HR:
             raise CommandFailure('NOT_FOUND',404)
+        # Case root state may be revoked independently of a case-row mutation.
+        employee_user=User.objects.select_for_update().filter(pk=case.employee.user_id,is_active=True).first()
+        if employee_user is None or not Membership.objects.select_for_update().filter(
+                pk=case.employee_id,user_id=employee_user.pk,active=True,
+                organization_id=case.organization_id,role=Membership.EMPLOYEE).exists():
+            raise CommandFailure('NOT_FOUND',404)
         if role==Membership.HR and not member.can_coordinate_ownership:
             raise CommandFailure('FORBIDDEN',403)
+        # Cross-case use of one global actor/route/key must never escape as
+        # an unhandled unique-constraint error after two independent case locks.
+        key_bytes=hashlib.sha256(f'{actor.pk}:reassign-owner:{key}'.encode()).digest()
+        lock_id=int.from_bytes(key_bytes[:8],'big',signed=True)
+        with connection.cursor() as cursor:
+            cursor.execute('SELECT pg_advisory_xact_lock(%s)',[lock_id])
         receipt=CommandReceipt.objects.filter(actor=actor,route='reassign-owner',idempotency_key=key).first()
         if receipt:
             if receipt.request_hash!=digest or receipt.case_id!=case_id:

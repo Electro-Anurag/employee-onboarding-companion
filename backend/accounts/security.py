@@ -123,6 +123,9 @@ def admit_attempt(kind,identifier,client_ip):
          ('redeem:ip:'+hmac_identifier(client_ip),10)]
     )
     with transaction.atomic():
+        with connection.cursor() as cur:
+            cur.execute("SET LOCAL statement_timeout = '5s'")
+            cur.execute("SET LOCAL lock_timeout = '2s'")
         for bucket,limit in sorted(buckets):
             # Serialize even a previously nonexistent counter row.
             lock_key=int.from_bytes(hashlib.sha256(bucket.encode()).digest()[:8],'big',signed=True)
