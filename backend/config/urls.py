@@ -2,6 +2,8 @@ from django.urls import path
 from backend.foundation.views import index, health_live, health_ready
 from backend.accounts import views as auth
 from backend.onboarding import views as cases
+from backend.onboarding import api_m2 as m2
+from backend.templates import views as tmpl
 
 urlpatterns = [
     path('', index),path('health/live', health_live),path('health/ready', health_ready),
@@ -14,7 +16,19 @@ urlpatterns = [
     path('api/v1/auth/invitations/redeem',auth.redeem_invitation),
     path('api/v1/auth/password-reset-tokens',auth.issue_reset),
     path('api/v1/auth/password-reset-tokens/redeem',auth.redeem_reset),
-    path('api/v1/cases',cases.cases),
+    path('api/v1/cases',m2.cases_collection),
     path('api/v1/cases/<uuid:case_id>',cases.case_detail),
     path('api/v1/cases/<uuid:case_id>/assignments',cases.assignment),
+    path('api/v1/owners',m2.available_owners),
+    path('api/v1/templates',tmpl.collection),
+    path('api/v1/templates/<uuid:template_id>',tmpl.detail),
+    path('api/v1/templates/<uuid:template_id>/draft',tmpl.draft),
+    path('api/v1/templates/<uuid:template_id>/publish',tmpl.publish),
+    path('api/v1/templates/<uuid:template_id>/next-draft',tmpl.clone),
+    path('api/v1/cases/<uuid:case_id>/activate',m2.activate),
+    path('api/v1/cases/<uuid:case_id>/tasks',m2.tasks),
+    path('api/v1/cases/<uuid:case_id>/tasks/<uuid:task_id>',m2.task_detail),
+    path('api/v1/cases/<uuid:case_id>/tasks/<uuid:task_id>/start',m2.task_start),
+    path('api/v1/cases/<uuid:case_id>/tasks/<uuid:task_id>/attest-manager',m2.manager_attest),
+    path('api/v1/workspaces/me',m2.workspaces_me),
 ]
