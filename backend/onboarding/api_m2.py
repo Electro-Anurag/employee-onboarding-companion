@@ -145,3 +145,35 @@ def available_owners(request):
         return JsonResponse({'role':role,'results':[{'id':str(x.pk),'name':x.user.display_name} for x in qs]})
     except PermissionDenied:return error('UNAUTHENTICATED',401)
     except DatabaseError as exc:return transient_db_response(exc,preflight=True)
+
+
+@require_GET
+def case_timeline(request,case_id):
+    """Case-scoped events; IT/manager see only their own task events."""
+    try:
+        member,case=get_authorized_case(request.user,case_id)
+        from backend.audit.models import AuditEvent
+        stream='case:'+str(case.pk)
+        qs=AuditEvent.objects.filter(stream_id=stream).select_related('actor').order_by('sequence')[:100]
+        role=member.role
+        if role in ('IT','MANAGER'):
+            task_ids=list(Task.objects.filter(case=case,owner_role=role,
+                owner_assignment__member=member,owner_assignment__effective_to__isnull=True)
+                .values_list('pk',flat=True))
+            qs=qs.filter(entity_id__in=task_ids,event_type__in=['TASK_STARTED','TASK_COMPLETED'])
+        elif role=='EMPLOYEE':
+            task_ids=list(Task.objects.filter(case=case,owner_role='EMPLOYEE').values_list('pk',flat=True))
+            qs=qs.filter(entity_id__in=task_ids,event_type__in=['TASK_STARTED','TASK_COMPLETED'])
+        payload=[]
+        for event in qs:
+            row={'id':str(event.pk),'sequence':event.sequence,'event_type':event.event_type,
+                 'created_at':event.created_at.isoformat()}
+            if role=='HR':
+                row.update(entity_id=str(event.entity_id) if event.entity_id else None,
+                           reason=event.reason,changes=event.sanitized_change,
+                           actor_id=str(event.actor_id) if event.actor_id else None)
+            payload.append(row)
+        return JsonResponse({'case_id':str(case.pk),'results':payload})
+    except CommandFailure as exc:return error(exc.code,exc.status)
+    except PermissionDenied:return error('UNAUTHENTICATED',401)
+    except DatabaseError as exc:return transient_db_response(exc,preflight=True)
