@@ -380,3 +380,36 @@ def test_m2_api_idempotency_and_stale_case_preconditions(world):
         HTTP_IF_MATCH='"case:'+case_id+':v1"')
     assert retry.status_code==409 and retry.json()['error']['code']=='STALE_VERSION'
     assert Task.objects.filter(case_id=case_id).count()==17
+
+
+@pytest.mark.django_db(transaction=True)
+def test_m2_case_timeline_filters_events_by_role(world):
+    org,p=world
+    version=published(world)
+    created,_=create(world,version)
+    case=OnboardingCase.objects.get(pk=created['case_id'])
+    activate_case(actor=p['HR'][0],case_id=case.pk,key=uuid.uuid4(),expected_version=1)
+    task=Task.objects.get(case=case,key='manager_preparation')
+    fields={'first_week_plan':'Prepare first-week goals','buddy_name':'Synthetic Partner',
+            'workstation_ready':True}
+    attest_manager(actor=p['MANAGER'][0],case_id=case.pk,task_id=task.pk,
+        fields=fields,note='Synthetic attestation',key=uuid.uuid4(),expected_version=2)
+    def read_as(role):
+        client=Client(enforce_csrf_checks=True)
+        csrf=client.get('/api/v1/auth/csrf').json()['csrf_token']
+        login=client.post('/api/v1/auth/login',json.dumps({
+            'email':p[role][0].email,'password':'VerifiedStrongPassword!2026'}),
+            content_type='application/json',HTTP_X_CSRFTOKEN=csrf)
+        assert login.status_code==200
+        response=client.get('/api/v1/cases/'+str(case.pk)+'/timeline')
+        assert response.status_code==200,response.content
+        return response.json()['results']
+    hr=read_as('HR')
+    assert {'CASE_CREATED','CASE_ACTIVATED','TASK_COMPLETED'}.issubset(
+        {x['event_type'] for x in hr})
+    assert any('actor_id' in x for x in hr)
+    manager=read_as('MANAGER')
+    assert [x['event_type'] for x in manager]==['TASK_COMPLETED']
+    assert all('changes' not in x and 'actor_id' not in x for x in manager)
+    assert read_as('IT')==[]
+    assert read_as('EMPLOYEE')==[]
