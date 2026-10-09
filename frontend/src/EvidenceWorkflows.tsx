@@ -8,6 +8,10 @@ type DocumentRow={id:string;revision:number;filename:string;scan_status:string;
   scan_profile:string;malware_scanned:boolean;
   review:null|{decision:'ACCEPTED'|'REJECTED'|'NEEDS_CLARIFICATION';note:string}};
 type DocumentList={results:DocumentRow[];synthetic_only:boolean;malware_scanned:boolean};
+type ActivityOccurrence={id:string;revision:number;start:string;end:string;
+  medium:'VIDEO'|'IN_PERSON';meeting_reference:string;reason:string;
+  attendance:null|{id:string;outcome:'ATTENDED'|'MISSED';note:string}};
+type ActivityHistory={results:ActivityOccurrence[];current_revision:number|null;task_state:string};
 type TrainingModule={module:{module_version:string;content_sha256:string;passing_score:number;
   questions:{key:string;prompt:string;options:{value:string;label:string}[]}[]};
   task_state:string;attempts:{number:number;score:number;passed:boolean}[]};
@@ -45,6 +49,14 @@ export default function EvidenceWorkflows({task,caseId,role,read,mutate,uploadDo
   const [training,setTraining]=useState<TrainingModule|null>(null);
   const [trainingAnswers,setTrainingAnswers]=useState<Record<string,string>>({});
   const [trainingResult,setTrainingResult]=useState('');
+  const [activities,setActivities]=useState<ActivityOccurrence[]|null>(null);
+  const [activityStart,setActivityStart]=useState('');
+  const [activityEnd,setActivityEnd]=useState('');
+  const [activityMedium,setActivityMedium]=useState<'VIDEO'|'IN_PERSON'>('VIDEO');
+  const [activityReference,setActivityReference]=useState('');
+  const [activityReason,setActivityReason]=useState('');
+  const [attendanceOutcome,setAttendanceOutcome]=useState<'ATTENDED'|'MISSED'>('ATTENDED');
+  const [attendanceNote,setAttendanceNote]=useState('');
   const base='/api/v1/cases/'+caseId+'/tasks/'+task.id;
   async function safeRun(fn:()=>Promise<void>){
     setBusy(true);setError('');
@@ -64,6 +76,10 @@ export default function EvidenceWorkflows({task,caseId,role,read,mutate,uploadDo
     setReceiptSource(result);
     setReceiptConfirmation(current=>current||result.candidates[0]?.confirmation_id||'');
   }
+  async function loadActivities(){
+    const response=await read(base+'/activity-occurrences') as ActivityHistory;
+    setActivities(response.results);
+  }
   async function loadTraining(){
     const result=await read(base+'/training-module') as TrainingModule;
     setTraining(result);
@@ -77,6 +93,85 @@ export default function EvidenceWorkflows({task,caseId,role,read,mutate,uploadDo
     const result=await read(base+'/assigned-policy') as PolicyEdition;
     setPolicy(result);
     setPolicyConsent(false);
+  }
+  if(['ACTIVITY','INTRODUCTION','CHECK_IN'].includes(task.kind)&&role!=='IT'){
+    const latest=activities?.at(-1);
+    const organizer=role===task.owner_role&&(role==='HR'||role==='MANAGER');
+    const canSchedule=organizer&&(task.state==='READY'||task.state==='IN_PROGRESS')&&
+      (!latest||latest.attendance?.outcome!=='ATTENDED');
+    const slotValid=activityStart&&activityEnd&&
+      Number.isFinite(Date.parse(activityStart))&&Number.isFinite(Date.parse(activityEnd))&&
+      Date.parse(activityEnd)>Date.parse(activityStart);
+    const canRecord=organizer&&task.state==='IN_PROGRESS'&&latest&&!latest.attendance&&
+      Date.parse(latest.end)<=Date.now();
+    return <section className="subpanel" aria-label="Activity occurrence and attendance">
+      <h5>Versioned meeting and attendance</h5>
+      <p className="meta">Meeting scheduling is recorded locally; no calendar invitation or video link is sent externally.</p>
+      <button className="quiet" disabled={busy} onClick={()=>void safeRun(loadActivities)}>
+        Load activity schedule
+      </button>
+      {activities&&activities.length===0&&<p className="meta">No meeting scheduled.</p>}
+      {activities&&activities.map(occ=><p className="meta" key={occ.id}>
+        Revision {occ.revision}: {new Date(occ.start).toLocaleString()} — {new Date(occ.end).toLocaleString()},
+        {' '}{occ.medium}: {occ.meeting_reference}.
+        {occ.attendance?' Attendance '+occ.attendance.outcome:' Attendance pending'}
+      </p>)}
+      {canSchedule&&<div className="form">
+        <label>Meeting start (local)
+          <input type="datetime-local" value={activityStart}
+            onChange={e=>setActivityStart(e.target.value)}/>
+        </label>
+        <label>Meeting end (local)
+          <input type="datetime-local" value={activityEnd}
+            onChange={e=>setActivityEnd(e.target.value)}/>
+        </label>
+        <label>Meeting medium
+          <select value={activityMedium} onChange={e=>
+            setActivityMedium(e.target.value as 'VIDEO'|'IN_PERSON')}>
+            <option value="VIDEO">Video (local record only)</option>
+            <option value="IN_PERSON">In-person</option>
+          </select>
+        </label>
+        <label>Room or approved meeting reference
+          <input required maxLength={160} value={activityReference}
+            onChange={e=>setActivityReference(e.target.value)}/>
+        </label>
+        <label>Scheduling/rescheduling reason
+          <input required minLength={8} maxLength={300} value={activityReason}
+            onChange={e=>setActivityReason(e.target.value)}/>
+        </label>
+        <button disabled={busy||!slotValid||activityReference.trim().length<4||
+          activityReason.trim().length<8} onClick={()=>void safeRun(async()=>{
+          await mutate(base+'/activity-occurrences/schedule',{
+            start:new Date(activityStart).toISOString(),
+            end:new Date(activityEnd).toISOString(),
+            medium:activityMedium,meeting_reference:activityReference,
+            reason:activityReason});
+          await loadActivities();
+          setActivityReason('');
+        })}>{latest?'Record reschedule':'Schedule meeting occurrence'}</button>
+      </div>}
+      {canRecord&&latest&&<div className="form">
+        <label>Actual attendance outcome
+          <select value={attendanceOutcome} onChange={e=>
+            setAttendanceOutcome(e.target.value as 'ATTENDED'|'MISSED')}>
+            <option value="ATTENDED">Attended</option>
+            <option value="MISSED">Missed — task remains incomplete</option>
+          </select>
+        </label>
+        <label>Organizer attendance evidence
+          <textarea required maxLength={500} value={attendanceNote}
+            onChange={e=>setAttendanceNote(e.target.value)}/>
+        </label>
+        <button disabled={busy||attendanceNote.trim().length<8}
+          onClick={()=>void safeRun(async()=>{
+            await mutate(base+'/activity-occurrences/'+latest.id+'/attendance',{
+              outcome:attendanceOutcome,note:attendanceNote});
+            await loadActivities();setAttendanceNote('');
+          })}>Record organizer attendance</button>
+      </div>}
+      {error&&<p role="alert" className="block">Activity operation failed: {error}</p>}
+    </section>;
   }
   if(task.kind==='TRAINING'&&(role==='EMPLOYEE'||role==='HR')){
     return <section className="subpanel" aria-label="Versioned training quiz">
