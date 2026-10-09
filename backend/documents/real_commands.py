@@ -38,6 +38,8 @@ def _status(upload):
         return review.decision if review else 'AWAITING_HR_REVIEW'
     last=SecureScanAttempt.objects.filter(upload=upload).order_by('-number').first()
     if last:
+        if last.outcome=='ERROR' and last.number>=3:
+            return 'SCAN_EXHAUSTED'
         return {'MALWARE':'REJECTED_SECURITY','ERROR':'SCAN_FAILED','CLEAN':'PROMOTION_PENDING'}[last.outcome]
     return 'QUARANTINED'
 
@@ -63,7 +65,7 @@ def prepare(*,actor,case_id,task_id,sha256,size,filename,key,expected_version):
             raise CommandFailure('TASK_NOT_READY',409)
         last=_latest_upload(task)
         if last and _status(last) not in (
-            'REJECTED','NEEDS_CLARIFICATION','REJECTED_SECURITY'):
+            'REJECTED','NEEDS_CLARIFICATION','REJECTED_SECURITY','SCAN_EXHAUSTED'):
             raise CommandFailure('DOCUMENT_REVISION_NOT_REPLACEABLE',409)
         # Legacy synthetic accepted revisions also forbid replacement.
         if task.execution_state=='COMPLETED':
