@@ -12,7 +12,7 @@ from backend.onboarding import views as m1
 from backend.onboarding import commands
 from backend.onboarding.services import CommandFailure,get_authorized_case,scoped_cases
 from backend.onboarding.models import Task
-from backend.onboarding.state_machine import summary_task,case_progress
+from backend.onboarding.state_machine import summary_task,case_progress,project_task_states
 
 @csrf_protect
 def cases_collection(request):
@@ -83,10 +83,12 @@ def day_one(request,case_id):
 def tasks(request,case_id):
     try:
         member,case=get_authorized_case(request.user,case_id)
-        qs=Task.objects.filter(case=case).select_related('owner_assignment').order_by('due_at','key')[:100]
+        rows=list(Task.objects.filter(case=case).select_related('owner_assignment')
+                  .order_by('due_at','key')[:100])
+        projected=project_task_states(case,rows)
         return JsonResponse({'case_id':str(case.pk),'case_status':case.status,
             'case_version':case.version,'progress':case_progress(case),
-            'tasks':[summary_task(t,member,case) for t in qs]})
+            'tasks':[summary_task(t,member,case,projected) for t in rows]})
     except CommandFailure as exc:return error(exc.code,exc.status)
     except PermissionDenied:return error('UNAUTHENTICATED',401)
     except DatabaseError as exc:return transient_db_response(exc,preflight=True)
@@ -95,10 +97,12 @@ def tasks(request,case_id):
 def task_detail(request,case_id,task_id):
     try:
         member,case=get_authorized_case(request.user,case_id)
-        task=Task.objects.filter(case=case,pk=task_id).first()
+        rows=list(Task.objects.filter(case=case))
+        task=next((t for t in rows if t.pk==task_id),None)
         if task is None:return error('NOT_FOUND',404)
+        projected=project_task_states(case,rows)
         return JsonResponse({'case_id':str(case.pk),'case_version':case.version,
-                             'task':summary_task(task,member,case)})
+                             'task':summary_task(task,member,case,projected)})
     except CommandFailure as exc:return error(exc.code,exc.status)
     except PermissionDenied:return error('UNAUTHENTICATED',401)
     except DatabaseError as exc:return transient_db_response(exc,preflight=True)
@@ -134,10 +138,16 @@ def workspaces_me(request):
         else:
             qs=Task.objects.filter(case__in=cases,owner_role=member.role,
                  owner_assignment__member=member,owner_assignment__effective_to__isnull=True)
-        qs=qs.select_related('case','case__employee__user','owner_assignment').order_by('due_at','id')[:100]
+        rows=list(qs.select_related('case','case__employee__user','owner_assignment')
+                  .order_by('due_at','id')[:100])
+        projections={}
+        for t in rows:
+            if t.case_id not in projections:
+                all_tasks=list(Task.objects.filter(case_id=t.case_id))
+                projections[t.case_id]=project_task_states(t.case,all_tasks)
         return JsonResponse({'role':member.role,'results':[
             {'case_id':str(t.case_id),'employee_name':t.case.employee.user.display_name,
-             **summary_task(t,member,t.case)} for t in qs]})
+             **summary_task(t,member,t.case,projections[t.case_id])} for t in rows]})
     except PermissionDenied:return error('UNAUTHENTICATED',401)
     except DatabaseError as exc:return transient_db_response(exc,preflight=True)
 

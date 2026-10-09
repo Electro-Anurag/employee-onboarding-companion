@@ -70,21 +70,76 @@ def recompute(case,*,now=None):
             changes.append({'task_id':str(t.pk),'key':t.key,'from':previous,'to':new})
     return changes
 
-def summary_task(t,member,case):
+def project_task_states(case,tasks,*,now=None):
+    """Read-only time/owner projection; commands remain serialized authority.
+
+    A GET never alters version, audit, task state, or receipts. Work becomes
+    actionable on time without requiring an unrelated mutation/scheduler.
+    """
+    now=now or timezone.now()
+    rows=list(tasks)
+    if len(rows)>60:
+        raise ValueError('TASK_LIMIT_EXCEEDED')
+    if case.status not in ('PRE_JOINING','ACTIVE'):
+        return {t.pk:{'state':t.execution_state,
+                      'blocked_reason_codes':blockers,
+                      'owner_assignment_id':t.owner_assignment_id} for t in rows}
+    ids={t.pk for t in rows}
+    parents={tid:set() for tid in ids}
+    for before,after in TaskDependency.objects.filter(case=case).values_list(
+            'predecessor_id','successor_id'):
+        if before not in ids or after not in ids:
+            raise ValueError('CROSS_CASE_DEPENDENCY')
+        parents[after].add(before)
+    from backend.onboarding.models import TaskCompletion
+    completed=set(TaskCompletion.objects.filter(task__case=case,
+            task__execution_state='COMPLETED').values_list('task_id',flat=True))
+    assignments=current_assignments(case,now)
+    projected={}
+    for t in rows:
+        assignment=assignments.get(t.owner_role)
+        owner_id=(assignment.pk if assignment is not None and t.owner_role!=Membership.EMPLOYEE else None)
+        if t.execution_state in ('COMPLETED','CANCELLED'):
+            projected[t.pk]={'state':t.execution_state,'blocked_reason_codes':[],
+                             'owner_assignment_id':owner_id}
+            continue
+        blocked=[]
+        if any(before not in completed for before in parents[t.pk]):
+            blocked.append('PREREQUISITE_INCOMPLETE')
+        if not owner_valid(t,case,assignments):
+            blocked.append('OWNER_UNAVAILABLE')
+        if blocked:
+            state='BLOCKED'
+        elif now<t.available_at:
+            state='NOT_STARTED'
+        elif t.work_started_at is not None:
+            state='IN_PROGRESS'
+        else:
+            state='READY'
+        projected[t.pk]={'state':state,'blocked_reason_codes':blocked,
+                         'owner_assignment_id':owner_id}
+    return projected
+
+def summary_task(t,member,case,projected=None):
     role=member.role
+    current=(projected or {}).get(t.pk,{})
+    live_state=current.get('state',t.execution_state)
+    blockers=current.get('blocked_reason_codes',t.blocked_reason_codes)
+    owner_id=current.get('owner_assignment_id',t.owner_assignment_id)
     ownerscope=(t.owner_role==role and (
         case.employee_id==member.pk if role==Membership.EMPLOYEE else
-        case.assignments.filter(pk=t.owner_assignment_id,member=member,role=role,
-                                effective_to__isnull=True).exists()))
+        case.assignments.filter(pk=owner_id,member=member,role=role,
+                                effective_to__isnull=True,
+                                effective_from__lte=timezone.now()).exists()))
     actions=[]
     if case.status in ('PRE_JOINING','ACTIVE') and ownerscope:
-        if t.execution_state=='READY': actions.append('START')
-        if t.kind=='MANAGER_PREPARATION' and t.execution_state in ('READY','IN_PROGRESS'):
+        if live_state=='READY': actions.append('START')
+        if t.kind=='MANAGER_PREPARATION' and live_state in ('READY','IN_PROGRESS'):
             actions.append('ATTEST_MANAGER_PREPARATION')
     return {'id':str(t.pk),'key':t.key,'kind':t.kind,'title':t.title,
-        'required':t.required,'state':t.execution_state,'owner_role':t.owner_role,
+        'required':t.required,'state':live_state,'owner_role':t.owner_role,
         'available_at':t.available_at.isoformat(),'due_at':t.due_at.isoformat(),
-        'overdue':t.execution_state not in ('COMPLETED','CANCELLED') and timezone.now()>t.due_at,
+        'overdue':live_state not in ('COMPLETED','CANCELLED') and timezone.now()>t.due_at,
         'blocked_reason_codes':t.blocked_reason_codes,'started_at':t.work_started_at.isoformat() if t.work_started_at else None,
         'completed_at':t.completed_at.isoformat() if t.completed_at else None,
         'version':t.version,'allowed_actions':actions}
