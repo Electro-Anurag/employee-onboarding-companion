@@ -470,8 +470,7 @@ def test_overdue_cancelled_meeting_recovers_with_real_elapsed_reschedule(world):
     assert attended['result']['task_completion']=='COMPLETED'
     assert Task.objects.get(pk=task.pk).execution_state=='COMPLETED'
     assert Task.objects.get(pk=dependent.pk).execution_state=='READY'
-    assert TaskCompletion.objects.get(task=task).activity_attendance_id==second_id or (
-        TaskCompletion.objects.get(task=task).activity_attendance.occurrence_id==second_id)
+    assert TaskCompletion.objects.get(task=task).activity_attendance.occurrence_id==second_id
     assert ActivityCancellation.objects.filter(occurrence_id=first_id).exists()
     assert AuditEvent.objects.filter(event_type='ACTIVITY_RESCHEDULED',
         sanitized_change__scheduled_after_due=True).exists()
