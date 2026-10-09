@@ -39,8 +39,16 @@ def inspect(raw):
                 raise ValueError('cyclic or excessive PDF outline')
             seen.add(marker)
             item=ref.get_object() if hasattr(ref,'get_object') else ref
-            if not isinstance(item,dict) or any(k in item for k in ('/A','/AA')):
+            if not isinstance(item,dict) or '/AA' in item:
                 raise ValueError('active outline action')
+            if '/A' in item:
+                action=item['/A'].get_object()
+                # A local GoTo with exactly its destination is navigation,
+                # not an external/active operation. Forbid chained actions,
+                # JavaScript, Launch, GoToR, URI and all unknown action forms.
+                if (not isinstance(action,dict) or action.get('/S')!='/GoTo'
+                        or set(action)!={'/S','/D'}):
+                    raise ValueError('unsafe outline action')
             pending.extend((item.get('/First'),item.get('/Next')))
     for page in reader.pages:
         if any(k in page for k in ('/AA','/Annots')):
