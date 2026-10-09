@@ -126,8 +126,10 @@ def _lock_case_authority(case,actor,candidate_member_id=None):
 
     # FKs cannot change under an M1 case root; the fresh locked lookup is
     # authoritative even if actor's in-memory session user was loaded earlier.
-    if not member.user.is_active or not root.user.is_active:
+    if not locked_users[actor.pk].is_active or not locked_users[root.user_id].is_active:
         raise CommandFailure('NOT_FOUND',404)
+    member.user=locked_users[actor.pk]
+    root.user=locked_users[root.user_id]
     candidate=locked_members.get(candidate_member_id) if candidate_member_id is not None else None
     # Inconsistent/missing candidate identity must reject NEW transitions, but
     # must never suppress a historical receipt for an authorized caller.

@@ -212,7 +212,10 @@ def next_draft(*,actor,template_id):
         last=TemplateVersion.objects.filter(template=t).order_by('-version_number').first()
         if last.state!=TemplateVersion.PUBLISHED: raise TemplateFailure('DRAFT_ALREADY_EXISTS',409)
         tasks,edges=_snapshot(last)
-        version=TemplateVersion.objects.create(template=t,version_number=last.version_number+1)
+        # Revisions are monotonically increasing ACROSS template versions.
+        # An old v1/r2 authorization must never match changed v2 content.
+        version=TemplateVersion.objects.create(template=t,version_number=last.version_number+1,
+                                               revision=last.revision+1)
         _replace_draft(version,tasks,edges)
         append_event(stream_key=f'org:{member.organization_id}',actor=actor,
             event_type='TEMPLATE_DRAFT_CLONED',entity_id=version.pk,
