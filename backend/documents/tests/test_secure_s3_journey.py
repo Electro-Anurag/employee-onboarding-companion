@@ -419,3 +419,38 @@ def test_m3_exhausted_scan_error_permits_only_safe_new_revision(world,s3_doubles
             expected_version=5)
     assert superseded.value.code=='UPLOAD_NOT_CURRENT'
     assert TaskCompletion.objects.filter(task=task).count()==0
+
+@pytest.mark.django_db(transaction=True)
+def test_m3_secure_download_rechecks_revocation_after_s3_read(world,s3_doubles):
+    """Private bytes are not emitted when authority is revoked during S3 I/O."""
+    from backend.accounts.models import Membership
+    org,people=world
+    made,_=create(world,published(world))
+    case=OnboardingCase.objects.get(pk=made['case_id'])
+    activate_case(actor=people['HR'][0],case_id=case.pk,
+        key=uuid.uuid4(),expected_version=1)
+    task=Task.objects.get(case=case,key='identity_document')
+    raw=generated_pdf()
+    intent,_=prepare(actor=people['EMPLOYEE'][0],case_id=case.pk,
+        task_id=task.pk,sha256=hashlib.sha256(raw).hexdigest(),
+        size=len(raw),filename='revocation_race.pdf',key=uuid.uuid4(),
+        expected_version=2)
+    ident=uuid.UUID(intent['result']['upload_id'])
+    receive(actor=people['EMPLOYEE'][0],case_id=case.pk,task_id=task.pk,
+        upload_id=ident,raw=raw,key=uuid.uuid4(),expected_version=3)
+    scan_one(ident,scanner=lambda _:('CLEAN','synthetic scanner'))
+    client=Client()
+    client.force_login(people['HR'][0])
+    session=client.session
+    session['m1_session_started']=time.time()
+    session.save()
+    def concurrent_revoke(clean):
+        Membership.objects.filter(user=people['HR'][0]).update(active=False)
+        return raw
+    path=f'/api/v1/cases/{case.pk}/tasks/{task.pk}/secure-documents/{ident}/download'
+    with patch('backend.documents.real_views.storage.download',
+               side_effect=concurrent_revoke) as transfer:
+        response=client.get(path)
+    transfer.assert_called_once()
+    assert response.status_code==404
+    assert raw not in response.content
