@@ -316,3 +316,38 @@ def test_m3_s3_scan_enqueue_is_atomic_with_receipt_and_quarantine(world,s3_doubl
           "SELECT count(*) FROM procrastinate_jobs WHERE task_name = %s AND args->>'upload_id' = %s",
           ['m3.secure_document_scan',str(upload_id)])
         assert cursor.fetchone()[0]==1
+
+@pytest.mark.django_db(transaction=True)
+def test_m3_reconcile_does_not_starve_new_valid_upload_after_100_old_intents(world,s3_doubles):
+    """Aged unreceived intents and terminal scan outcomes cannot consume work slots.
+
+    The stress fixture directly seeds historical rows to test selection; real
+    employee commands still enforce their per-task revision ceiling.
+    """
+    from django.core.management import call_command
+    from backend.documents.management.commands.reconcile_secure_documents import eligible_uploads
+    from backend.documents.real_models import SecureUpload,StoredQuarantineObject
+    org,people=world
+    created,_=create(world,published(world))
+    case=OnboardingCase.objects.get(pk=created['case_id'])
+    activate_case(actor=people['HR'][0],case_id=case.pk,key=uuid.uuid4(),
+                  expected_version=1)
+    task=Task.objects.get(case=case,key='identity_document')
+    raw=generated_pdf()
+    digest=hashlib.sha256(raw).hexdigest()
+    uploads=[SecureUpload(task=task,revision=n,
+        employee=people['EMPLOYEE'][0],sha256=digest,byte_length=len(raw),
+        filename=f'generated_{n}.pdf',object_key=f'quarantine/stress/{uuid.uuid4()}.pdf')
+        for n in range(1,107)]
+    SecureUpload.objects.bulk_create(uploads)
+    current=uploads[-1]
+    StoredQuarantineObject.objects.create(upload=current,version_id='stored-real-version')
+    ids=list(eligible_uploads(1).values_list('pk',flat=True))
+    assert ids==[current.pk]
+    from io import StringIO
+    output=StringIO()
+    with patch('backend.documents.management.commands.reconcile_secure_documents.scan_one',
+               return_value={'outcome':'CLEAN','state':'AWAITING_HR_REVIEW'}) as worker:
+        call_command('reconcile_secure_documents',limit=1,stdout=output)
+    assert 'PROCESSED=1 ERRORS=0' in output.getvalue()
+    worker.assert_called_once_with(current.pk)
