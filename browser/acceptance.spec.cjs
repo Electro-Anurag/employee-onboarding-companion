@@ -135,7 +135,7 @@ test('four-role real-browser case, template, dependency and evidence journey',as
       await expect(manager.getByText('1/17 mandatory tasks completed')).toBeVisible();
       await expect(taskCard(manager,'Team Introduction')).not.toContainText('PREREQUISITE_INCOMPLETE');
       await expect(taskCard(manager,'Workspace Access')).toContainText('PREREQUISITE_INCOMPLETE');
-      await expect(manager.getByText(/Document, training and activity completion require separate evidence/)).toBeVisible();
+      await expect(manager.getByText(/Synthetic text-only document uploads and HR decisions use immutable evidence/)).toBeVisible();
       await expect(taskCard(manager,'Manager Preparation').getByRole('button',{name:'Complete preparation'})).toHaveCount(0);
     });
 
@@ -221,6 +221,47 @@ test('four-role real-browser case, template, dependency and evidence journey',as
       await expect(taskCard(employee,'Conduct Ack')).toContainText('COMPLETED');
       await expect(employee.getByText('3/17 mandatory tasks completed')).toBeVisible();
       await expect(taskCard(employee,'Workspace Access')).toContainText('PREREQUISITE_INCOMPLETE');
+    });
+
+    await test.step('M3 employee document rejection, revision and HR acceptance unlock M4 equipment',async()=>{
+      await openCase(employee);
+      const document=taskCard(employee,'Identity Document');
+      await expect(document).toContainText('READY');
+      const fixture=Buffer.from(
+        'SYNTHETIC DOCUMENT V1\\nIDENTITY EXAMPLE: DEMO-IDENTITY-001\\nNO REAL PERSON OR IDENTITY DATA\\n'
+          .replaceAll('\\n','\\n'),'utf8');
+      await document.locator('input[type="file"]').setInputFiles({
+        name:'synthetic_identity.txt',mimeType:'text/plain',buffer:fixture});
+      await document.getByRole('button',{name:'Upload synthetic document'}).click();
+      await expect(taskCard(employee,'Identity Document')).toContainText('Pending HR review');
+      await expect(employee.getByText('3/17 mandatory tasks completed')).toBeVisible();
+
+      await openCase(hr);
+      let hrDoc=taskCard(hr,'Identity Document');
+      await hrDoc.getByRole('button',{name:'Load document history'}).click();
+      await hrDoc.getByLabel('HR decision').selectOption('REJECTED');
+      await hrDoc.getByLabel('Reason / review evidence').fill('Please submit a replacement demo fixture');
+      await hrDoc.getByRole('button',{name:'Record independent HR document decision'}).click();
+      await expect(hrDoc).toContainText('REJECTED');
+      await expect(taskCard(hr,'Equipment Setup')).toContainText('PREREQUISITE_INCOMPLETE');
+
+      await openCase(employee);
+      const doc2=taskCard(employee,'Identity Document');
+      await doc2.getByRole('button',{name:'Load document history'}).click();
+      await doc2.locator('input[type="file"]').setInputFiles({
+        name:'synthetic_identity.txt',mimeType:'text/plain',buffer:fixture});
+      await doc2.getByRole('button',{name:'Upload synthetic document'}).click();
+      await expect(doc2).toContainText('Revision 2');
+
+      await openCase(hr);
+      hrDoc=taskCard(hr,'Identity Document');
+      await hrDoc.getByRole('button',{name:'Load document history'}).click();
+      await hrDoc.getByLabel('HR decision').selectOption('ACCEPTED');
+      await hrDoc.getByLabel('Reason / review evidence').fill('Approved exact synthetic demo fixture');
+      await hrDoc.getByRole('button',{name:'Record independent HR document decision'}).click();
+      await expect(taskCard(hr,'Identity Document')).toContainText('COMPLETED');
+      await expect(hr.getByText('4/17 mandatory tasks completed')).toBeVisible();
+      await expect(taskCard(hr,'Equipment Setup')).toContainText('READY');
     });
 
     await test.step('same-mounted-page identity switch clears HR template and pending reads',async()=>{

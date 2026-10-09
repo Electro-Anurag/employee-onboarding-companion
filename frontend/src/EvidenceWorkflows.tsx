@@ -4,6 +4,10 @@ type Role='HR'|'IT'|'MANAGER'|'EMPLOYEE';
 type FormEntry={id:string;revision:number;answers:Record<string,string>;
   review:null|{decision:'ACCEPTED'|'CHANGES_REQUESTED';note:string}};
 type FormList={results:FormEntry[]};
+type DocumentRow={id:string;revision:number;filename:string;scan_status:string;
+  scan_profile:string;malware_scanned:boolean;
+  review:null|{decision:'ACCEPTED'|'REJECTED'|'NEEDS_CLARIFICATION';note:string}};
+type DocumentList={results:DocumentRow[];synthetic_only:boolean;malware_scanned:boolean};
 type ITOperation={state:'REQUESTED'|'SIMULATED_FULFILLED';provider:string;simulation_digest:string|null;
   confirmation_id:string|null;task_completion:string};
 type ReceiptSource={provider:string;candidates:{task_id:string;confirmation_id:string;title:string}[]};
@@ -11,10 +15,11 @@ type PolicyEdition={task_id:string;policy:{version:string;content_sha256:string;
   acknowledged:boolean};
 type Task={id:string;key:string;kind:string;state:string;owner_role:string};
 
-export default function EvidenceWorkflows({task,caseId,role,read,mutate}:{
+export default function EvidenceWorkflows({task,caseId,role,read,mutate,uploadDocument}:{
   task:Task;caseId:string;role:Role;
   read:(path:string)=>Promise<unknown>;
   mutate:(path:string,body:unknown)=>Promise<void>;
+  uploadDocument:(path:string,file:File)=>Promise<void>;
 }){
   const [history,setHistory]=useState<FormEntry[]|null>(null);
   const [operation,setOperation]=useState<ITOperation|null>(null);
@@ -30,6 +35,10 @@ export default function EvidenceWorkflows({task,caseId,role,read,mutate}:{
   const [receiptConfirmation,setReceiptConfirmation]=useState('');
   const [policy,setPolicy]=useState<PolicyEdition|null>(null);
   const [policyConsent,setPolicyConsent]=useState(false);
+  const [documentRows,setDocumentRows]=useState<DocumentRow[]|null>(null);
+  const [documentFile,setDocumentFile]=useState<File|null>(null);
+  const [documentDecision,setDocumentDecision]=useState<'ACCEPTED'|'REJECTED'|'NEEDS_CLARIFICATION'>('ACCEPTED');
+  const [documentNote,setDocumentNote]=useState('');
   const base='/api/v1/cases/'+caseId+'/tasks/'+task.id;
   async function safeRun(fn:()=>Promise<void>){
     setBusy(true);setError('');
@@ -49,10 +58,62 @@ export default function EvidenceWorkflows({task,caseId,role,read,mutate}:{
     setReceiptSource(result);
     setReceiptConfirmation(current=>current||result.candidates[0]?.confirmation_id||'');
   }
+  async function loadDocumentHistory(){
+    const result=await read(base+'/document-revisions') as DocumentList;
+    setDocumentRows(result.results);
+  }
   async function loadPolicy(){
     const result=await read(base+'/assigned-policy') as PolicyEdition;
     setPolicy(result);
     setPolicyConsent(false);
+  }
+  if(task.kind==='DOCUMENT'&&(role==='EMPLOYEE'||role==='HR')){
+    const current=documentRows?.at(-1);
+    const mayUpload=role==='EMPLOYEE'&&(task.state==='READY'||task.state==='IN_PROGRESS')&&
+      (!current||current.review?.decision==='REJECTED'||current.review?.decision==='NEEDS_CLARIFICATION');
+    const mayReview=role==='HR'&&task.state==='IN_PROGRESS'&&current&&!current.review;
+    return <section className="subpanel" aria-label="Synthetic document workflow">
+      <h5>Synthetic document submission and HR verification</h5>
+      <p className="meta">Only exact demonstration text files are accepted. These files are NOT antivirus scanned. Do not upload real employee documents.</p>
+      <a href={base+'/document-sample'}>Download allowed synthetic text sample</a>
+      <button className="quiet" disabled={busy}
+        onClick={()=>void safeRun(loadDocumentHistory)}>Load document history</button>
+      {documentRows&&documentRows.map(entry=><p className="meta" key={entry.id}>
+        Revision {entry.revision}: {entry.scan_status} (not antivirus scanned) ·
+        {entry.review?entry.review.decision+(entry.review.note?' — '+entry.review.note:''):' Pending HR review'}
+        <a href={base+'/document-revisions/'+entry.id+'/download'}> Download revision</a>
+      </p>)}
+      {mayUpload&&<form className="form" onSubmit={e=>{e.preventDefault();
+        if(!documentFile)return;
+        void safeRun(async()=>{await uploadDocument(base+'/document-revisions',documentFile);
+          await loadDocumentHistory();setDocumentFile(null);});}}>
+        <label>Select the downloaded synthetic .txt fixture
+          <input type="file" accept=".txt,text/plain" required
+            onChange={e=>setDocumentFile(e.target.files?.[0]||null)}/>
+        </label>
+        <button type="submit" disabled={busy||!documentFile}>Upload synthetic document</button>
+      </form>}
+      {mayReview&&current&&<div className="form">
+        <label>HR decision
+          <select value={documentDecision} onChange={e=>setDocumentDecision(
+            e.target.value as 'ACCEPTED'|'REJECTED'|'NEEDS_CLARIFICATION')}>
+            <option value="ACCEPTED">Accept synthetic revision</option>
+            <option value="REJECTED">Reject and request replacement</option>
+            <option value="NEEDS_CLARIFICATION">Request clarification</option>
+          </select>
+        </label>
+        <label>Reason / review evidence
+          <textarea required maxLength={500} value={documentNote}
+            onChange={e=>setDocumentNote(e.target.value)}/>
+        </label>
+        <button disabled={busy||!documentNote.trim()} onClick={()=>void safeRun(async()=>{
+          await mutate(base+'/document-revisions/'+current.id+'/review',{
+            decision:documentDecision,note:documentNote});
+          await loadDocumentHistory();setDocumentNote('');
+        })}>Record independent HR document decision</button>
+      </div>}
+      {error&&<p role="alert" className="block">Document operation failed: {error}</p>}
+    </section>;
   }
   if(task.kind==='POLICY_ACK'&&(role==='EMPLOYEE'||role==='HR')){
     return <section className="subpanel" aria-label="Assigned policy acknowledgement">

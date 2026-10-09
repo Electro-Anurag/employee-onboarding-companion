@@ -206,6 +206,20 @@ export default function App(){
       await reloadCase(detail.case_id,me);
     });
   }
+  async function uploadDocument(path:string,file:File){
+    if(!detail||!me)throw new Error('No authenticated case selected');
+    const generation=identityEpoch.current;
+    const caseId=detail.case_id;
+    const body=new FormData();
+    body.set('file',file);
+    const response=await fetch(path,{method:'POST',credentials:'same-origin',
+      headers:{'X-CSRFToken':csrf,'Idempotency-Key':crypto.randomUUID(),
+        'If-Match':'"case:'+caseId+':v'+detail.case_version+'"'},body});
+    const result=await response.json() as ApiError;
+    if(!response.ok)throw new Error(result.error?.code||'HTTP '+response.status);
+    if(identityEpoch.current!==generation)return;
+    await reloadCase(caseId,me);
+  }
   async function mutateEvidence(path:string,body:unknown){
     if(!detail||!me)throw new Error('No authenticated case selected');
     const generation=identityEpoch.current;
@@ -328,9 +342,9 @@ export default function App(){
                 {t.allowed_actions.includes('ATTEST_MANAGER_PREPARATION')&&
                   <button disabled={busy} onClick={()=>setAttestTask(old=>old===t.id?null:t.id)}>Complete preparation</button>}
               </div>
-              {(t.kind==='FORM'||t.kind==='POLICY_ACK'||t.kind==='ACCESS'||t.kind==='EQUIPMENT'||t.kind==='EQUIPMENT_RECEIPT')&&
+              {(t.kind==='FORM'||t.kind==='DOCUMENT'||t.kind==='POLICY_ACK'||t.kind==='ACCESS'||t.kind==='EQUIPMENT'||t.kind==='EQUIPMENT_RECEIPT')&&
                 <EvidenceWorkflows key={me.user_id+':'+t.id} task={t} caseId={detail.case_id}
-                  role={me.role} read={path=>request(path)} mutate={mutateEvidence}/>}
+                  role={me.role} read={path=>request(path)} mutate={mutateEvidence} uploadDocument={uploadDocument}/>}
               {attestTask===t.id&&<form className="form attest" onSubmit={e=>void attest(e)}>
                 <label>First-week plan<input required minLength={8} maxLength={300} value={plan} onChange={e=>setPlan(e.target.value)}/></label>
                 <label>Buddy's name<input required minLength={2} maxLength={100} value={buddy} onChange={e=>setBuddy(e.target.value)}/></label>
@@ -339,7 +353,7 @@ export default function App(){
                 <button disabled={busy||!station} type="submit">Submit recorded evidence</button>
               </form>}
             </article>)}</div>
-            <p className="meta">Document, training and activity completion require separate evidence. Form and policy approvals use immutable versioned evidence; M4 IT/receipt results are synthetic, with no external IT connection.</p>
+            <p className="meta">Synthetic text-only document uploads and HR decisions use immutable evidence; production document storage and malware scanning are not yet implemented. Training and activity completion remain under development.</p>
           </section>}
         </section>}
         {tab==='work'&&<section className="panel"><h2>My assigned tasks</h2>
