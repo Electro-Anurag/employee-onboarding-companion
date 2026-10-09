@@ -432,7 +432,7 @@ export default function EvidenceWorkflows({task,caseId,role,read,mutate,uploadDo
       {operation?.failures?.map(f=><p className="meta" key={f.id}>
         Failure {f.sequence}: {f.cause} — {f.note} (synthetic, task incomplete)
       </p>)}
-      {role==='IT'&&task.state==='READY'&&
+      {role==='IT'&&(task.state==='READY'||task.state==='IN_PROGRESS')&&!operation&&
         <button disabled={busy} onClick={()=>void safeRun(async()=>{
           await mutate(base+'/it-operation/request',{});await loadIT();
         })}>Create synthetic IT request</button>}
@@ -488,7 +488,8 @@ export default function EvidenceWorkflows({task,caseId,role,read,mutate,uploadDo
         Load confirmed equipment evidence
       </button>
       {receiptSource&&<p className="meta">{receiptSource.candidates.length} confirmed equipment record(s)</p>}
-      {receiptSource&&receiptSource.candidates.length>0&&task.state==='READY'&&
+      {receiptSource&&receiptSource.candidates.length>0&&
+        (task.state==='READY'||task.state==='IN_PROGRESS')&&
         <div className="form">
           <label>Confirmed equipment
             <select value={receiptConfirmation} onChange={e=>setReceiptConfirmation(e.target.value)}>
