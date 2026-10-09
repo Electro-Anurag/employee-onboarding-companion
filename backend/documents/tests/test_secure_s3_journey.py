@@ -454,3 +454,44 @@ def test_m3_secure_download_rechecks_revocation_after_s3_read(world,s3_doubles):
     transfer.assert_called_once()
     assert response.status_code==404
     assert raw not in response.content
+
+@pytest.mark.django_db(transaction=True)
+def test_m3_invalid_unreceived_document_can_be_audited_superseded(world,s3_doubles):
+    org,people=world
+    made,_=create(world,published(world))
+    case=OnboardingCase.objects.get(pk=made['case_id'])
+    activate_case(actor=people['HR'][0],case_id=case.pk,key=uuid.uuid4(),expected_version=1)
+    task=Task.objects.get(case=case,key='identity_document')
+    broken=b'%PDF-1.4'+b' broken-content ' * 8 + b'%%EOF'
+    bad,_=prepare(actor=people['EMPLOYEE'][0],case_id=case.pk,task_id=task.pk,
+        sha256=hashlib.sha256(broken).hexdigest(),size=len(broken),
+        filename='invalid.pdf',key=uuid.uuid4(),expected_version=2)
+    bad_id=uuid.UUID(bad['result']['upload_id'])
+    with pytest.raises(CommandFailure) as invalid:
+        receive(actor=people['EMPLOYEE'][0],case_id=case.pk,task_id=task.pk,
+            upload_id=bad_id,raw=broken,key=uuid.uuid4(),expected_version=3)
+    assert invalid.value.code in ('INVALID_OR_UNSAFE_PDF','INVALID_PDF_BYTES')
+    assert not StoredQuarantineObject.objects.filter(upload_id=bad_id).exists()
+    with pytest.raises(CommandFailure) as duplicated:
+        prepare(actor=people['EMPLOYEE'][0],case_id=case.pk,task_id=task.pk,
+            sha256=hashlib.sha256(broken).hexdigest(),size=len(broken),
+            filename='invalid.pdf',key=uuid.uuid4(),expected_version=3)
+    assert duplicated.value.code=='UPLOAD_INTENT_RESUME_REQUIRED'
+    good=generated_pdf()
+    fresh,_=prepare(actor=people['EMPLOYEE'][0],case_id=case.pk,task_id=task.pk,
+        sha256=hashlib.sha256(good).hexdigest(),size=len(good),
+        filename='corrected.pdf',key=uuid.uuid4(),expected_version=3)
+    assert fresh['result']['revision']==2
+    assert AuditEvent.objects.filter(event_type='DOCUMENT_UPLOAD_INTENT_SUPERSEDED').count()==1
+    fresh_id=uuid.UUID(fresh['result']['upload_id'])
+    stored,_=receive(actor=people['EMPLOYEE'][0],case_id=case.pk,task_id=task.pk,
+        upload_id=fresh_id,raw=good,key=fresh_id,expected_version=4)
+    assert receive(actor=people['EMPLOYEE'][0],case_id=case.pk,task_id=task.pk,
+        upload_id=fresh_id,raw=good,key=fresh_id,expected_version=4)[0]==stored
+    assert SecureUpload.objects.get(pk=bad_id).revision==1
+    assert scan_one(fresh_id,scanner=lambda _:('CLEAN','test scanner'))['state']=='AWAITING_HR_REVIEW'
+    reviewed,_=review(actor=people['HR'][0],case_id=case.pk,task_id=task.pk,
+        upload_id=fresh_id,decision='ACCEPTED',note='Corrected synthetic PDF reviewed',
+        key=uuid.uuid4(),expected_version=5)
+    assert reviewed['result']['task_completion']=='COMPLETED'
+    assert TaskCompletion.objects.get(task=task).evidence_type=='SECURE_DOCUMENT'
