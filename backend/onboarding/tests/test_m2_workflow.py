@@ -784,6 +784,7 @@ def test_astra_r8_read_time_expiration_unlocks_without_mutating_state(world):
     created,_=create(world,uuid.UUID(pub['version_id']))
     case=OnboardingCase.objects.get(pk=created['case_id'])
     activate_case(actor=p['HR'][0],case_id=case.pk,key=uuid.uuid4(),expected_version=1)
+    case.refresh_from_db()  # only persisted ACTIVE/PRE_JOINING cases project eligibility
     task=Task.objects.get(case=case,key='manager_preparation')
     assert task.execution_state=='NOT_STARTED'
     future=task.available_at+timedelta(minutes=5)
