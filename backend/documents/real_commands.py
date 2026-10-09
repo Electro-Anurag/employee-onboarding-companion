@@ -64,9 +64,13 @@ def prepare(*,actor,case_id,task_id,sha256,size,filename,key,expected_version):
         if task.execution_state not in ('READY','IN_PROGRESS'):
             raise CommandFailure('TASK_NOT_READY',409)
         last=_latest_upload(task)
-        if last and _status(last) not in (
-            'REJECTED','NEEDS_CLARIFICATION','REJECTED_SECURITY','SCAN_EXHAUSTED'):
+        last_state=_status(last) if last else None
+        if last and last_state not in (
+            'REJECTED','NEEDS_CLARIFICATION','REJECTED_SECURITY',
+            'SCAN_EXHAUSTED','AWAITING_CONTENT'):
             raise CommandFailure('DOCUMENT_REVISION_NOT_REPLACEABLE',409)
+        if last_state=='AWAITING_CONTENT' and last.sha256==sha256 and last.byte_length==size:
+            raise CommandFailure('UPLOAD_INTENT_RESUME_REQUIRED',409)
         # Legacy synthetic accepted revisions also forbid replacement.
         if task.execution_state=='COMPLETED':
             raise CommandFailure('TASK_ALREADY_COMPLETED',409)
@@ -80,9 +84,12 @@ def prepare(*,actor,case_id,task_id,sha256,size,filename,key,expected_version):
         case.version+=1
         case.save(update_fields=['version'])
         event=append_event(stream_key=f'case:{case.pk}',actor=actor,
-            event_type='DOCUMENT_UPLOAD_INTENT',entity_id=task.pk,
+            event_type=('DOCUMENT_UPLOAD_INTENT_SUPERSEDED'
+                if last_state=='AWAITING_CONTENT' else 'DOCUMENT_UPLOAD_INTENT'),
+            entity_id=task.pk,
             changes={'upload_id':str(obj.pk),'revision':number,
-                'sha256':sha256,'case_version':case.version})
+                'sha256':sha256,'case_version':case.version,
+                'superseded_upload_id':str(last.pk) if last_state=='AWAITING_CONTENT' else None})
         response={'command_id':str(uuid.uuid4()),'case_id':str(case.pk),
             'case_version':case.version,'result':{
                 'upload_id':str(obj.pk),'revision':number,'state':'AWAITING_CONTENT'},
