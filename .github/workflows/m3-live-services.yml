@@ -70,7 +70,11 @@ jobs:
       - name: Wait for S3, enable immutable versions, and require fresh actual clamd
         run: |
           uv run python - <<'PY'
+          import os
           import time
+          os.environ.setdefault('DJANGO_SETTINGS_MODULE','backend.config.settings')
+          import django
+          django.setup()
           from backend.documents import storage
           from backend.documents.scanner import clamav_signature_provenance
           s3=storage.client()
