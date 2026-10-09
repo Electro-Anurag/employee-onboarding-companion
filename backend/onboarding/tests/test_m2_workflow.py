@@ -644,3 +644,204 @@ def test_m2_day_one_http_requires_preconditions_and_denies_early_transition(worl
     assert refused.json()['error']['code']=='JOIN_DATE_NOT_REACHED'
     assert OnboardingCase.objects.get(pk=case.pk).version==2
     assert AuditEvent.objects.filter(event_type='CASE_DAY_ONE_STARTED').count()==0
+
+
+# Astra 2026-10-09 independent M2 STOP targeted regression evidence.
+@pytest.mark.django_db(transaction=True)
+def test_astra_r1_version_bound_preconditions_reject_cross_version_collision(world):
+    org,p=world
+    hr=p['HR'][0]
+    draft=create_default(actor=hr)
+    tid=uuid.UUID(draft['id'])
+    v1=uuid.UUID(draft['version_id'])
+    changed=edit_template(actor=hr,template_id=tid,revision=1,expected_version_id=v1,
+        tasks=draft['tasks'],edges=draft['dependencies'])
+    assert changed['revision']==2
+    published_v1=publish_template(actor=hr,template_id=tid,revision=2,expected_version_id=v1)
+    assert published_v1['state']=='PUBLISHED'
+    v2=next_draft(actor=hr,template_id=tid)
+    version2=uuid.UUID(v2['version_id'])
+    content=[{**t,'title':'Reviewed new content'} if t['key']=='manager_preparation' else t
+             for t in v2['tasks']]
+    approved=edit_template(actor=hr,template_id=tid,revision=1,expected_version_id=version2,
+        tasks=content,edges=v2['dependencies'])
+    assert approved['revision']==2
+    events_before=AuditEvent.objects.count()
+    receipts_before=CommandReceipt.objects.count()
+    with pytest.raises(TemplateFailure) as stale_edit:
+        edit_template(actor=hr,template_id=tid,revision=2,expected_version_id=v1,
+            tasks=draft['tasks'],edges=draft['dependencies'])
+    assert stale_edit.value.code=='STALE_TEMPLATE_VERSION'
+    with pytest.raises(TemplateFailure) as stale_publish:
+        publish_template(actor=hr,template_id=tid,revision=2,expected_version_id=v1)
+    assert stale_publish.value.code=='STALE_TEMPLATE_VERSION'
+    assert AuditEvent.objects.count()==events_before
+    assert CommandReceipt.objects.count()==receipts_before
+    assert TemplateTask.objects.get(version_id=version2,key='manager_preparation').title=='Reviewed new content'
+    assert TemplateVersion.objects.get(pk=version2).state=='DRAFT'
+
+
+@pytest.mark.django_db(transaction=True)
+def test_astra_r2_case_create_replay_requires_present_owner_authority(world):
+    org,p=world
+    v=published(world)
+    key=uuid.uuid4()
+    args=dict(actor=p['HR'][0],employee_id=p['EMPLOYEE'][1].pk,
+        template_version_id=v,joining_date=timezone.localdate()+timedelta(days=26),
+        owner_ids={'IT':p['IT'][1].pk,'MANAGER':p['MANAGER'][1].pk},key=key)
+    response,status=create_case(**args)
+    assert create_case(**args)==(response,status)
+    case=OnboardingCase.objects.get(pk=response['case_id'])
+    another=User.objects.create_user(email='astra_hr_2@example.test',
+        password='VerifiedStrongPassword!2026')
+    new_hr=Membership.objects.create(user=another,organization=org,role='HR',
+                                    can_coordinate_ownership=True)
+    reassign_owner(actor=p['HR'][0],case_id=case.pk,role='HR',
+        new_member_id=new_hr.pk,reason='Transfer for independent review',
+        key=uuid.uuid4(),expected_version=1)
+    with pytest.raises(CommandFailure) as denied:
+        create_case(**args)
+    assert denied.value.code=='NOT_FOUND'
+    assert OnboardingCase.objects.count()==1
+    assert AuditEvent.objects.filter(event_type='CASE_CREATED').count()==1
+    assert CommandReceipt.objects.filter(route='m2-create-case').count()==1
+
+
+@pytest.mark.django_db(transaction=True)
+def test_astra_r4_r5_task_side_evidence_schedule_and_case_provenance_guards(world):
+    org,p=world
+    v=published(world)
+    response,_=create(world,v)
+    case=OnboardingCase.objects.get(pk=response['case_id'])
+    activate_case(actor=p['HR'][0],case_id=case.pk,key=uuid.uuid4(),expected_version=1)
+    document=Task.objects.get(case=case,key='identity_document')
+    manager=Task.objects.get(case=case,key='manager_preparation')
+    for task in (document,manager):
+        with pytest.raises(DatabaseError) as invalid:
+            with transaction.atomic():
+                Task.objects.filter(pk=task.pk).update(
+                    execution_state='COMPLETED',completed_at=timezone.now())
+        assert getattr(invalid.value.__cause__,'sqlstate',None)=='23514'
+    with pytest.raises(DatabaseError) as schedule:
+        with transaction.atomic():
+            Task.objects.filter(pk=manager.pk).update(
+                available_at=manager.available_at+timedelta(hours=1),
+                due_at=manager.due_at+timedelta(hours=1))
+    assert getattr(schedule.value.__cause__,'sqlstate',None)=='23514'
+    with pytest.raises(DatabaseError) as provenance:
+        with transaction.atomic():
+            OnboardingCase.objects.filter(pk=case.pk).update(template_version_id=None)
+    assert getattr(provenance.value.__cause__,'sqlstate',None)=='23514'
+    manager.refresh_from_db()
+    case.refresh_from_db()
+    assert manager.execution_state!='COMPLETED' and case.template_version_id==v
+    details={'first_week_plan':'Prepare documented orientation plan',
+             'buddy_name':'Synthetic Manager Buddy','workstation_ready':True}
+    completed,_=attest_manager(actor=p['MANAGER'][0],case_id=case.pk,
+        task_id=manager.pk,fields=details,note='Confirmed in synthetic demonstration',
+        key=uuid.uuid4(),expected_version=2)
+    assert completed['result']['state']=='COMPLETED'
+    with pytest.raises(DatabaseError) as timestamp:
+        with transaction.atomic():
+            Task.objects.filter(pk=manager.pk).update(completed_at=None)
+    assert getattr(timestamp.value.__cause__,'sqlstate',None)=='23514'
+    assert TaskCompletion.objects.filter(task=manager).count()==1
+
+
+@pytest.mark.django_db(transaction=True)
+def test_astra_r6_reject_whitespace_evidence_without_writes(world):
+    org,p=world
+    v=published(world)
+    response,_=create(world,v)
+    case=OnboardingCase.objects.get(pk=response['case_id'])
+    activate_case(actor=p['HR'][0],case_id=case.pk,key=uuid.uuid4(),expected_version=1)
+    task=Task.objects.get(case=case,key='manager_preparation')
+    payload={'first_week_plan':'        ','buddy_name':'  ','workstation_ready':True}
+    receipts=CommandReceipt.objects.count()
+    audit=AuditEvent.objects.count()
+    with pytest.raises(CommandFailure) as e:
+        attest_manager(actor=p['MANAGER'][0],case_id=case.pk,task_id=task.pk,
+            fields=payload,note='   a note ',key=uuid.uuid4(),expected_version=2)
+    assert e.value.code=='INVALID_ATTESTATION'
+    assert TaskCompletion.objects.count()==0
+    assert ManagerAttestation.objects.count()==0
+    assert CommandReceipt.objects.count()==receipts
+    assert AuditEvent.objects.count()==audit
+    task.refresh_from_db()
+    assert task.execution_state!='COMPLETED'
+
+
+@pytest.mark.django_db(transaction=True)
+def test_astra_r8_read_time_expiration_unlocks_without_mutating_state(world):
+    from unittest.mock import patch
+    org,p=world
+    draft=create_default(actor=p['HR'][0])
+    changed=[{**t,'available_offset_days':-26,'due_offset_days':-1}
+        if t['key']=='manager_preparation' else t for t in draft['tasks']]
+    version=edit_template(actor=p['HR'][0],template_id=uuid.UUID(draft['id']),revision=1,
+        tasks=changed,edges=draft['dependencies'])
+    pub=publish_template(actor=p['HR'][0],template_id=uuid.UUID(draft['id']),revision=2)
+    created,_=create(world,uuid.UUID(pub['version_id']))
+    case=OnboardingCase.objects.get(pk=created['case_id'])
+    activate_case(actor=p['HR'][0],case_id=case.pk,key=uuid.uuid4(),expected_version=1)
+    task=Task.objects.get(case=case,key='manager_preparation')
+    assert task.execution_state=='NOT_STARTED'
+    future=task.available_at+timedelta(minutes=5)
+    from backend.onboarding.state_machine import project_task_states,summary_task
+    with patch('backend.onboarding.state_machine.timezone.now',return_value=future):
+        rows=list(Task.objects.filter(case=case))
+        projection=project_task_states(case,rows)
+        manager=summary_task(task,p['MANAGER'][1],case,projection)
+        assert manager['state']=='READY'
+        assert 'ATTEST_MANAGER_PREPARATION' in manager['allowed_actions']
+        assert 'START' in manager['allowed_actions']
+        start_task(actor=p['MANAGER'][0],case_id=case.pk,task_id=task.pk,
+                   key=uuid.uuid4(),expected_version=2)
+    task.refresh_from_db()
+    assert task.execution_state=='IN_PROGRESS'
+
+
+@pytest.mark.django_db(transaction=True)
+def test_astra_unique_late_edge_guard_is_not_masked_by_duplicate_key(world):
+    org,p=world
+    v=published(world)
+    created,_=create(world,v)
+    case=OnboardingCase.objects.get(pk=created['case_id'])
+    activate_case(actor=p['HR'][0],case_id=case.pk,key=uuid.uuid4(),expected_version=1)
+    left=Task.objects.get(case=case,key='manager_preparation')
+    right=Task.objects.get(case=case,key='personal_details')
+    assert not TaskDependency.objects.filter(case=case,predecessor=left,successor=right).exists()
+    count=TaskDependency.objects.filter(case=case).count()
+    with pytest.raises(DatabaseError) as blocked:
+        with transaction.atomic():
+            TaskDependency.objects.create(case=case,predecessor=left,successor=right)
+    assert getattr(blocked.value.__cause__,'sqlstate',None)=='23514'
+    assert 'M2 cannot add dependency after activation' in str(blocked.value)
+    assert TaskDependency.objects.filter(case=case).count()==count
+
+
+@pytest.mark.django_db(transaction=True)
+def test_astra_activation_partial_task_insertion_rollback(world):
+    from unittest.mock import patch
+    org,p=world
+    v=published(world)
+    created,_=create(world,v)
+    case=OnboardingCase.objects.get(pk=created['case_id'])
+    original=Task.objects.create
+    calls=0
+    def halfway(*args,**kwargs):
+        nonlocal calls
+        calls+=1
+        if calls==6:
+            raise RuntimeError('synthetic failure after five persisted tasks')
+        return original(*args,**kwargs)
+    with patch('backend.onboarding.commands.Task.objects.create',side_effect=halfway):
+        with pytest.raises(RuntimeError,match='five persisted tasks'):
+            activate_case(actor=p['HR'][0],case_id=case.pk,key=uuid.uuid4(),expected_version=1)
+    assert calls==6
+    assert Task.objects.filter(case=case).count()==0
+    assert TaskDependency.objects.filter(case=case).count()==0
+    assert OnboardingCase.objects.get(pk=case.pk).status=='CREATED'
+    assert OnboardingCase.objects.get(pk=case.pk).version==1
+    assert AuditEvent.objects.filter(event_type='CASE_ACTIVATED').count()==0
+    assert CommandReceipt.objects.filter(route='m2-activate').count()==0
