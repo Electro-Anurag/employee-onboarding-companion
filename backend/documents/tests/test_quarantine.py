@@ -168,3 +168,28 @@ def test_clamav_instream_requires_exact_result_and_fails_closed():
                side_effect=OSError('connection refused')):
         with pytest.raises(ScannerUnavailable):
             clamav_scan(DEMO_PDF)
+
+@override_settings(M3_CLAMAV_HOST='127.0.0.1',M3_CLAMAV_PORT=3310)
+def test_real_document_maximum_scan_payload_does_not_inherit_quarantine_fixture_limit():
+    """The real S3 10 MiB limit and scanner transport must agree."""
+    class Stream:
+        def __init__(self):
+            self.sent=0
+            self.chunks=0
+        def __enter__(self):return self
+        def __exit__(self,*args):return False
+        def settimeout(self,n):assert n==2
+        def sendall(self,chunk):
+            self.sent+=len(chunk)
+            self.chunks+=1
+        def recv(self,n):return b'stream: OK\\0'.replace(b'\\0',b'\0')
+    from backend.documents.storage import MAX_FILE
+    stream=Stream()
+    large=b'%PDF-1.7\\n'.replace(b'\\n',b'\n') + b'x'*(MAX_FILE-9)
+    assert len(large)==MAX_FILE
+    with patch('backend.documents.scanner.socket.create_connection',return_value=stream):
+        result,_=clamav_scan(large)
+    assert result=='CLEAN'
+    assert stream.chunks>150
+    with pytest.raises(ScannerUnavailable):
+        clamav_scan(large+b'x')
