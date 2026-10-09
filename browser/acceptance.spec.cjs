@@ -183,6 +183,9 @@ test('four-role real-browser case, template, dependency and evidence journey',as
       await hr.getByRole('button',{name:'Create next version draft'}).click();
       await expect(hr.locator('textarea.json-editor')).toBeVisible();
       await hr.locator('textarea.json-editor').fill('OLD_HR_PRIVATE_DRAFT_CONTENT');
+      // Clone's own refresh must finish BEFORE installing the held-response
+      // interceptor; otherwise it holds busy=true and disables Sign out.
+      await expect(hr.getByRole('button',{name:'Sign out'})).toBeEnabled();
 
       // An in-flight HR-owned request must be discarded after login changes.
       let releaseResponse;
