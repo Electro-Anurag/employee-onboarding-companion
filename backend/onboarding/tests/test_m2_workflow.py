@@ -58,12 +58,12 @@ def test_m2_default_publish_immutable_and_new_version(world):
         edit_template(actor=p['HR'][0],template_id=uuid.UUID(draft['id']),
             revision=1,tasks=published['tasks'],edges=published['dependencies'])
     cloned=next_draft(actor=p['HR'][0],template_id=uuid.UUID(draft['id']))
-    assert cloned['version']==2 and cloned['state']=='DRAFT'
+    assert cloned['version']==2 and cloned['state']=='DRAFT' and cloned['revision']==2
     assert cloned['tasks']==published['tasks']
     updated=edit_template(actor=p['HR'][0],template_id=uuid.UUID(draft['id']),
-        revision=1,tasks=[{**x,'title':x['title']+' updated'} if x['key']=='manager_preparation' else x
+        revision=2,tasks=[{**x,'title':x['title']+' updated'} if x['key']=='manager_preparation' else x
             for x in cloned['tasks']],edges=cloned['dependencies'])
-    assert updated['revision']==2
+    assert updated['revision']==3
     assert TemplateTask.objects.get(pk=task.pk).title==task.title
 
 @pytest.mark.django_db(transaction=True)
@@ -644,3 +644,106 @@ def test_m2_day_one_http_requires_preconditions_and_denies_early_transition(worl
     assert refused.json()['error']['code']=='JOIN_DATE_NOT_REACHED'
     assert OnboardingCase.objects.get(pk=case.pk).version==2
     assert AuditEvent.objects.filter(event_type='CASE_DAY_ONE_STARTED').count()==0
+
+
+@pytest.mark.django_db(transaction=True)
+def test_astra_r1_stale_template_revision_cannot_target_new_version(world):
+    org,people=world
+    created=create_default(actor=people['HR'][0])
+    old=edit_template(actor=people['HR'][0],template_id=uuid.UUID(created['id']),
+        revision=1,tasks=created['tasks'],edges=created['dependencies'])
+    assert old['revision']==2
+    publish_template(actor=people['HR'][0],template_id=uuid.UUID(created['id']),revision=2)
+    cloned=next_draft(actor=people['HR'][0],template_id=uuid.UUID(created['id']))
+    assert cloned['revision']==3
+    current=edit_template(actor=people['HR'][0],template_id=uuid.UUID(created['id']),
+        revision=3,tasks=cloned['tasks'],edges=cloned['dependencies'])
+    assert current['revision']==4
+    before=list(TemplateTask.objects.filter(version_id=cloned['version_id']).values('id','title'))
+    audits=AuditEvent.objects.count()
+    for action in ('edit','publish'):
+        with pytest.raises(TemplateFailure) as err:
+            if action=='edit':
+                edit_template(actor=people['HR'][0],template_id=uuid.UUID(created['id']),
+                    revision=2,tasks=cloned['tasks'],edges=cloned['dependencies'])
+            else:
+                publish_template(actor=people['HR'][0],template_id=uuid.UUID(created['id']),revision=2)
+        assert err.value.code=='STALE_VERSION'
+    assert list(TemplateTask.objects.filter(version_id=cloned['version_id']).values('id','title'))==before
+    assert AuditEvent.objects.count()==audits
+    assert TemplateVersion.objects.get(pk=cloned['version_id']).state=='DRAFT'
+
+
+@pytest.mark.django_db(transaction=True)
+def test_astra_r2_create_receipt_replay_fails_after_hr_owner_transfer(world):
+    org,people=world
+    version=published(world)
+    key=uuid.uuid4()
+    options=dict(actor=people['HR'][0],employee_id=people['EMPLOYEE'][1].pk,
+        template_version_id=version,joining_date=timezone.localdate()+timedelta(days=19),
+        owner_ids={'IT':people['IT'][1].pk,'MANAGER':people['MANAGER'][1].pk},key=key)
+    result,status=create_case(**options)
+    assert status==201 and create_case(**options)==(result,201)
+    case=OnboardingCase.objects.get(pk=result['case_id'])
+    other=User.objects.create_user(email='newhrreceipt@example.test',password='VerifiedStrongPassword!2026')
+    new_member=Membership.objects.create(user=other,organization=org,role='HR')
+    reassign_owner(actor=people['HR'][0],case_id=case.pk,role='HR',
+        new_member_id=new_member.pk,reason='Transfer active HR owner',key=uuid.uuid4(),expected_version=1)
+    with pytest.raises(CommandFailure) as denied:
+        create_case(**options)
+    assert denied.value.status==404
+    assert OnboardingCase.objects.count()==1
+    assert AuditEvent.objects.filter(event_type='CASE_CREATED').count()==1
+    assert CommandReceipt.objects.filter(route='m2-create-case').count()==1
+    new_member.active=False
+    new_member.save(update_fields=['active'])
+    with pytest.raises(CommandFailure):
+        create_case(**options)
+
+
+@pytest.mark.django_db(transaction=True)
+def test_astra_r9_credential_or_availability_revoked_after_case_lock(world):
+    from threading import Event
+    from backend.accounts.models import OneTimeToken
+    org,people=world
+    version=published(world)
+    employee=people['EMPLOYEE'][0]
+    for field in ('password','available'):
+        # Each scenario gets a distinct case; the previous failed activation
+        # leaves its case in CREATED, so remove only after terminal cancellation.
+        if field=='available' and not employee.has_usable_password():
+            employee.set_password('VerifiedStrongPassword!2026')
+            employee.save(update_fields=['password'])
+        if field=='available':
+            people['EMPLOYEE'][1].available=True
+            people['EMPLOYEE'][1].save(update_fields=['available'])
+        created,_=create(world,version)
+        case=OnboardingCase.objects.get(pk=created['case_id'])
+        entered,release=Event(),Event()
+        def attempt():
+            close_old_connections()
+            try:
+                return activate_case(actor=people['HR'][0],case_id=case.pk,
+                    key=uuid.uuid4(),expected_version=1,
+                    _test_after_case_lock=lambda:(entered.set(),release.wait(timeout=8)))
+            finally:close_old_connections()
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            future=pool.submit(attempt)
+            assert entered.wait(timeout=8)
+            if field=='password':
+                employee.set_unusable_password()
+                employee.save(update_fields=['password'])
+            else:
+                Membership.objects.filter(pk=people['EMPLOYEE'][1].pk).update(available=False)
+            release.set()
+            with pytest.raises(CommandFailure) as err:
+                future.result(timeout=12)
+        assert err.value.code in ('EMPLOYEE_CREDENTIAL_REQUIRED','EMPLOYEE_NOT_READY')
+        case.refresh_from_db()
+        assert case.version==1 and case.status=='CREATED'
+        assert Task.objects.filter(case=case).count()==0
+        assert TaskDependency.objects.filter(case=case).count()==0
+        assert AuditEvent.objects.filter(event_type='CASE_ACTIVATED',entity_id=case.pk).count()==0
+        assert CommandReceipt.objects.filter(route='m2-activate',case=case).count()==0
+        case.status='CANCELLED'
+        case.save(update_fields=['status'])

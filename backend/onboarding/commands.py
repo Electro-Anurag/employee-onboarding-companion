@@ -49,7 +49,7 @@ def _case_actor(case,actor):
         raise CommandFailure('NOT_FOUND',404)
     return member
 
-def create_case(*,actor,employee_id,template_version_id,joining_date,owner_ids,key):
+def create_case(*,actor,employee_id,template_version_id,joining_date,owner_ids,key,_test_before_user_locks=None):
     if type(joining_date) is not date or not isinstance(owner_ids,dict) or set(owner_ids)!=set(('IT','MANAGER')):
         raise CommandFailure('INVALID_CASE_SETUP',422)
     if not isinstance(employee_id,uuid.UUID) or not isinstance(template_version_id,uuid.UUID):
@@ -88,6 +88,8 @@ def create_case(*,actor,employee_id,template_version_id,joining_date,owner_ids,k
         if any(h is None for h in hints.values()) or hints['HR']['user_id']!=actor.pk:
             raise CommandFailure('INVALID_CASE_OWNER',422)
         user_ids=sorted({actor.pk,*(h['user_id'] for h in hints.values())},key=str)
+        if _test_before_user_locks is not None:
+            _test_before_user_locks()  # deterministic mixed-command race instrumentation
         users={i:User.objects.select_for_update().filter(pk=i).first() for i in user_ids}
         mids={}
         for mid in sorted(set(owners.values()),key=str):
@@ -128,12 +130,15 @@ def create_case(*,actor,employee_id,template_version_id,joining_date,owner_ids,k
         _receipt(actor,'m2-create-case',key,digest,case,response,201)
     return response,201
 
-def _command_case(actor,case_id,route,key,payload,expected_version,require_hr=False):
+def _command_case(actor,case_id,route,key,payload,expected_version,require_hr=False,
+                  _test_after_case_lock=None):
     if not isinstance(expected_version,int) or isinstance(expected_version,bool) or expected_version<1:
         raise CommandFailure('INVALID_CASE_VERSION',422)
     case=OnboardingCase.objects.select_for_update(of=('self',)).filter(pk=case_id).first()
     if case is None:
         raise CommandFailure('NOT_FOUND',404)
+    if _test_after_case_lock is not None:
+        _test_after_case_lock()  # ensure race precedes authoritative row locks
     # Match the independently qualified M1 case -> sorted Users -> sorted
     # Memberships authority lock sequence. Root revocation is rechecked.
     member,root,_=_lock_case_authority(case,actor)
@@ -151,10 +156,11 @@ def _command_case(actor,case_id,route,key,payload,expected_version,require_hr=Fa
         raise CommandFailure('STALE_VERSION',409)
     return case,member,None,digest
 
-def activate_case(*,actor,case_id,key,expected_version):
+def activate_case(*,actor,case_id,key,expected_version,_test_after_case_lock=None):
     with transaction.atomic():
         set_command_timeouts()
-        case,member,prior,digest=_command_case(actor,case_id,'m2-activate',key,{},expected_version,True)
+        case,member,prior,digest=_command_case(actor,case_id,'m2-activate',key,{},expected_version,True,
+                                              _test_after_case_lock=_test_after_case_lock)
         if prior is not None:
             return prior.response,prior.status_code
         if case.status!='CREATED' or case.template_version_id is None:
