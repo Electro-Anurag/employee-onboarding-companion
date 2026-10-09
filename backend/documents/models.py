@@ -39,3 +39,6 @@ class DocumentReview(models.Model):
     class Meta:
         constraints=[models.CheckConstraint(condition=models.Q(decision__in=['ACCEPTED','REJECTED','NEEDS_CLARIFICATION']),
                                             name='m3_document_review_decision_valid')]
+
+# Quarantine models deliberately do not share the HR-accepted revision type.
+from backend.documents.quarantine_models import QuarantinedDocument,QuarantineScanAttempt

@@ -66,3 +66,10 @@ SECURE_REFERRER_POLICY = 'strict-origin-when-cross-origin'
 X_FRAME_OPTIONS = 'DENY'
 CSRF_TRUSTED_ORIGINS = [s for s in __import__('os').environ.get('DJANGO_CSRF_TRUSTED_ORIGINS','').split(',') if s]
 DATA_UPLOAD_MAX_MEMORY_SIZE = 262144
+
+# Separate pre-production quarantine boundary, disabled by default. Never set
+# this true without private data controls, configured scanner and an approved
+# deployment/data retention design. It does not enable HR document acceptance.
+M3_QUARANTINE_INTAKE_ENABLED = os.environ.get('M3_QUARANTINE_INTAKE_ENABLED','0') == '1'
+M3_CLAMAV_HOST = os.environ.get('M3_CLAMAV_HOST','')
+M3_CLAMAV_PORT = int(os.environ.get('M3_CLAMAV_PORT','3310'))
