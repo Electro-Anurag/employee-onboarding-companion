@@ -99,7 +99,7 @@ def draft(request,template_id):
 @require_POST
 def publish(request,template_id):
     try:
-        revision=_revision(request,template_id)
+        version_id,revision=_revision(request,template_id)
         json_payload(request,1024,set())
     except InputError as exc:return error(exc.code,exc.status)
     return _apply(request,'m2-template-publish',str(template_id),{'version_id':str(version_id),'revision':revision},
