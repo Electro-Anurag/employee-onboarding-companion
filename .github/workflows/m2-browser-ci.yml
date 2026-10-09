@@ -1,7 +1,7 @@
 name: M2 real four-role browser acceptance
 on:
   push:
-    branches: ['feature/m2-template-case-dependency-foundation']
+    branches: ['feature/m2-template-case-dependency-foundation', 'feature/m2-independent-closure-remediation']
   workflow_dispatch:
 permissions:
   contents: read
