@@ -259,9 +259,18 @@ def test_m2_db_guards_make_activated_graph_and_evidence_immutable(world):
     with pytest.raises(DatabaseError):
         with transaction.atomic():
             Task.objects.filter(pk=manager.pk).update(key='silently_swapped')
-    with pytest.raises(DatabaseError):
+    # This must be a NOVEL pair: the old test used a default edge and could
+    # pass through uniqueness even if the post-activation topology guard broke.
+    independent=Task.objects.get(case=case,key='identity_document')
+    assert not TaskDependency.objects.filter(case=case,predecessor=manager,
+                                              successor=independent).exists()
+    initial=TaskDependency.objects.filter(case=case).count()
+    with pytest.raises(DatabaseError) as invalid:
         with transaction.atomic():
-            TaskDependency.objects.create(case=case,predecessor=manager,successor=intro)
+            TaskDependency.objects.create(case=case,predecessor=manager,successor=independent)
+    assert getattr(invalid.value.__cause__,'sqlstate',None)=='23514'
+    assert 'cannot add dependency after activation' in str(invalid.value)
+    assert TaskDependency.objects.filter(case=case).count()==initial
     with pytest.raises(DatabaseError):
         with transaction.atomic():
             TaskDependency.objects.filter(case=case).delete()
@@ -921,3 +930,98 @@ def test_astra_r8_clock_only_refresh_projects_ready_and_respects_revocation(worl
         assert status==200 and started['result']['state']=='IN_PROGRESS'
     manager.refresh_from_db()
     assert manager.execution_state=='IN_PROGRESS'
+
+
+@pytest.mark.django_db(transaction=True)
+def test_astra_activation_rolls_back_after_partial_task_and_edge_writes(world):
+    from unittest.mock import patch
+    org,people=world
+    version=published(world)
+    created,_=create(world,version)
+    case=OnboardingCase.objects.get(pk=created['case_id'])
+    before=AuditEvent.objects.count()
+    real_insert=TaskDependency.objects.create
+    inserted={'edges':0}
+    def fail_after_first_edge(**kwargs):
+        inserted['edges']+=1
+        if inserted['edges']>1:
+            raise RuntimeError('Synthetic failure after first persisted edge')
+        return real_insert(**kwargs)
+    with patch('backend.onboarding.commands.TaskDependency.objects.create',
+               side_effect=fail_after_first_edge):
+        with pytest.raises(RuntimeError,match='Synthetic failure'):
+            activate_case(actor=people['HR'][0],case_id=case.pk,key=uuid.uuid4(),expected_version=1)
+    assert inserted['edges']>=2
+    case.refresh_from_db()
+    assert case.status=='CREATED' and case.version==1
+    assert Task.objects.filter(case=case).count()==0
+    assert TaskDependency.objects.filter(case=case).count()==0
+    assert AuditEvent.objects.count()==before
+    assert CommandReceipt.objects.filter(route='m2-activate',case=case).count()==0
+
+
+@pytest.mark.django_db(transaction=True)
+def test_astra_attestation_rolls_back_after_persisted_evidence(world):
+    from unittest.mock import patch
+    org,people=world
+    version=published(world)
+    created,_=create(world,version)
+    case=OnboardingCase.objects.get(pk=created['case_id'])
+    activate_case(actor=people['HR'][0],case_id=case.pk,key=uuid.uuid4(),expected_version=1)
+    task=Task.objects.get(case=case,key='manager_preparation')
+    before=AuditEvent.objects.count()
+    def fail_completion(**kwargs):
+        assert ManagerAttestation.objects.filter(task=task).exists()
+        raise RuntimeError('Synthetic completion write failure')
+    with patch('backend.onboarding.commands.TaskCompletion.objects.create',
+               side_effect=fail_completion):
+        with pytest.raises(RuntimeError,match='Synthetic completion'):
+            attest_manager(actor=people['MANAGER'][0],case_id=case.pk,task_id=task.pk,
+                fields={'first_week_plan':'Prepare the first week',
+                        'buddy_name':'Synthetic Buddy','workstation_ready':True},
+                note='A valid manager note',key=uuid.uuid4(),expected_version=2)
+    task.refresh_from_db()
+    case.refresh_from_db()
+    assert task.execution_state=='READY' and case.version==2
+    assert ManagerAttestation.objects.filter(task=task).count()==0
+    assert TaskCompletion.objects.filter(task=task).count()==0
+    assert AuditEvent.objects.count()==before
+    assert CommandReceipt.objects.filter(route='m2-attest-manager',case=case).count()==0
+
+
+@pytest.mark.django_db(transaction=True)
+def test_astra_real_postgres_two_parent_and_independent_task(world):
+    org,people=world
+    def task(key,kind='MANAGER_PREPARATION',role='MANAGER'):
+        return {'key':key,'kind':kind,'title':key.replace('_',' ').title(),
+            'owner_role':role,'required':True,
+            'available_offset_days':-30,'due_offset_days':0,
+            'evidence_spec':{'type':kind}}
+    graph=[task('first_manager'),task('second_manager'),
+           task('joint_introduction','INTRODUCTION'),task('independent_introduction','INTRODUCTION')]
+    edges=[{'predecessor':'first_manager','successor':'joint_introduction'},
+           {'predecessor':'second_manager','successor':'joint_introduction'}]
+    template=create_template(actor=people['HR'][0],key='real_and_dag',
+        name='Astra AND DAG',tasks=graph,edges=edges)
+    version=publish_template(actor=people['HR'][0],template_id=uuid.UUID(template['id']),revision=1)
+    created,_=create(world,uuid.UUID(version['version_id']))
+    case=OnboardingCase.objects.get(pk=created['case_id'])
+    activate_case(actor=people['HR'][0],case_id=case.pk,key=uuid.uuid4(),expected_version=1)
+    child=Task.objects.get(case=case,key='joint_introduction')
+    independent=Task.objects.get(case=case,key='independent_introduction')
+    assert child.execution_state=='BLOCKED'
+    assert independent.execution_state=='READY'
+    for n,key in enumerate(('first_manager','second_manager')):
+        parent=Task.objects.get(case=case,key=key)
+        result,status=attest_manager(actor=people['MANAGER'][0],case_id=case.pk,task_id=parent.pk,
+            fields={'first_week_plan':'Planned mentor and onboarding activities',
+                'buddy_name':'Synthetic Buddy','workstation_ready':True},
+            note='Confirmed independently',key=uuid.uuid4(),expected_version=2+n)
+        assert status==200
+        child.refresh_from_db()
+        independent.refresh_from_db()
+        assert child.execution_state==('BLOCKED' if n==0 else 'READY')
+        assert independent.execution_state=='READY'
+    assert TaskCompletion.objects.filter(task__case=case).count()==2
+    assert AuditEvent.objects.filter(event_type='TASK_COMPLETED',entity_id__in=
+        list(Task.objects.filter(case=case,kind='MANAGER_PREPARATION').values_list('pk',flat=True))).count()==2
