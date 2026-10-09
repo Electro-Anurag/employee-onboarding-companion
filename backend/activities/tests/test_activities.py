@@ -12,8 +12,8 @@ from backend.templates.services import create_template,publish_template
 from backend.onboarding.commands import activate_case,start_task
 from backend.onboarding.models import OnboardingCase,Task,TaskCompletion
 from backend.onboarding.services import CommandFailure
-from backend.activities.commands import schedule,record_attendance
-from backend.activities.models import ActivityOccurrence,ActivityAttendance
+from backend.activities.commands import schedule,record_attendance,cancel_occurrence
+from backend.activities.models import ActivityOccurrence,ActivityAttendance,ActivityCancellation
 from backend.audit.models import AuditEvent,CommandReceipt
 
 def activity_case(world,kind='ACTIVITY',role='HR',with_successor=False):
@@ -184,3 +184,142 @@ def test_schedule_http_roles_and_history_security(world):
             note='Future attendance cannot be recorded',key=uuid.uuid4(),
             expected_version=3)
     assert future.value.code=='FUTURE_ATTENDANCE_FORBIDDEN'
+
+@pytest.mark.django_db(transaction=True)
+def test_activity_cancellation_preserves_required_work_and_revision_history(world):
+    case,task,people=activity_case(world)
+    first_start=timezone.now()+timedelta(hours=2)
+    first_end=first_start+timedelta(minutes=40)
+    first,status=schedule(actor=people['HR'][0],case_id=case.pk,task_id=task.pk,
+        start=first_start,end=first_end,medium='VIDEO',
+        reference='Synthetic scheduled room',reason='Initial employee orientation invitation',
+        key=uuid.uuid4(),expected_version=2)
+    assert status==201
+    occurrence_id=uuid.UUID(first['result']['occurrence_id'])
+    with pytest.raises(CommandFailure) as forbidden:
+        cancel_occurrence(actor=people['EMPLOYEE'][0],case_id=case.pk,task_id=task.pk,
+            occurrence_id=occurrence_id,reason='Unauthorized employee cancellation',
+            key=uuid.uuid4(),expected_version=3)
+    assert forbidden.value.code=='NOT_FOUND'
+    with pytest.raises(CommandFailure) as wrong_manager:
+        cancel_occurrence(actor=people['MANAGER'][0],case_id=case.pk,task_id=task.pk,
+            occurrence_id=occurrence_id,reason='Unassigned manager cancellation attempt',
+            key=uuid.uuid4(),expected_version=3)
+    assert wrong_manager.value.code=='NOT_FOUND'
+    key=uuid.uuid4()
+    cancelled,status=cancel_occurrence(actor=people['HR'][0],case_id=case.pk,
+        task_id=task.pk,occurrence_id=occurrence_id,
+        reason='Orientation organizer will be unavailable',
+        key=key,expected_version=3)
+    assert status==201 and cancelled['result']['reschedule_required'] is True
+    assert cancel_occurrence(actor=people['HR'][0],case_id=case.pk,
+        task_id=task.pk,occurrence_id=occurrence_id,
+        reason='Orientation organizer will be unavailable',
+        key=key,expected_version=3)[0]==cancelled
+    task.refresh_from_db()
+    assert task.execution_state=='IN_PROGRESS'
+    assert TaskCompletion.objects.count()==0
+    assert ActivityCancellation.objects.count()==1
+    assert OnboardingCase.objects.get(pk=case.pk).version==4
+    with pytest.raises(CommandFailure) as cannot_attend:
+        record_attendance(actor=people['HR'][0],case_id=case.pk,task_id=task.pk,
+            occurrence_id=occurrence_id,outcome='ATTENDED',
+            note='Pretend that a cancelled event happened',
+            key=uuid.uuid4(),expected_version=4)
+    assert cannot_attend.value.code=='ACTIVITY_OCCURRENCE_CANCELLED'
+    with pytest.raises(CommandFailure) as duplicated:
+        cancel_occurrence(actor=people['HR'][0],case_id=case.pk,task_id=task.pk,
+            occurrence_id=occurrence_id,reason='Duplicate cancellation rejected',
+            key=uuid.uuid4(),expected_version=4)
+    assert duplicated.value.code=='ACTIVITY_ALREADY_CANCELLED'
+    with pytest.raises(DatabaseError):
+        with transaction.atomic():
+            ActivityCancellation.objects.filter(occurrence_id=occurrence_id).update(reason='tampered')
+    second,status=schedule(actor=people['HR'][0],case_id=case.pk,task_id=task.pk,
+        start=timezone.now()+timedelta(hours=4),
+        end=timezone.now()+timedelta(hours=5),medium='IN_PERSON',
+        reference='New synthetic meeting room',reason='Replacement after cancellation',
+        key=uuid.uuid4(),expected_version=4)
+    assert status==201 and second['result']['revision']==2
+    assert ActivityCancellation.objects.get(occurrence_id=occurrence_id).reason==(
+        'Orientation organizer will be unavailable')
+    assert TaskCompletion.objects.count()==0
+    assert OnboardingCase.objects.get(pk=case.pk).version==5
+    with pytest.raises(CommandFailure) as stale:
+        cancel_occurrence(actor=people['HR'][0],case_id=case.pk,task_id=task.pk,
+            occurrence_id=occurrence_id,reason='Cannot cancel superseded version',
+            key=uuid.uuid4(),expected_version=5)
+    assert stale.value.code=='CURRENT_ACTIVITY_OCCURRENCE_REQUIRED'
+    assert AuditEvent.objects.filter(event_type='ACTIVITY_OCCURRENCE_CANCELLED').count()==1
+    assert CommandReceipt.objects.filter(route='m4-activity-cancel').count()==1
+
+@pytest.mark.django_db(transaction=True)
+def test_manager_owned_meeting_may_be_cancelled_by_assigned_hr_but_not_another_role(world):
+    case,task,people=activity_case(world,kind='INTRODUCTION',role='MANAGER')
+    first,status=schedule(actor=people['MANAGER'][0],case_id=case.pk,task_id=task.pk,
+        start=timezone.now()+timedelta(hours=2),
+        end=timezone.now()+timedelta(hours=3),medium='VIDEO',
+        reference='Manager introduction room',
+        reason='Assign a first week introduction session',
+        key=uuid.uuid4(),expected_version=2)
+    assert status==201
+    occ=uuid.UUID(first['result']['occurrence_id'])
+    with pytest.raises(DatabaseError):
+        with transaction.atomic():
+            ActivityCancellation.objects.create(occurrence_id=occ,
+                cancelled_by=people['EMPLOYEE'][0],
+                reason='Forged employee cancellation')
+    assert ActivityCancellation.objects.count()==0
+    cancelled,status=cancel_occurrence(actor=people['HR'][0],case_id=case.pk,
+        task_id=task.pk,occurrence_id=occ,reason='HR-approved rescheduling due to conflict',
+        key=uuid.uuid4(),expected_version=3)
+    assert status==201 and cancelled['result']['task_completion']=='IN_PROGRESS'
+    assert Task.objects.get(pk=task.pk).execution_state=='IN_PROGRESS'
+    assert TaskCompletion.objects.count()==0
+    assert ActivityCancellation.objects.get(occurrence_id=occ).cancelled_by_id==people['HR'][0].pk
+    # Cancellation does not transfer manager's task ownership to HR.
+    with pytest.raises(CommandFailure) as hr_schedule:
+        schedule(actor=people['HR'][0],case_id=case.pk,task_id=task.pk,
+            start=timezone.now()+timedelta(hours=4),
+            end=timezone.now()+timedelta(hours=5),medium='VIDEO',
+            reference='Forbidden HR organizer overwrite',
+            reason='HR cannot take manager schedule authority',key=uuid.uuid4(),
+            expected_version=4)
+    assert hr_schedule.value.code=='NOT_FOUND'
+
+@pytest.mark.django_db(transaction=True)
+def test_cancel_http_and_private_history_are_consistent(world):
+    case,task,people=activity_case(world)
+    start=timezone.now()+timedelta(hours=2)
+    initial,_=schedule(actor=people['HR'][0],case_id=case.pk,task_id=task.pk,
+        start=start,end=start+timedelta(minutes=30),medium='VIDEO',
+        reference='Synthetic meeting for API',reason='Initial future employee meeting',
+        key=uuid.uuid4(),expected_version=2)
+    occ=initial['result']['occurrence_id']
+    base=f'/api/v1/cases/{case.pk}/tasks/{task.pk}/activity-occurrences'
+    def client(role):
+        c=Client()
+        c.force_login(people[role][0])
+        session=c.session
+        session['m1_session_started']=time.time()
+        session.save()
+        return c
+    hr=client('HR')
+    employee=client('EMPLOYEE')
+    it=client('IT')
+    route=base+'/'+occ+'/cancel'
+    assert it.get(base).status_code==404
+    assert employee.post(route,data=json.dumps({'reason':'No authority to cancel'}),
+        content_type='application/json',HTTP_IDEMPOTENCY_KEY=str(uuid.uuid4()),
+        HTTP_IF_MATCH=f'"case:{case.pk}:v3"').status_code==404
+    res=hr.post(route,data=json.dumps({'reason':'Room unavailable, moving schedule'}),
+        content_type='application/json',HTTP_IDEMPOTENCY_KEY=str(uuid.uuid4()),
+        HTTP_IF_MATCH=f'"case:{case.pk}:v3"')
+    assert res.status_code==201,res.content
+    saved=employee.get(base)
+    assert saved.status_code==200
+    body=saved.json()['results'][0]
+    assert body['cancellation']['reason']=='Room unavailable, moving schedule'
+    assert body['attendance'] is None
+    assert employee.get(base).headers['Cache-Control']=='private, no-store'
+    assert Task.objects.get(pk=task.pk).execution_state=='IN_PROGRESS'
