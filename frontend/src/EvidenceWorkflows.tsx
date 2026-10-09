@@ -17,7 +17,9 @@ type TrainingModule={module:{module_version:string;content_sha256:string;passing
   questions:{key:string;prompt:string;options:{value:string;label:string}[]}[]};
   task_state:string;attempts:{number:number;score:number;passed:boolean}[]};
 type ITOperation={state:'REQUESTED'|'SIMULATED_FULFILLED';provider:string;simulation_digest:string|null;
-  confirmation_id:string|null;task_completion:string};
+  confirmation_id:string|null;task_completion:string;
+  retry_explicitly_available:boolean;
+  failures:{id:string;sequence:number;cause:string;note:string}[]};
 type ReceiptSource={provider:string;candidates:{task_id:string;confirmation_id:string;title:string}[]};
 type PolicyEdition={task_id:string;policy:{version:string;content_sha256:string;text:string;policy_key:string};
   acknowledged:boolean};
@@ -37,6 +39,9 @@ export default function EvidenceWorkflows({task,caseId,role,read,mutate,uploadDo
   const [contactEmail,setContactEmail]=useState('');
   const [reviewNote,setReviewNote]=useState('');
   const [simulationNote,setSimulationNote]=useState('');
+  const [simulationFailureCause,setSimulationFailureCause]=useState<
+    'PROVIDER_UNAVAILABLE'|'SIMULATED_TIMEOUT'|'SIMULATED_REJECTION'>('SIMULATED_TIMEOUT');
+  const [simulationFailureNote,setSimulationFailureNote]=useState('');
   const [confirmationNote,setConfirmationNote]=useState('');
   const [receiptNote,setReceiptNote]=useState('');
   const [receiptSource,setReceiptSource]=useState<ReceiptSource|null>(null);
@@ -353,6 +358,9 @@ export default function EvidenceWorkflows({task,caseId,role,read,mutate,uploadDo
       <button className="quiet" disabled={busy} onClick={()=>void safeRun(loadIT)}>Inspect IT operation</button>
       {operation&&<p className="meta">Provider {operation.provider}: {operation.state}
         {operation.simulation_digest?' · receipt '+operation.simulation_digest.slice(0,12):''}</p>}
+      {operation?.failures?.map(f=><p className="meta" key={f.id}>
+        Failure {f.sequence}: {f.cause} — {f.note} (synthetic, task incomplete)
+      </p>)}
       {role==='IT'&&task.state==='READY'&&
         <button disabled={busy} onClick={()=>void safeRun(async()=>{
           await mutate(base+'/it-operation/request',{});await loadIT();
@@ -364,7 +372,28 @@ export default function EvidenceWorkflows({task,caseId,role,read,mutate,uploadDo
           <button disabled={busy} onClick={()=>void safeRun(async()=>{
             await mutate(base+'/it-operation/simulate',{note:simulationNote});
             await loadIT();setSimulationNote('');
-          })}>Record simulated fulfillment</button>
+          })}>{operation.failures.length?'Retry with simulated fulfillment':'Record simulated fulfillment'}</button>
+          {operation.failures.length<5&&<div className="form">
+            <label>Simulated failure cause
+              <select value={simulationFailureCause}
+                onChange={e=>setSimulationFailureCause(e.target.value as
+                  'PROVIDER_UNAVAILABLE'|'SIMULATED_TIMEOUT'|'SIMULATED_REJECTION')}>
+                <option value="PROVIDER_UNAVAILABLE">Simulated provider unavailable</option>
+                <option value="SIMULATED_TIMEOUT">Simulated timeout</option>
+                <option value="SIMULATED_REJECTION">Simulated rejection</option>
+              </select>
+            </label>
+            <label>Simulated failure note
+              <input minLength={8} maxLength={300} value={simulationFailureNote}
+                onChange={e=>setSimulationFailureNote(e.target.value)}/>
+            </label>
+            <button disabled={busy||simulationFailureNote.trim().length<8}
+              onClick={()=>void safeRun(async()=>{
+                await mutate(base+'/it-operation/simulated-failure',{
+                  cause:simulationFailureCause,note:simulationFailureNote});
+                await loadIT();setSimulationFailureNote('');
+              })}>Record synthetic failure (task remains pending)</button>
+          </div>}
         </div>}
       {role==='IT'&&task.state==='IN_PROGRESS'&&operation?.state==='SIMULATED_FULFILLED'&&!operation.confirmation_id&&
         <div className="form">
