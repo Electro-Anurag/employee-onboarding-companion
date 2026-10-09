@@ -25,7 +25,8 @@ def first_month_template():
         title=' '.join(part.capitalize() if part!='day1' else 'Day 1' for part in key.split('_'))
         tasks.append(dict(key=key,kind=kind,title=title,description='Synthetic onboarding work',
             owner_role=owner,required=True,available_offset_days=available,
-            due_offset_days=due,position=position,evidence_spec={'type':kind}))
+            due_offset_days=due,position=position,evidence_spec=({'type':'FORM','fields':['preferred_name','contact_email']}
+                if kind=='FORM' and key=='personal_details' else {'type':kind})))
         for before in prereqs:
             edges.append({'predecessor':before,'successor':key})
     return tasks,edges
