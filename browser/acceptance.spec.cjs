@@ -135,7 +135,7 @@ test('four-role real-browser case, template, dependency and evidence journey',as
       await expect(manager.getByText('1/17 mandatory tasks completed')).toBeVisible();
       await expect(taskCard(manager,'Team Introduction')).not.toContainText('PREREQUISITE_INCOMPLETE');
       await expect(taskCard(manager,'Workspace Access')).toContainText('PREREQUISITE_INCOMPLETE');
-      await expect(manager.getByText(/Document, form, IT, training and activity completion require later evidence-specific workflows/)).toBeVisible();
+      await expect(manager.getByText(/Document, policy, training, activity and IT task completion require their own accepted evidence/)).toBeVisible();
       await expect(taskCard(manager,'Manager Preparation').getByRole('button',{name:'Complete preparation'})).toHaveCount(0);
     });
 
@@ -171,6 +171,29 @@ test('four-role real-browser case, template, dependency and evidence journey',as
       await expect(taskCard(employee,'Manager Preparation').getByRole('button',{name:'Complete preparation'})).toHaveCount(0);
       await expect(employee.getByRole('region',{name:'Case tasks'})).toContainText('1/17 mandatory tasks completed');
       expect((await employee.request.get('/api/v1/templates')).status()).toBe(403);
+    });
+
+    await test.step('Employee form revision and independent HR acceptance truly complete a task',async()=>{
+      const formCard=taskCard(employee,'Personal Details');
+      await formCard.getByLabel('Preferred name').fill('Synthetic Candidate');
+      await formCard.getByLabel('Contact email').fill('candidate@example.test');
+      await formCard.getByRole('button',{name:'Submit immutable form revision'}).click();
+      await expect(formCard).toContainText('Pending HR review');
+      await expect(employee.getByText('1/17 mandatory tasks completed')).toBeVisible();
+
+      await openCase(hr);
+      const hrForm=taskCard(hr,'Personal Details');
+      await hrForm.getByRole('button',{name:'Load form history'}).click();
+      await expect(hrForm).toContainText('Pending HR review');
+      await hrForm.getByLabel('HR review note').fill('Synthetic form reviewed and accepted.');
+      await hrForm.getByRole('button',{name:'Accept revision and complete task'}).click();
+      await expect(taskCard(hr,'Personal Details')).toContainText('COMPLETED');
+      await expect(hr.getByText('2/17 mandatory tasks completed')).toBeVisible();
+      await expect(taskCard(hr,'Workspace Access')).toContainText('PREREQUISITE_INCOMPLETE');
+      await hr.reload();
+      await expect(hr.getByText('Role: HR')).toBeVisible();
+      await openCase(hr);
+      await expect(taskCard(hr,'Personal Details')).toContainText('COMPLETED');
     });
 
     await test.step('same-mounted-page identity switch clears HR template and pending reads',async()=>{

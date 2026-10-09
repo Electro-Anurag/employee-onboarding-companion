@@ -1,0 +1,142 @@
+name: M3-M4 real workflow browser acceptance
+on:
+  push:
+    branches: ['feature/m3-m4-integrated-workflows']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  browser-acceptance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    services:
+      postgres:
+        image: postgres:17@sha256:2d2b8998d31037bf721cfdf764d76ba74171b4fab3431b7f72c27c56ddbdf9e3
+        env:
+          POSTGRES_USER: onboarding
+          POSTGRES_PASSWORD: ci-temporary-only
+          POSTGRES_DB: onboarding_m0
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 3s --health-timeout 3s --health-retries 15
+    env:
+      DJANGO_SECRET_KEY: ci-only-no-production-secret-not-used-outside-runner
+      DJANGO_DEBUG: '1'
+      DJANGO_ALLOWED_HOSTS: 127.0.0.1,localhost
+      POSTGRES_HOST: localhost
+      POSTGRES_PORT: '5432'
+      POSTGRES_DB: onboarding_m0
+      POSTGRES_USER: onboarding
+      POSTGRES_PASSWORD: ci-temporary-only
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e
+        with:
+          python-version: '3.13'
+          version: '0.12.23'
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+      - name: Resolve frozen application dependencies
+        run: |
+          uv lock --check
+          uv sync --locked
+          cd frontend
+          npm ci
+          npm run build
+      - name: Migrate isolated synthetic PostgreSQL database
+        run: uv run python manage.py migrate --noinput
+      - name: Install pinned standalone Playwright/Chromium acceptance runner
+        run: |
+          mkdir -p "$RUNNER_TEMP/m2-playwright"
+          cp browser/*.cjs "$RUNNER_TEMP/m2-playwright/"
+          npm --prefix "$RUNNER_TEMP/m2-playwright" install --no-save --package-lock=false --ignore-scripts @playwright/test@1.64.0
+          "$RUNNER_TEMP/m2-playwright/node_modules/.bin/playwright" install --with-deps chromium
+      - name: Real four-role browser acceptance against Django/PostgreSQL
+        run: |
+          set -euo pipefail
+          umask 077
+          export M2_BROWSER_CREDENTIAL_FILE="$RUNNER_TEMP/m2-synthetic-accounts.txt"
+          uv run python manage.py seed_m2_demo --confirm-synthetic --include-second-hr > "$M2_BROWSER_CREDENTIAL_FILE"
+          uv run python manage.py runserver --nostatic --noreload 127.0.0.1:8000 > "$RUNNER_TEMP/m2-django-server.log" 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true; rm -f "$M2_BROWSER_CREDENTIAL_FILE"' EXIT
+          ready=0
+          for attempt in $(seq 1 50); do
+            if curl --fail --silent --output /dev/null http://127.0.0.1:8000/health/ready; then ready=1; break; fi
+            sleep 1
+          done
+          if [ "$ready" != 1 ]; then
+            echo 'Django did not start successfully; refusing false browser PASS'
+            tail -80 "$RUNNER_TEMP/m2-django-server.log"
+            exit 1
+          fi
+          # DEBUG runserver's staticfiles override does not search STATIC_ROOT.
+          # --nostatic lets WhiteNoise serve the actual production Vite bundle.
+          uv run python - <<'PY'
+          import re
+          from urllib.request import urlopen
+          origin='http://127.0.0.1:8000'
+          html=urlopen(origin+'/').read().decode('utf-8')
+          assets=re.findall(r'(?:src|href)="(/static/[^"]+)"',html)
+          assert assets, 'compiled UI references no static assets'
+          for asset in assets:
+              with urlopen(origin+asset) as response:
+                  payload=response.read()
+                  assert response.status==200 and payload, f'static asset failed: {asset}'
+          print(f'Browser preflight PASS: {len(assets)} compiled JS/CSS assets returned')
+          PY
+          cd "$RUNNER_TEMP/m2-playwright"
+          ./node_modules/.bin/playwright test -c playwright.config.cjs
+          # Test-only mutation control: remove one stale-refresh generation guard.
+          # The first run consumes synthetic login throttle quotas (even successful
+          # logins count). Reset only this disposable CI database's counters before
+          # a second replay; do not weaken or bypass the production policy.
+          cd "$GITHUB_WORKSPACE"
+          uv run python manage.py shell -c "from backend.accounts.models import LoginThrottle; LoginThrottle.objects.all().delete()"
+          # Never write modified application code to GitHub; restore after probe.
+          cp frontend/src/App.tsx "$RUNNER_TEMP/m2-original-App.tsx"
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('frontend/src/App.tsx')
+          lines=p.read_text().splitlines(keepends=True)
+          matches=[i for i,line in enumerate(lines[:-1])
+                   if line.strip()=='if(identityEpoch.current!==generation)return;'
+                   and 'setCases(nextCases.results)' in lines[i+1]]
+          assert len(matches)==1, 'R3 refresh guard not uniquely identified; refusing mutation'
+          lines[matches[0]]='    // CI-ONLY MUTANT: R3 refresh guard removed.'+chr(10)
+          p.write_text(''.join(lines))
+          PY
+          (cd frontend && npm run build)
+          kill "$server_pid" 2>/dev/null || true
+          wait "$server_pid" 2>/dev/null || true
+          uv run python manage.py runserver --nostatic --noreload 127.0.0.1:8000 > "$RUNNER_TEMP/m2-mutant-server.log" 2>&1 &
+          server_pid=$!
+          ready=0
+          for attempt in $(seq 1 50); do
+            if curl --fail --silent --output /dev/null http://127.0.0.1:8000/health/ready; then ready=1; break; fi
+            sleep 1
+          done
+          if [ "$ready" != 1 ]; then
+            echo 'Mutant Django server failed to start'
+            tail -50 "$RUNNER_TEMP/m2-mutant-server.log"
+            exit 1
+          fi
+          cd "$RUNNER_TEMP/m2-playwright"
+          set +e
+          ./node_modules/.bin/playwright test -c playwright.config.cjs --grep 'R3: successfully delivered' > "$RUNNER_TEMP/m2-r3-mutant.log" 2>&1
+          mutant_status=$?
+          set -e
+          if [ "$mutant_status" -eq 0 ] || ! grep -Fq 'R3_STALE_TEMPLATE_LEAK' "$RUNNER_TEMP/m2-r3-mutant.log"; then
+            echo 'R3 mutation control did not demonstrate a stale-template assertion failure'
+            tail -75 "$RUNNER_TEMP/m2-r3-mutant.log"
+            exit 1
+          fi
+          echo 'R3_MUTATION_CONTROL_PASS: Chromium detected the deliberately removed guard'
+          cd "$GITHUB_WORKSPACE"
+          cp "$RUNNER_TEMP/m2-original-App.tsx" frontend/src/App.tsx
+          (cd frontend && npm run build)
+          git diff --exit-code -- frontend/src/App.tsx
+      - name: Dependency lockfiles remain unchanged
+        run: git diff --exit-code -- uv.lock frontend/package-lock.json
