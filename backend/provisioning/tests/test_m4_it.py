@@ -1,13 +1,16 @@
 """Live PostgreSQL qualification for isolated synthetic IT operation lifecycle."""
 import uuid
 import pytest
+import json
+import time
+from django.test import Client
 from django.db import DatabaseError,transaction
 from backend.onboarding.tests.test_m2_workflow import world,create
 from backend.templates.services import create_template,publish_template
 from backend.onboarding.models import OnboardingCase,Task
 from backend.onboarding.commands import activate_case
-from backend.provisioning.commands import request_it,simulate_fulfillment,confirm_it,receive_equipment
-from backend.provisioning.models import ITOperation,ITConfirmation,EquipmentReceipt
+from backend.provisioning.commands import request_it,simulate_fulfillment,confirm_it,receive_equipment,record_simulated_failure
+from backend.provisioning.models import ITOperation,ITConfirmation,EquipmentReceipt,ITSimulationFailure
 from backend.onboarding.models import TaskCompletion
 from backend.onboarding.services import CommandFailure
 from backend.audit.models import CommandReceipt,AuditEvent
@@ -135,3 +138,115 @@ def test_employee_equipment_receipt_requires_confirmed_same_case_evidence(world)
         with transaction.atomic():
             EquipmentReceipt.objects.filter(pk=confirmed['result']['receipt_id']).update(note='tampered')
     assert OnboardingCase.objects.get(pk=case.pk).version==6
+
+@pytest.mark.django_db(transaction=True)
+def test_simulated_failures_preserve_pending_task_then_success_requires_human_it_confirmation(world):
+    org,people=world
+    draft=create_template(actor=people['HR'][0],key='it_retry',name='Synthetic retryable IT',
+      tasks=[dict(key='independent_access',kind='ACCESS',owner_role='IT',
+        title='Synthetic IT access',required=True,available_offset_days=-30,due_offset_days=0,
+        evidence_spec={'type':'ACCESS'})],edges=[])
+    version=publish_template(actor=people['HR'][0],
+        template_id=uuid.UUID(draft['id']),revision=1)
+    made,_=create(world,uuid.UUID(version['version_id']))
+    case=OnboardingCase.objects.get(pk=made['case_id'])
+    activate_case(actor=people['HR'][0],case_id=case.pk,
+        key=uuid.uuid4(),expected_version=1)
+    task=Task.objects.get(case=case,key='independent_access')
+    request_it(actor=people['IT'][0],case_id=case.pk,task_id=task.pk,
+        key=uuid.uuid4(),expected_version=2)
+    first_args=dict(actor=people['IT'][0],case_id=case.pk,task_id=task.pk,
+        cause='SIMULATED_TIMEOUT',note='Synthetic provider did not respond',
+        expected_version=3)
+    with pytest.raises(CommandFailure) as invalid:
+        record_simulated_failure(**{**first_args,'actor':people['HR'][0]},
+            key=uuid.uuid4())
+    assert invalid.value.code=='NOT_FOUND'
+    op=ITOperation.objects.get(task=task)
+    with pytest.raises(DatabaseError):
+        with transaction.atomic():
+            ITSimulationFailure.objects.create(operation=op,sequence=1,
+                reported_by=people['HR'][0],cause='SIMULATED_TIMEOUT',
+                note='Forged cross-role failure record')
+    key=uuid.uuid4()
+    first,status=record_simulated_failure(**first_args,key=key)
+    assert status==201 and first['result']['failure_sequence']==1
+    assert record_simulated_failure(**first_args,key=key)[0]==first
+    assert first['result']['retry_explicitly_available'] is True
+    assert Task.objects.get(pk=task.pk).execution_state=='IN_PROGRESS'
+    assert TaskCompletion.objects.count()==0
+    with pytest.raises(DatabaseError):
+        with transaction.atomic():
+            ITSimulationFailure.objects.filter(pk=first['result']['failure_id']).update(
+                note='forged correction')
+    second,status=record_simulated_failure(actor=people['IT'][0],
+        case_id=case.pk,task_id=task.pk,cause='PROVIDER_UNAVAILABLE',
+        note='Synthetic provider is still unavailable',
+        key=uuid.uuid4(),expected_version=4)
+    assert status==201 and second['result']['failure_sequence']==2
+    assert TaskCompletion.objects.count()==0
+    result,status=simulate_fulfillment(actor=people['IT'][0],case_id=case.pk,
+        task_id=task.pk,note='Synthetic provider retry succeeded',
+        key=uuid.uuid4(),expected_version=5)
+    assert status==200 and result['result']['state']=='SIMULATED_FULFILLED'
+    assert Task.objects.get(pk=task.pk).execution_state=='IN_PROGRESS'
+    assert TaskCompletion.objects.count()==0
+    with pytest.raises(CommandFailure) as late:
+        record_simulated_failure(actor=people['IT'][0],case_id=case.pk,
+            task_id=task.pk,cause='SIMULATED_REJECTION',
+            note='Should not fail a successful operation',
+            key=uuid.uuid4(),expected_version=6)
+    assert late.value.code=='IT_PENDING_REQUEST_REQUIRED'
+    done,status=confirm_it(actor=people['IT'][0],case_id=case.pk,task_id=task.pk,
+        note='Human IT signoff on synthetic retry success',
+        key=uuid.uuid4(),expected_version=6)
+    assert status==200 and done['result']['state']=='COMPLETED'
+    assert Task.objects.get(pk=task.pk).completion.evidence_type=='IT_CONFIRMATION'
+    assert ITSimulationFailure.objects.filter(operation=op).count()==2
+    assert AuditEvent.objects.filter(event_type='IT_SIMULATION_FAILED').count()==2
+    assert CommandReceipt.objects.filter(route='m4-it-failure').count()==2
+    assert OnboardingCase.objects.get(pk=case.pk).version==7
+
+@pytest.mark.django_db(transaction=True)
+def test_failed_it_attempt_api_is_role_scoped_and_replayable(world):
+    org,people=world
+    draft=create_template(actor=people['HR'][0],key='it_fail_http',name='Synthetic failure',
+        tasks=[dict(key='device',kind='EQUIPMENT',owner_role='IT',
+            title='Synthetic test equipment',required=True,
+            available_offset_days=-30,due_offset_days=0,
+            evidence_spec={'type':'EQUIPMENT'})],edges=[])
+    version=publish_template(actor=people['HR'][0],
+        template_id=uuid.UUID(draft['id']),revision=1)
+    made,_=create(world,uuid.UUID(version['version_id']))
+    case=OnboardingCase.objects.get(pk=made['case_id'])
+    activate_case(actor=people['HR'][0],case_id=case.pk,
+        key=uuid.uuid4(),expected_version=1)
+    task=Task.objects.get(case=case,key='device')
+    request_it(actor=people['IT'][0],case_id=case.pk,task_id=task.pk,
+        key=uuid.uuid4(),expected_version=2)
+    base=f'/api/v1/cases/{case.pk}/tasks/{task.pk}/it-operation'
+    def client(role):
+        c=Client()
+        c.force_login(people[role][0])
+        session=c.session
+        session['m1_session_started']=time.time()
+        session.save()
+        return c
+    it=client('IT')
+    employee=client('EMPLOYEE')
+    assert employee.get(base).status_code==404
+    result=it.post(base+'/simulated-failure',
+        data=json.dumps({'cause':'SIMULATED_REJECTION',
+                        'note':'Simulated provider rejected the synthetic device'}),
+        content_type='application/json',HTTP_IDEMPOTENCY_KEY=str(uuid.uuid4()),
+        HTTP_IF_MATCH=f'"case:{case.pk}:v3"')
+    assert result.status_code==201,result.content
+    assert result.json()['result']['task_completion']=='IN_PROGRESS'
+    info=it.get(base)
+    assert info.status_code==200
+    assert info.json()['state']=='REQUESTED'
+    assert len(info.json()['failures'])==1
+    assert info.json()['failures'][0]['cause']=='SIMULATED_REJECTION'
+    assert info.json()['retry_explicitly_available'] is True
+    assert employee.get(base).status_code==404
+    assert TaskCompletion.objects.count()==0
