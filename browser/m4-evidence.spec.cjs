@@ -83,6 +83,11 @@ test('M4 real Chromium quiz grading, meeting revisions and independent attendanc
       await expect(employee.getByText('1/4 mandatory tasks completed')).toBeVisible();
     });
     await test.step('HR schedules a real future occurrence and cannot forge future attendance',async()=>{
+      // Employee grading changed the case version. HR must refresh before
+      // issuing a new conditional write from a different browser session.
+      await hr.reload();
+      await expect(hr.getByText('Role: HR')).toBeVisible();
+      await open(hr);
       const session=card(hr,'Scheduled Orientation');
       await expect(session).toContainText('READY');
       await session.getByRole('button',{name:'Load activity schedule'}).click();
