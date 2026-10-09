@@ -17,7 +17,9 @@ class TrainingAttempt(models.Model):
     class Meta:
         constraints=[
             models.UniqueConstraint(fields=['task','attempt_number'],name='m4_training_attempt_sequence_unique'),
-            models.CheckConstraint(condition=models.Q(passing_score__gte=1,score__lte=models.F('passing_score')),
+            models.CheckConstraint(condition=(models.Q(passing_score__gte=1,passing_score__lte=5,score__lte=5)
+              & (models.Q(passed=True,score__gte=models.F('passing_score'))
+                | models.Q(passed=False,score__lt=models.F('passing_score')))),
                                    name='m4_training_score_bounded'),
         ]
         ordering=['attempt_number']

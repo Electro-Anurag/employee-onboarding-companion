@@ -34,6 +34,6 @@ class Migration(migrations.Migration):
             ('task',models.ForeignKey(on_delete=django.db.models.deletion.PROTECT,related_name='training_attempts',to='onboarding.task')),
         ],options={'ordering':['attempt_number']}),
         migrations.AddConstraint(model_name='trainingattempt',constraint=models.UniqueConstraint(fields=('task','attempt_number'),name='m4_training_attempt_sequence_unique')),
-        migrations.AddConstraint(model_name='trainingattempt',constraint=models.CheckConstraint(condition=models.Q(passing_score__gte=1,score__lte=models.F('passing_score')),name='m4_training_score_bounded')),
+        migrations.AddConstraint(model_name='trainingattempt',constraint=models.CheckConstraint(condition=(models.Q(passing_score__gte=1,passing_score__lte=5,score__lte=5) & (models.Q(passed=True,score__gte=models.F('passing_score')) | models.Q(passed=False,score__lt=models.F('passing_score')))),name='m4_training_score_bounded')),
         migrations.RunSQL(SQL,REVERSE),
     ]
