@@ -8,6 +8,9 @@ type DocumentRow={id:string;revision:number;filename:string;scan_status:string;
   scan_profile:string;malware_scanned:boolean;
   review:null|{decision:'ACCEPTED'|'REJECTED'|'NEEDS_CLARIFICATION';note:string}};
 type DocumentList={results:DocumentRow[];synthetic_only:boolean;malware_scanned:boolean};
+type TrainingModule={module:{module_version:string;content_sha256:string;passing_score:number;
+  questions:{key:string;prompt:string;options:{value:string;label:string}[]}[]};
+  task_state:string;attempts:{number:number;score:number;passed:boolean}[]};
 type ITOperation={state:'REQUESTED'|'SIMULATED_FULFILLED';provider:string;simulation_digest:string|null;
   confirmation_id:string|null;task_completion:string};
 type ReceiptSource={provider:string;candidates:{task_id:string;confirmation_id:string;title:string}[]};
@@ -39,6 +42,9 @@ export default function EvidenceWorkflows({task,caseId,role,read,mutate,uploadDo
   const [documentFile,setDocumentFile]=useState<File|null>(null);
   const [documentDecision,setDocumentDecision]=useState<'ACCEPTED'|'REJECTED'|'NEEDS_CLARIFICATION'>('ACCEPTED');
   const [documentNote,setDocumentNote]=useState('');
+  const [training,setTraining]=useState<TrainingModule|null>(null);
+  const [trainingAnswers,setTrainingAnswers]=useState<Record<string,string>>({});
+  const [trainingResult,setTrainingResult]=useState('');
   const base='/api/v1/cases/'+caseId+'/tasks/'+task.id;
   async function safeRun(fn:()=>Promise<void>){
     setBusy(true);setError('');
@@ -58,6 +64,11 @@ export default function EvidenceWorkflows({task,caseId,role,read,mutate,uploadDo
     setReceiptSource(result);
     setReceiptConfirmation(current=>current||result.candidates[0]?.confirmation_id||'');
   }
+  async function loadTraining(){
+    const result=await read(base+'/training-module') as TrainingModule;
+    setTraining(result);
+    setTrainingResult('');
+  }
   async function loadDocumentHistory(){
     const result=await read(base+'/document-revisions') as DocumentList;
     setDocumentRows(result.results);
@@ -66,6 +77,39 @@ export default function EvidenceWorkflows({task,caseId,role,read,mutate,uploadDo
     const result=await read(base+'/assigned-policy') as PolicyEdition;
     setPolicy(result);
     setPolicyConsent(false);
+  }
+  if(task.kind==='TRAINING'&&(role==='EMPLOYEE'||role==='HR')){
+    return <section className="subpanel" aria-label="Versioned training quiz">
+      <h5>Versioned, server-graded synthetic training</h5>
+      <button className="quiet" disabled={busy} onClick={()=>void safeRun(loadTraining)}>
+        View assigned training
+      </button>
+      {training&&<div className="form">
+        <p className="meta">Module: {training.module.module_version}; passing score:
+          {training.module.passing_score}/{training.module.questions.length}</p>
+        {training.module.questions.map(q=><label key={q.key}>{q.prompt}
+          <select disabled={busy||role!=='EMPLOYEE'||task.state==='COMPLETED'}
+            value={trainingAnswers[q.key]||''}
+            onChange={e=>setTrainingAnswers(prev=>({...prev,[q.key]:e.target.value}))}>
+            <option value="">Choose answer</option>
+            {q.options.map(o=><option value={o.value} key={o.value}>{o.label}</option>)}
+          </select>
+        </label>)}
+        {training.attempts.map(a=><p className="meta" key={a.number}>
+          Attempt {a.number}: {a.score} points — {a.passed?'PASSED':'NOT PASSED'}</p>)}
+        {role==='EMPLOYEE'&&task.state!=='COMPLETED'&&
+          (task.state==='READY'||task.state==='IN_PROGRESS')&&
+          <button disabled={busy||training.module.questions.some(q=>!trainingAnswers[q.key])}
+            onClick={()=>void safeRun(async()=>{
+              await mutate(base+'/training-attempts',{
+                module_version:training.module.module_version,
+                content_sha256:training.module.content_sha256,answers:trainingAnswers});
+              await loadTraining();
+            })}>Submit answers for server grading</button>}
+      </div>}
+      {trainingResult&&<p className="meta">{trainingResult}</p>}
+      {error&&<p role="alert" className="block">Training operation failed: {error}</p>}
+    </section>;
   }
   if(task.kind==='DOCUMENT'&&(role==='EMPLOYEE'||role==='HR')){
     const current=documentRows?.at(-1);

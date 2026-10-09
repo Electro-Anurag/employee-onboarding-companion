@@ -342,7 +342,7 @@ export default function App(){
                 {t.allowed_actions.includes('ATTEST_MANAGER_PREPARATION')&&
                   <button disabled={busy} onClick={()=>setAttestTask(old=>old===t.id?null:t.id)}>Complete preparation</button>}
               </div>
-              {(t.kind==='FORM'||t.kind==='DOCUMENT'||t.kind==='POLICY_ACK'||t.kind==='ACCESS'||t.kind==='EQUIPMENT'||t.kind==='EQUIPMENT_RECEIPT')&&
+              {(t.kind==='FORM'||t.kind==='DOCUMENT'||t.kind==='TRAINING'||t.kind==='POLICY_ACK'||t.kind==='ACCESS'||t.kind==='EQUIPMENT'||t.kind==='EQUIPMENT_RECEIPT')&&
                 <EvidenceWorkflows key={me.user_id+':'+t.id} task={t} caseId={detail.case_id}
                   role={me.role} read={path=>request(path)} mutate={mutateEvidence} uploadDocument={uploadDocument}/>}
               {attestTask===t.id&&<form className="form attest" onSubmit={e=>void attest(e)}>
@@ -353,7 +353,7 @@ export default function App(){
                 <button disabled={busy||!station} type="submit">Submit recorded evidence</button>
               </form>}
             </article>)}</div>
-            <p className="meta">Synthetic text-only document uploads and HR decisions use immutable evidence; production document storage and malware scanning are not yet implemented. Training and activity completion remain under development.</p>
+            <p className="meta">Synthetic document handling is not general malware scanning or production storage. Training completion requires a passing server-graded versioned attempt; scheduling and activity evidence remain under development.</p>
           </section>}
         </section>}
         {tab==='work'&&<section className="panel"><h2>My assigned tasks</h2>
