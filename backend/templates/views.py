@@ -4,7 +4,6 @@ from django.db import transaction,DatabaseError,IntegrityError
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_protect
 from django.views.decorators.http import require_http_methods,require_POST
-from backend.accounts.security import actor_context
 from backend.common.http import error,InputError,json_payload,required_uuid,transient_db_response
 from backend.onboarding.services import set_command_timeouts
 from backend.onboarding.commands import _lock_receipt,_receipt
@@ -12,12 +11,21 @@ from backend.templates import services
 
 def _apply(request,route,tag,payload,execute,success=200):
     try:
-        actor_context(request.user)
         key=required_uuid(request.headers.get('Idempotency-Key',''))
         with transaction.atomic():
             set_command_timeouts()
+            # Recheck the current manage-templates capability BEFORE any old
+            # receipt can be returned, including after permission revocation.
+            member=services._editor(request.user)
             previous,digest=_lock_receipt(request.user,route,key,None,{'tag':tag,'data':payload})
             if previous:
+                from backend.templates.models import OnboardingTemplate
+                # A user transferred to a different organization must not
+                # recover historical template data from the former org.
+                old_id=previous.response.get('id') if isinstance(previous.response,dict) else None
+                if not old_id or not OnboardingTemplate.objects.filter(
+                    pk=old_id,organization_id=member.organization_id).exists():
+                    raise PermissionDenied()
                 return JsonResponse(previous.response,status=previous.status_code)
             result=execute()
             _receipt(request.user,route,key,digest,None,result,success)
