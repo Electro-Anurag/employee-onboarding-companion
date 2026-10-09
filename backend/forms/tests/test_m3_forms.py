@@ -1,6 +1,7 @@
 """Live PostgreSQL M3 form correction-loop and confidentiality regression."""
 import json
 import uuid
+import time
 import pytest
 from django.test import Client
 from django.db import DatabaseError,transaction
@@ -81,6 +82,9 @@ def test_form_api_case_scoped_and_owner_reads(world):
     path=f'/api/v1/cases/{case.pk}/tasks/{task.pk}/form-submissions'
     employee=Client()
     employee.force_login(persons['EMPLOYEE'][0])
+    session=employee.session
+    session['m1_session_started']=time.time()
+    session.save()
     answers={'preferred_name':'Synthetic Employee','contact_email':'employee@example.test'}
     response=employee.post(path,data=json.dumps({'answers':answers}),content_type='application/json',
         HTTP_IDEMPOTENCY_KEY=str(uuid.uuid4()),HTTP_IF_MATCH=f'"case:{case.pk}:v2"')
@@ -88,8 +92,14 @@ def test_form_api_case_scoped_and_owner_reads(world):
     assert employee.get(path).json()['results'][0]['answers']==answers
     hr=Client()
     hr.force_login(persons['HR'][0])
+    session=hr.session
+    session['m1_session_started']=time.time()
+    session.save()
     assert hr.get(path).status_code==200
     it=Client()
     it.force_login(persons['IT'][0])
+    session=it.session
+    session['m1_session_started']=time.time()
+    session.save()
     assert it.get(path).status_code==404
     assert Client().get(path).status_code in (401,404)
