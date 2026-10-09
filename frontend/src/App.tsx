@@ -102,7 +102,14 @@ export default function App(){
     setCases(nextCases.results);setWork(nextWork.results);
     setTemplates(nextTemplates);setOwners(nextOwners);
   }
-  useEffect(()=>{if(me)void refresh(me).catch(e=>setMessage('Unable to read workspace: '+String(e)));},[me]);
+  useEffect(()=>{
+    if(!me)return;
+    const generation=identityEpoch.current;
+    void refresh(me).catch(e=>{
+      if(identityEpoch.current===generation)
+        setMessage('Unable to read workspace: '+String(e));
+    });
+  },[me]);
 
   async function perform(workflow:()=>Promise<void>){
     const generation=identityEpoch.current;

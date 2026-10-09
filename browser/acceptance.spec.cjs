@@ -173,6 +173,44 @@ test('four-role real-browser case, template, dependency and evidence journey',as
       expect((await employee.request.get('/api/v1/templates')).status()).toBe(403);
     });
 
+    await test.step('same-mounted-page identity switch clears HR template and pending reads',async()=>{
+      // Keep the page mounted: no reload, new browser context, or remount.
+      await hr.getByRole('button',{name:/Templates \\(/}).click();
+      const item=hr.locator('.case-list').first().getByRole('button').first();
+      await expect(item).toBeVisible();
+      await item.click();
+      await expect(hr.getByRole('heading',{name:/Employee First Month.*PUBLISHED/})).toBeVisible();
+      await hr.getByRole('button',{name:'Create next version draft'}).click();
+      await expect(hr.locator('textarea.json-editor')).toBeVisible();
+      await hr.locator('textarea.json-editor').fill('OLD_HR_PRIVATE_DRAFT_CONTENT');
+
+      // An in-flight HR-owned request must be discarded after login changes.
+      let releaseResponse;
+      let intercepted;
+      const held=new Promise(resolve=>{intercepted=resolve;});
+      const release=new Promise(resolve=>{releaseResponse=resolve;});
+      await hr.route('**/api/v1/templates',async route=>{
+        intercepted();
+        await release;
+        await route.continue();
+      });
+      await hr.getByRole('button',{name:'Sign out'}).click();
+      await expect(hr.getByRole('heading',{name:'Sign in'})).toBeVisible();
+      // Re-auth as HR, allowing its background refresh to stall on /templates.
+      await login(hr,'HR');
+      await held;
+      await hr.getByRole('button',{name:'Sign out'}).click();
+      await expect(hr.getByRole('heading',{name:'Sign in'})).toBeVisible();
+      await login(hr,'IT');
+      releaseResponse();
+      await hr.unroute('**/api/v1/templates');
+      await expect(hr.getByText('Role: IT')).toBeVisible();
+      await expect(hr.getByText('OLD_HR_PRIVATE_DRAFT_CONTENT')).toHaveCount(0);
+      await expect(hr.locator('textarea.json-editor')).toHaveCount(0);
+      await expect(hr.getByRole('button',{name:/Templates \\(/})).toHaveCount(0);
+      await expect(hr.getByRole('button',{name:'Cases (1)'})).toBeVisible();
+    });
+
     await test.step('sign out removes protected UI and rejects session reads',async()=>{
       for(const page of [it,manager,employee,hr]){
         await page.getByRole('button',{name:'Sign out'}).click();
