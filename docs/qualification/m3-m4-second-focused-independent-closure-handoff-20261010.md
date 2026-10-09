@@ -27,10 +27,10 @@
 ## Qualification run pointers / precise limits
 
 - [Browser with new six-kind Start scenario](https://github.com/Electro-Anurag/employee-onboarding-companion/actions/runs/37997608515): SUCCESS, **4 Chromium scenarios passed**.
-- [Backend at prior R1/S1 and real-elapsed R6 source](https://github.com/Electro-Anurag/employee-onboarding-companion/actions/runs/37997803328): SUCCESS. Verify counts/skip details in its log.
-- [Browser at same prior SHA](https://github.com/Electro-Anurag/employee-onboarding-companion/actions/runs/37997803329): SUCCESS.
-- [Live MinIO/ClamAV at previous S1 source](https://github.com/Electro-Anurag/employee-onboarding-companion/actions/runs/37997803351): SUCCESS.
-- Final `8d484498…` triggered [backend](https://github.com/Electro-Anurag/employee-onboarding-companion/actions/runs/37998317341), [browser](https://github.com/Electro-Anurag/employee-onboarding-companion/actions/runs/37998317405), and [live S3/ClamAV](https://github.com/Electro-Anurag/employee-onboarding-companion/actions/runs/37998317407) CI. **Verify exact completed status before review; this packet makes no advance PASS claim for an unfinished run.**
+- **Final corrected code SHA `8d484498b4a51ac023e33a6af63cc51ba24c01bb`**: [backend and PostgreSQL CI](https://github.com/Electro-Anurag/employee-onboarding-companion/actions/runs/37998317341) **SUCCESS** — 144 Python passed, 2 live-service tests skipped for separate S3/ClamAV execution, and 2 React tests passed. The CI independently ran a populated 0018→0019 manager migration on isolated valid and invalid evidence: `M4_MANAGER_UPGRADE_MATCHING_PASS` and `M4_MANAGER_UPGRADE_MISMATCH_FAIL_CLOSED_PASS`. Worker-recovery, Docker build, npm audit and runtime checks also succeeded.
+- [Final corrected-code Chromium acceptance](https://github.com/Electro-Anurag/employee-onboarding-companion/actions/runs/37998317405) **SUCCESS** — 4 passed, including R1 six-kind Start→typed-action browser acceptance.
+- [Final corrected-code actual MinIO/S3, ClamAV and M3 worker recovery](https://github.com/Electro-Anurag/employee-onboarding-companion/actions/runs/37998317407) **SUCCESS** — 2 live integration tests passed. Actual refreshed scanner signatures were required; no production AWS security is implied.
+- [Prior substantive corrections backend](https://github.com/Electro-Anurag/employee-onboarding-companion/actions/runs/37997803328), [browser](https://github.com/Electro-Anurag/employee-onboarding-companion/actions/runs/37997803329), and [live services](https://github.com/Electro-Anurag/employee-onboarding-companion/actions/runs/37997803351) also completed successfully.
 
 ## Still unqualified; keep these separate
 
