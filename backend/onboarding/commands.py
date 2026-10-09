@@ -294,10 +294,19 @@ def start_task(*,actor,case_id,task_id,key,expected_version):
 def attest_manager(*,actor,case_id,task_id,fields,note,key,expected_version):
     if not isinstance(fields,dict) or set(fields)!=set(('first_week_plan','buddy_name','workstation_ready')):
         raise CommandFailure('INVALID_ATTESTATION',422)
-    if (not isinstance(fields['first_week_plan'],str) or not 8<=len(fields['first_week_plan'])<=300
-            or not isinstance(fields['buddy_name'],str) or not 2<=len(fields['buddy_name'])<=100
-            or type(fields['workstation_ready']) is not bool
-            or not isinstance(note,str) or not 1<=len(note.strip())<=500):
+    if (not isinstance(fields['first_week_plan'],str)
+            or not isinstance(fields['buddy_name'],str)
+            or type(fields['workstation_ready']) is not bool or not isinstance(note,str)):
+        raise CommandFailure('INVALID_ATTESTATION',422)
+    # Store, hash and replay the identical normalized evidence, never an
+    # unreviewed blank string disguised by its raw character count.
+    fields={**fields,
+        'first_week_plan':fields['first_week_plan'].strip(),
+        'buddy_name':fields['buddy_name'].strip()}
+    note=note.strip()
+    if (not 8<=len(fields['first_week_plan'])<=300
+            or not 2<=len(fields['buddy_name'])<=100
+            or not 1<=len(note)<=500):
         raise CommandFailure('INVALID_ATTESTATION',422)
     payload={'task_id':str(task_id),'fields':fields,'note':note}
     with transaction.atomic():
