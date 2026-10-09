@@ -267,6 +267,35 @@ test('four-role real-browser case, template, dependency and evidence journey',as
       await expect(taskCard(hr,'Equipment Setup')).toContainText('READY');
     });
 
+    await test.step('IT simulation failure, explicit retry and human signoff unlock equipment',async()=>{
+      await openCase(it);
+      let equipment=taskCard(it,'Equipment Setup');
+      await expect(equipment).toContainText('READY');
+      await equipment.getByRole('button',{name:'Create synthetic IT request'}).click();
+      await expect(taskCard(it,'Equipment Setup')).toContainText('IN_PROGRESS');
+      equipment=taskCard(it,'Equipment Setup');
+      await equipment.getByRole('button',{name:'Inspect IT operation'}).click();
+      await expect(equipment).toContainText('REQUESTED');
+      await equipment.getByLabel('Simulated failure cause').selectOption('SIMULATED_TIMEOUT');
+      await equipment.getByLabel('Simulated failure note').fill('Synthetic provider timeout requires an explicit retry');
+      await equipment.getByRole('button',{name:'Record synthetic failure (task remains pending)'}).click();
+      await expect(equipment).toContainText('Failure 1: SIMULATED_TIMEOUT');
+      await expect(it.getByText('4/17 mandatory tasks completed')).toBeVisible();
+      await equipment.getByLabel('Simulation note').fill('Synthetic provider recovered on explicit retry');
+      await equipment.getByRole('button',{name:'Retry with simulated fulfillment'}).click();
+      await expect(equipment).toContainText('SIMULATED_FULFILLED');
+      await expect(it.getByText('4/17 mandatory tasks completed')).toBeVisible();
+      await equipment.getByLabel('IT confirmation note').fill(
+        'Assigned IT owner separately verified the synthetic outcome');
+      await equipment.getByRole('button',{name:'Confirm simulated IT outcome and complete task'}).click();
+      await expect(taskCard(it,'Equipment Setup')).toContainText('COMPLETED');
+      await expect(it.getByText('5/17 mandatory tasks completed')).toBeVisible();
+      await it.reload();
+      await expect(it.getByText('Role: IT')).toBeVisible();
+      await openCase(it);
+      await expect(taskCard(it,'Equipment Setup')).toContainText('COMPLETED');
+    });
+
     await test.step('same-mounted-page identity switch clears HR template and pending reads',async()=>{
       // Keep the page mounted: no reload, new browser context, or remount.
       await hr.getByRole('button',{name:/Templates \(/}).click();
