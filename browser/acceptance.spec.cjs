@@ -135,7 +135,7 @@ test('four-role real-browser case, template, dependency and evidence journey',as
       await expect(manager.getByText('1/17 mandatory tasks completed')).toBeVisible();
       await expect(taskCard(manager,'Team Introduction')).not.toContainText('PREREQUISITE_INCOMPLETE');
       await expect(taskCard(manager,'Workspace Access')).toContainText('PREREQUISITE_INCOMPLETE');
-      await expect(manager.getByText(/Document, policy, training and activity completion require separate evidence/)).toBeVisible();
+      await expect(manager.getByText(/Document, training and activity completion require separate evidence/)).toBeVisible();
       await expect(taskCard(manager,'Manager Preparation').getByRole('button',{name:'Complete preparation'})).toHaveCount(0);
     });
 
@@ -207,6 +207,20 @@ test('four-role real-browser case, template, dependency and evidence journey',as
       await expect(equipment).toContainText('PREREQUISITE_INCOMPLETE');
       await expect(equipment.getByRole('button',{name:'Create synthetic IT request'})).toHaveCount(0);
       await expect(equipment.getByRole('button',{name:'Confirm simulated IT outcome and complete task'})).toHaveCount(0);
+    });
+
+    await test.step('employee acknowledges only the exact frozen synthetic policy edition',async()=>{
+      await openCase(employee);
+      const card=taskCard(employee,'Conduct Ack');
+      await expect(card).toContainText('READY');
+      await card.getByRole('button',{name:'View assigned policy'}).click();
+      await expect(card.getByText('Assigned edition: synthetic-conduct-v1')).toBeVisible();
+      await expect(card).toContainText('not an employment agreement');
+      await card.getByLabel(/I have read and explicitly acknowledge/).check();
+      await card.getByRole('button',{name:'Record version-specific acknowledgement'}).click();
+      await expect(taskCard(employee,'Conduct Ack')).toContainText('COMPLETED');
+      await expect(employee.getByText('3/17 mandatory tasks completed')).toBeVisible();
+      await expect(taskCard(employee,'Workspace Access')).toContainText('PREREQUISITE_INCOMPLETE');
     });
 
     await test.step('same-mounted-page identity switch clears HR template and pending reads',async()=>{

@@ -7,6 +7,8 @@ type FormList={results:FormEntry[]};
 type ITOperation={state:'REQUESTED'|'SIMULATED_FULFILLED';provider:string;simulation_digest:string|null;
   confirmation_id:string|null;task_completion:string};
 type ReceiptSource={provider:string;candidates:{task_id:string;confirmation_id:string;title:string}[]};
+type PolicyEdition={task_id:string;policy:{version:string;content_sha256:string;text:string;policy_key:string};
+  acknowledged:boolean};
 type Task={id:string;key:string;kind:string;state:string;owner_role:string};
 
 export default function EvidenceWorkflows({task,caseId,role,read,mutate}:{
@@ -26,6 +28,8 @@ export default function EvidenceWorkflows({task,caseId,role,read,mutate}:{
   const [receiptNote,setReceiptNote]=useState('');
   const [receiptSource,setReceiptSource]=useState<ReceiptSource|null>(null);
   const [receiptConfirmation,setReceiptConfirmation]=useState('');
+  const [policy,setPolicy]=useState<PolicyEdition|null>(null);
+  const [policyConsent,setPolicyConsent]=useState(false);
   const base='/api/v1/cases/'+caseId+'/tasks/'+task.id;
   async function safeRun(fn:()=>Promise<void>){
     setBusy(true);setError('');
@@ -44,6 +48,39 @@ export default function EvidenceWorkflows({task,caseId,role,read,mutate}:{
     const result=await read(base+'/equipment-receipt/source') as ReceiptSource;
     setReceiptSource(result);
     setReceiptConfirmation(current=>current||result.candidates[0]?.confirmation_id||'');
+  }
+  async function loadPolicy(){
+    const result=await read(base+'/assigned-policy') as PolicyEdition;
+    setPolicy(result);
+    setPolicyConsent(false);
+  }
+  if(task.kind==='POLICY_ACK'&&(role==='EMPLOYEE'||role==='HR')){
+    return <section className="subpanel" aria-label="Assigned policy acknowledgement">
+      <h5>Case-assigned policy edition — synthetic text</h5>
+      <button className="quiet" disabled={busy} onClick={()=>void safeRun(loadPolicy)}>
+        View assigned policy
+      </button>
+      {policy&&<div>
+        <p className="meta">Assigned edition: {policy.policy.version}</p>
+        <p className="meta">SHA-256: <code>{policy.policy.content_sha256}</code></p>
+        <p>{policy.policy.text}</p>
+        {policy.acknowledged&&<p className="meta">Acknowledged and stored as immutable evidence.</p>}
+      </div>}
+      {role==='EMPLOYEE'&&policy&&!policy.acknowledged&&task.state==='READY'&&
+        <div className="form">
+          <label className="check"><input type="checkbox" checked={policyConsent}
+            onChange={e=>setPolicyConsent(e.target.checked)}/>
+            I have read and explicitly acknowledge this assigned synthetic edition.
+          </label>
+          <button disabled={busy||!policyConsent} onClick={()=>void safeRun(async()=>{
+            await mutate(base+'/policy-acknowledge',{
+              policy_version:policy.policy.version,
+              content_sha256:policy.policy.content_sha256,accepted:true});
+            await loadPolicy();
+          })}>Record version-specific acknowledgement</button>
+        </div>}
+      {error&&<p role="alert" className="block">Policy operation failed: {error}</p>}
+    </section>;
   }
   if(task.kind==='FORM'&&(role==='EMPLOYEE'||role==='HR')){
     const last=history?.at(-1);
