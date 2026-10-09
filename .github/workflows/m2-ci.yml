@@ -77,7 +77,7 @@ jobs:
           uv run python manage.py makemigrations --check --dry-run
       - name: Migrate queue and domain schema
         run: uv run python manage.py migrate --noinput
-      - name: M0 regression and M1 authorization / audit tests
+      - name: M0/M1 regressions and M2 PostgreSQL workflow tests
         run: |
           uv run python manage.py procrastinate healthchecks
           uv run pytest -q
@@ -105,8 +105,8 @@ jobs:
         env:
           PGPASSWORD: ci-temporary-only
         run: psql -v ON_ERROR_STOP=1 -h localhost -p 5432 -U onboarding -d onboarding_m0 -f scripts/m1_runtime_audit_probe.sql
-      - name: Build immutable M1 container source
-        run: docker build --tag onboarding-m1:${{ github.sha }} .
+      - name: Build immutable M2 container source
+        run: docker build --tag onboarding-m2:${{ github.sha }} .
       - name: Ensure qualification did not modify dependency locks
         run: git diff --exit-code -- uv.lock frontend/package-lock.json
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
