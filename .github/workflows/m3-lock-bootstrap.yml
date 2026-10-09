@@ -1,0 +1,27 @@
+name: M3 S3 SDK lock refresh helper
+on:
+  push:
+    branches: ['feature/m3-m4-integrated-workflows']
+    paths: ['pyproject.toml']
+permissions:
+  contents: read
+jobs:
+  lock:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e
+        with:
+          python-version: '3.13'
+          version: '0.12.23'
+      - name: Resolve new SDK and export reproducible lock only
+        run: |
+          uv lock
+          python - <<'PY'
+          import base64
+          data=open('uv.lock','rb').read()
+          print('M3_LOCK_BEGIN')
+          print(base64.b64encode(data).decode())
+          print('M3_LOCK_END')
+          PY
