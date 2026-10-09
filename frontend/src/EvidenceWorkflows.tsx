@@ -58,7 +58,7 @@ export default function EvidenceWorkflows({task,caseId,role,read,mutate}:{
           onChange={e=>setContactEmail(e.target.value)}/></label>
         <button disabled={busy} type="submit">Submit immutable form revision</button>
       </form>}
-      {pending&&<div className="form">
+      {pending&&last&&<div className="form">
         <label>HR review note<textarea maxLength={500} value={reviewNote}
           onChange={e=>setReviewNote(e.target.value)}/></label>
         <div className="actions">
