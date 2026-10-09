@@ -30,4 +30,10 @@ from procrastinate import RetryStrategy
                               retry_exceptions={RetriableDocumentScan}))
 def scan_secure_document(upload_id: str):
     from backend.documents.real_commands import scan_one
-    require_completed_scan_result(scan_one(upload_id))
+    result=scan_one(upload_id)
+    # CI-only hard exit AFTER persisted clean evidence, BEFORE job ACK.
+    # No client-supplied field can activate this isolated recovery probe.
+    if (os.environ.get('M3_CI_CRASH_AFTER_SCAN')=='1'
+            and result.get('state')=='AWAITING_HR_REVIEW'):
+        os._exit(77)
+    require_completed_scan_result(result)
