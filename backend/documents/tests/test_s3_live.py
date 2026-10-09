@@ -91,3 +91,93 @@ def test_live_s3_exact_versions_and_actual_antivirus_rejection_then_hr_approval(
     assert TaskCompletion.objects.get(task=task).evidence_type=='SECURE_DOCUMENT'
     assert Task.objects.get(pk=equipment.pk).execution_state=='BLOCKED'
     assert not SecureCleanObject.objects.filter(upload_id=id1).exists()
+
+@pytest.mark.django_db(transaction=True)
+def test_live_m3_real_content_worker_hard_exit_redelivery(world):
+    """Actual worker dies after committed clean evidence, before ACK; retry is idempotent."""
+    import asyncio
+    import subprocess
+    import sys
+    import time
+    from pathlib import Path
+    from django.db import connection
+    from procrastinate.contrib.django import app
+    org,actors=world
+    assert clamav_signature_provenance().startswith('ClamAV ')
+    made,_=create(world,published(world))
+    case=OnboardingCase.objects.get(pk=made['case_id'])
+    activate_case(actor=actors['HR'][0],case_id=case.pk,key=uuid.uuid4(),expected_version=1)
+    task=Task.objects.get(case=case,key='identity_document')
+    raw=generated_pdf()
+    intent,_=prepare(actor=actors['EMPLOYEE'][0],case_id=case.pk,task_id=task.pk,
+        sha256=hashlib.sha256(raw).hexdigest(),size=len(raw),
+        filename='actual_worker_recovery.pdf',key=uuid.uuid4(),expected_version=2)
+    ident=uuid.UUID(intent['result']['upload_id'])
+    receive(actor=actors['EMPLOYEE'][0],case_id=case.pk,task_id=task.pk,
+        upload_id=ident,raw=raw,key=uuid.uuid4(),expected_version=3)
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "SELECT id FROM procrastinate_jobs WHERE task_name=%s AND args->>'upload_id'=%s",
+            ['m3.secure_document_scan',str(ident)])
+        rows=cursor.fetchall()
+    assert len(rows)==1
+    job_id=rows[0][0]
+    def job_status():
+        connection.close()
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT status FROM procrastinate_jobs WHERE id=%s",[job_id])
+            return cursor.fetchone()[0]
+    def start_worker(crash):
+        env=os.environ.copy()
+        env['POSTGRES_DB']=connection.settings_dict['NAME']
+        if crash:env['M3_CI_CRASH_AFTER_SCAN']='1'
+        else:env.pop('M3_CI_CRASH_AFTER_SCAN',None)
+        return subprocess.Popen([sys.executable,'manage.py','procrastinate','worker'],
+            cwd=str(Path(__file__).resolve().parents[3]),env=env,
+            stdout=subprocess.DEVNULL,stderr=subprocess.PIPE)
+    def close_worker(worker):
+        if worker.poll() is None:
+            worker.terminate()
+            try:worker.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                worker.kill()
+                worker.wait()
+    first=start_worker(True)
+    try:
+        first.wait(timeout=40)
+        assert first.returncode==77, 'Expected exact M3 worker post-commit hard exit'
+    finally:
+        close_worker(first)
+    assert SecureScanAttempt.objects.filter(upload_id=ident,outcome='CLEAN').count()==1
+    assert SecureCleanObject.objects.filter(upload_id=ident).count()==1
+    assert not TaskCompletion.objects.filter(task=task).exists()
+    assert job_status()=='doing'
+    time.sleep(3)
+    async def recover():
+        async with app.open_async():
+            stalled=await app.job_manager.get_stalled_jobs(seconds_since_heartbeat=2)
+            selected=[job for job in stalled
+                if job.id==job_id and job.task_name=='m3.secure_document_scan']
+            assert len(selected)==1
+            await app.job_manager.retry_job(selected[0])
+    asyncio.run(recover())
+    assert job_status()=='todo'
+    second=start_worker(False)
+    try:
+        deadline=time.monotonic()+40
+        while time.monotonic()<deadline:
+            if job_status()=='succeeded':break
+            if second.poll() is not None:
+                raise AssertionError('Restarted M3 worker exited before ACK')
+            time.sleep(.3)
+        assert job_status()=='succeeded'
+    finally:
+        close_worker(second)
+    assert SecureScanAttempt.objects.filter(upload_id=ident).count()==1
+    assert SecureCleanObject.objects.filter(upload_id=ident).count()==1
+    assert not TaskCompletion.objects.filter(task=task).exists()
+    accepted,_=review(actor=actors['HR'][0],case_id=case.pk,task_id=task.pk,
+        upload_id=ident,decision='ACCEPTED',note='Verified replay after worker hard exit',
+        key=uuid.uuid4(),expected_version=4)
+    assert accepted['result']['task_completion']=='COMPLETED'
+    assert TaskCompletion.objects.filter(task=task,evidence_type='SECURE_DOCUMENT').count()==1
