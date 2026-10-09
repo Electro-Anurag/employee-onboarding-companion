@@ -13,7 +13,7 @@ import time
 import uuid
 from unittest.mock import patch
 import pytest
-from django.db import DatabaseError,transaction
+from django.db import DatabaseError,transaction,connection
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import Client,override_settings
 from pypdf import PdfWriter
@@ -259,3 +259,60 @@ def test_storage_recovers_only_matching_precondition_conflict_and_exact_bytes():
         with pytest.raises(CommandFailure) as no_recovery:
             storage.put_quarantine(upload,payload)
         assert no_recovery.value.code=='QUARANTINE_WRITE_FAILED'
+
+@pytest.mark.django_db(transaction=True)
+def test_m3_s3_scan_enqueue_is_atomic_with_receipt_and_quarantine(world,s3_doubles):
+    """After enqueue, a simulated transaction failure rolls back ALL DB facts.
+
+    The already-uploaded immutable S3 bytes are allowed to remain quarantined:
+    a new authorized receive may replay the exact version safely. No orphan
+    Procrastinate job is visible to workers after the failed DB transaction.
+    """
+    from backend.jobs.atomic import defer_atomic
+    from backend.jobs.tasks import scan_secure_document
+    from backend.documents.real_models import StoredQuarantineObject
+    org,people=world
+    created,_=create(world,published(world))
+    case=OnboardingCase.objects.get(pk=created['case_id'])
+    activate_case(actor=people['HR'][0],case_id=case.pk,
+        key=uuid.uuid4(),expected_version=1)
+    task=Task.objects.get(case=case,key='identity_document')
+    raw=generated_pdf()
+    sha=hashlib.sha256(raw).hexdigest()
+    intent,_=prepare(actor=people['EMPLOYEE'][0],case_id=case.pk,
+        task_id=task.pk,sha256=sha,size=len(raw),
+        filename='atomic_generated.pdf',key=uuid.uuid4(),expected_version=2)
+    upload_id=uuid.UUID(intent['result']['upload_id'])
+    class SimulatedTransactionFailure(Exception):
+        pass
+    observed=[]
+    def crash_after_atomic_enqueue(task,**kwargs):
+        assert task.name==scan_secure_document.name
+        job_id=defer_atomic(task,**kwargs)
+        observed.append(job_id)
+        raise SimulatedTransactionFailure('synthetic crash after queue insert')
+    with patch('backend.jobs.atomic.defer_atomic',side_effect=crash_after_atomic_enqueue):
+        with pytest.raises(SimulatedTransactionFailure):
+            receive(actor=people['EMPLOYEE'][0],case_id=case.pk,task_id=task.pk,
+                upload_id=upload_id,raw=raw,key=uuid.uuid4(),expected_version=3)
+    assert len(observed)==1
+    assert not StoredQuarantineObject.objects.filter(upload_id=upload_id).exists()
+    assert OnboardingCase.objects.get(pk=case.pk).version==3
+    assert not CommandReceipt.objects.filter(route='m3-secure-receive').exists()
+    assert not AuditEvent.objects.filter(event_type='DOCUMENT_QUARANTINED').exists()
+    with connection.cursor() as cursor:
+        cursor.execute(
+          "SELECT count(*) FROM procrastinate_jobs WHERE id = %s",[observed[0]])
+        assert cursor.fetchone()[0]==0
+    # Explicit fresh retry commits the S3 version, DB audit, receipt and job.
+    result,status=receive(actor=people['EMPLOYEE'][0],case_id=case.pk,
+        task_id=task.pk,upload_id=upload_id,raw=raw,
+        key=uuid.uuid4(),expected_version=3)
+    assert status==201 and result['result']['state']=='QUARANTINED'
+    assert StoredQuarantineObject.objects.filter(upload_id=upload_id).count()==1
+    assert CommandReceipt.objects.filter(route='m3-secure-receive').count()==1
+    with connection.cursor() as cursor:
+        cursor.execute(
+          "SELECT count(*) FROM procrastinate_jobs WHERE task_name = %s AND args->>'upload_id' = %s",
+          ['m3.secure_document_scan',str(upload_id)])
+        assert cursor.fetchone()[0]==1

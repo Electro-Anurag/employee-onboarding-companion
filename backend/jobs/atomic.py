@@ -18,7 +18,15 @@ _enqueue_app = App(connector=SyncPsycopgConnector())
 def _foundation_queue_contract(operation_id: str):
     raise RuntimeError("Enqueue-only task definition must never execute in a worker")
 
-_ALLOWED = {"m0.foundation_process": _foundation_queue_contract}
+@_enqueue_app.task(name="m3.secure_document_scan", queue="content")
+def _secure_document_scan_queue_contract(upload_id: str):
+    raise RuntimeError("Enqueue-only scan task must never execute in a worker")
+
+
+_ALLOWED = {
+    "m0.foundation_process": _foundation_queue_contract,
+    "m3.secure_document_scan": _secure_document_scan_queue_contract,
+}
 
 
 def defer_atomic(task, **kwargs) -> int:

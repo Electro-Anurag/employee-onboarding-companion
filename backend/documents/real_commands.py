@@ -155,7 +155,8 @@ def receive(*,actor,case_id,task_id,upload_id,raw,key,expected_version):
         _receipt(actor,'m3-secure-receive',key,digest,case,response,201)
         # Durable PostgreSQL-backed job enqueued within case transaction.
         from backend.jobs.tasks import scan_secure_document
-        scan_secure_document.defer(upload_id=str(upload.id))
+        from backend.jobs.atomic import defer_atomic
+        defer_atomic(scan_secure_document, upload_id=str(upload.id))
     return response,201
 
 def scan_one(upload_id,scanner=None):
