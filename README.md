@@ -1,6 +1,6 @@
 # Employee Onboarding Companion
 
-**Project stage:** M0 qualified; M1 independently security-reviewed and approved; **M2 local/CI implementation qualified (9 October 2026), independent M2 review pending; real Chromium four-role browser acceptance passed in local/CI.** Not a complete end-to-end onboarding product.
+**Project stage:** M0 qualified; M1 independently approved; **M2 Astra STOP R1–R9 remediation is developer CI-qualified (9 October 2026), independent focused M2 re-review pending.** No M3 or deployment authorization.
 
 Private personal GitHub repository. Governing scope: PRD v1.1 (28 functional requirements), Business Journey v1.0 (four roles, ten exception journeys, five hosted acceptance journeys), and Technical Architecture & Engineering Handoff v1.0. Neither M3–M10 implementation nor public deployment has been authorized.
 
@@ -8,7 +8,7 @@ Private personal GitHub repository. Governing scope: PRD v1.1 (28 functional req
 
 - **M0:** Django 5.2, PostgreSQL 17, Procrastinate 3.10, transactional queue/DB effect/audit and hard-kill worker recovery — qualified.
 - **M1:** Email identity, single active membership, four-role authorization, CSRF/session, invitations/reset, assignment controls, append-only auditable changes, idempotent transaction boundaries — independently reviewed GO.
-- **M2:** Versioned synthetic templates and published immutable DAGs; HR case creation and activation; 17-task synthetic snapshot; AND prerequisite evaluation, blocked/ready/in-progress tasks, timezone-local schedules, typed manager-preparation attestation, HR Day 1 transition, role-scoped workspaces and case timeline — **84/84 Python tests, 2/2 frontend tests and CI build passed**. This is not all 17 tasks completeable yet.
+- **M2:** Versioned synthetic templates and published immutable DAGs; HR case creation and activation; 17-task synthetic snapshot; AND prerequisite evaluation, blocked/ready/in-progress tasks, timezone-local schedules, typed manager-preparation attestation, HR Day 1 transition, role-scoped workspaces and case timeline — **95/95 PostgreSQL-backed Python tests, 2/2 frontend tests and CI build passed**. This is not all 17 tasks completeable yet.
 - **Future work:** M3 evidence files/forms/policies; M4 IT/training integrations; M5 reminders and exception recovery; M6 AI; M7 dashboards/closeout; M8 hosting/operations; M9 hosted journeys/benchmarks; M10 final demonstration.
 
 For exact source SHA, 11/12 passed gates, browser CI results, limitations and 12-item engineering checklist see [M2 qualification and tracker](docs/qualification/m2-20261009.md).
@@ -32,10 +32,12 @@ The bootstrap prints fresh credentials for HR, Employee, IT and Manager on the o
 
 ## Qualification and security boundary
 
-- M2 regression CI: https://github.com/Electro-Anurag/employee-onboarding-companion/actions/runs/37876285373\n- M2 Chromium browser CI: https://github.com/Electro-Anurag/employee-onboarding-companion/actions/runs/37876285358
-- Full source tested: `2cb002c1ae40731fa1530a2c02c28978c64ee672`; original main untouched.
+- M2 regression CI: https://github.com/Electro-Anurag/employee-onboarding-companion/actions/runs/37909701209\n- M2 Chromium browser CI: https://github.com/Electro-Anurag/employee-onboarding-companion/actions/runs/37909701207
+- Full source tested: `e2e7bad089f26cf73375e6403ded760d9f9591f5`; original main untouched.
 - Real Chromium testing on a loopback Django/PostgreSQL server passed; it does **not** establish hosted browser acceptance, production least-privilege grants, operational resiliency, or independent M2 review.
 - External AI services, cloud hosting, S3, email, and real employee data are not connected or used.
 - M0 and M1 review evidence: [M0](docs/qualification/m0-20261008.md), [M1](docs/qualification/m1-20261008.md), [M1 independent remediation](docs/qualification/m1-third-review-remediation-20261008.md).
 
 No paid service, external production account or public web deployment is required for current M2 local/CI use.
+
+**Astra M2 correction evidence:** [R1–R9 remediation handoff](docs/qualification/m2-astra-remediation-20261009.md). M2 independent GO remains open; the original 11/12 engineering-gate count must not be interpreted as a security review GO.
