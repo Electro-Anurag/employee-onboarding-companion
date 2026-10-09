@@ -9,6 +9,7 @@ from backend.provisioning import views as it
 from backend.policies import views as policies
 from backend.documents import views as docs
 from backend.training import views as training
+from backend.activities import views as activities
 
 urlpatterns = [
     path('', index),path('health/live', health_live),path('health/ready', health_ready),
@@ -53,5 +54,8 @@ urlpatterns = [
     path('api/v1/cases/<uuid:case_id>/tasks/<uuid:task_id>/document-revisions/<uuid:revision_id>/review',docs.review),
     path('api/v1/cases/<uuid:case_id>/tasks/<uuid:task_id>/training-module',training.module),
     path('api/v1/cases/<uuid:case_id>/tasks/<uuid:task_id>/training-attempts',training.submit_attempt),
+    path('api/v1/cases/<uuid:case_id>/tasks/<uuid:task_id>/activity-occurrences',activities.history),
+    path('api/v1/cases/<uuid:case_id>/tasks/<uuid:task_id>/activity-occurrences/schedule',activities.schedule),
+    path('api/v1/cases/<uuid:case_id>/tasks/<uuid:task_id>/activity-occurrences/<uuid:occurrence_id>/attendance',activities.attendance),
     path('api/v1/workspaces/me',m2.workspaces_me),
 ]
