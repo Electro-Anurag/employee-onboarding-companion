@@ -12,6 +12,7 @@ dependencies = [
   "gunicorn>=23,<24",
   "whitenoise>=6.9,<7",
   "boto3>=1.40,<2",
+  "pypdf>=6.1,<7",
 ]
 
 [dependency-groups]
