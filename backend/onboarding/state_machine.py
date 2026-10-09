@@ -82,7 +82,7 @@ def project_task_states(case,tasks,*,now=None):
         raise ValueError('TASK_LIMIT_EXCEEDED')
     if case.status not in ('PRE_JOINING','ACTIVE'):
         return {t.pk:{'state':t.execution_state,
-                      'blocked_reason_codes':blockers,
+                      'blocked_reason_codes':t.blocked_reason_codes,
                       'owner_assignment_id':t.owner_assignment_id} for t in rows}
     ids={t.pk for t in rows}
     parents={tid:set() for tid in ids}
@@ -140,7 +140,7 @@ def summary_task(t,member,case,projected=None):
         'required':t.required,'state':live_state,'owner_role':t.owner_role,
         'available_at':t.available_at.isoformat(),'due_at':t.due_at.isoformat(),
         'overdue':live_state not in ('COMPLETED','CANCELLED') and timezone.now()>t.due_at,
-        'blocked_reason_codes':t.blocked_reason_codes,'started_at':t.work_started_at.isoformat() if t.work_started_at else None,
+        'blocked_reason_codes':blockers,'started_at':t.work_started_at.isoformat() if t.work_started_at else None,
         'completed_at':t.completed_at.isoformat() if t.completed_at else None,
         'version':t.version,'allowed_actions':actions}
 
