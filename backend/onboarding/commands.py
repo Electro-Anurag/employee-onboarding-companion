@@ -60,31 +60,55 @@ def create_case(*,actor,employee_id,template_version_id,joining_date,owner_ids,k
              'date':joining_date.isoformat(),'owners':{k:str(v) for k,v in owner_ids.items()}}
     with transaction.atomic():
         set_command_timeouts()
-        member=actor_context(actor,locked=True)
-        if member.role!=Membership.HR or not member.available:
-            raise PermissionDenied()
+        # Lock the idempotency key BEFORE acquiring any User/Membership locks.
+        # Receipt recovery is case-first, preserving the established M1 order.
         existing,digest=_lock_receipt(actor,'m2-create-case',key,None,payload)
         if existing is not None:
+            case=OnboardingCase.objects.select_for_update(of=('self',)).filter(
+                pk=existing.case_id).first()
+            if case is None:
+                raise CommandFailure('NOT_FOUND',404)
+            member,root,_=_lock_case_authority(case,actor)
+            if (member.role!=Membership.HR or not member.available
+                    or not authorize_case(member,case)):
+                raise CommandFailure('NOT_FOUND',404)
             return existing.response,existing.status_code
-        v=TemplateVersion.objects.select_related('template').filter(pk=template_version_id,
-            template__organization_id=member.organization_id,state=TemplateVersion.PUBLISHED).first()
-        if v is None:
-            raise CommandFailure('PUBLISHED_TEMPLATE_REQUIRED',422)
-        owners={'HR':member.pk,'IT':owner_ids['IT'],'MANAGER':owner_ids['MANAGER'],'EMPLOYEE':employee_id}
-        hints={role:Membership.objects.filter(pk=mid).values('user_id').first() for role,mid in owners.items()}
+
+        # Unlocked lookups below are identity hints only. Do not acquire an
+        # actor-only User/Membership lock before the globally sorted set.
+        actor_hints=list(Membership.objects.filter(user_id=actor.pk,active=True)
+                         .values('pk','organization_id','role')[:2])
+        if len(actor_hints)!=1 or actor_hints[0]['role']!=Membership.HR:
+            raise PermissionDenied()
+        actor_mid=actor_hints[0]['pk']
+        owners={'HR':actor_mid,'IT':owner_ids['IT'],
+                'MANAGER':owner_ids['MANAGER'],'EMPLOYEE':employee_id}
+        hints={role:Membership.objects.filter(pk=mid).values('user_id').first()
+               for role,mid in owners.items()}
         if any(h is None for h in hints.values()):
             raise CommandFailure('INVALID_CASE_OWNER',422)
-        user_ids=sorted(set(h['user_id'] for h in hints.values()),key=str)
-        users={i:User.objects.select_for_update().filter(pk=i,is_active=True).first() for i in user_ids}
-        mids={}
-        for mid in sorted(set(owners.values()),key=str):
-            mids[mid]=Membership.objects.select_for_update().filter(pk=mid).first()
+        user_ids=sorted({actor.pk,*[h['user_id'] for h in hints.values()]},key=str)
+        users={uid:User.objects.select_for_update().filter(pk=uid).first()
+               for uid in user_ids}
+        mids={mid:Membership.objects.select_for_update().filter(pk=mid).first()
+              for mid in sorted(set(owners.values()),key=str)}
+        member=mids[actor_mid]
+        if (member is None or not member.active or not member.available
+                or member.role!=Membership.HR or member.user_id!=actor.pk
+                or users.get(actor.pk) is None or not users[actor.pk].is_active):
+            raise PermissionDenied()
         for role,mid in owners.items():
             row=mids.get(mid)
             if (row is None or row.role!=role or not row.active or not row.available
-                    or row.organization_id!=member.organization_id or
-                    row.user_id!=hints[role]['user_id'] or users[row.user_id] is None):
+                    or row.organization_id!=member.organization_id
+                    or row.user_id!=hints[role]['user_id']
+                    or users.get(row.user_id) is None or not users[row.user_id].is_active):
                 raise CommandFailure('INVALID_CASE_OWNER',422)
+        v=TemplateVersion.objects.select_related('template').filter(
+            pk=template_version_id,template__organization_id=member.organization_id,
+            state=TemplateVersion.PUBLISHED).first()
+        if v is None:
+            raise CommandFailure('PUBLISHED_TEMPLATE_REQUIRED',422)
         case=OnboardingCase.objects.create(organization=member.organization,employee=mids[employee_id],
                     template_version=v,joining_date=joining_date,created_by=actor,status='CREATED')
         now=timezone.now()
@@ -105,12 +129,15 @@ def _command_case(actor,case_id,route,key,payload,expected_version,require_hr=Fa
     if not isinstance(expected_version,int) or isinstance(expected_version,bool) or expected_version<1:
         raise CommandFailure('INVALID_CASE_VERSION',422)
     case=OnboardingCase.objects.select_for_update(of=('self',)).select_related(
-        'employee__user','organization').filter(pk=case_id).first()
+        'organization').filter(pk=case_id).first()
     if case is None:
         raise CommandFailure('NOT_FOUND',404)
     # Match the independently qualified M1 case -> sorted Users -> sorted
     # Memberships authority lock sequence. Root revocation is rechecked.
     member,root,_=_lock_case_authority(case,actor)
+    # Freshly locked membership is authoritative for all downstream readiness.
+    # Never reuse an employee relation cached before waiting on User locks.
+    case.employee=root
     if not authorize_case(member,case):
         raise CommandFailure('NOT_FOUND',404)
     if require_hr and member.role!=Membership.HR:
@@ -259,10 +286,15 @@ def start_task(*,actor,case_id,task_id,key,expected_version):
 def attest_manager(*,actor,case_id,task_id,fields,note,key,expected_version):
     if not isinstance(fields,dict) or set(fields)!=set(('first_week_plan','buddy_name','workstation_ready')):
         raise CommandFailure('INVALID_ATTESTATION',422)
-    if (not isinstance(fields['first_week_plan'],str) or not 8<=len(fields['first_week_plan'])<=300
-            or not isinstance(fields['buddy_name'],str) or not 2<=len(fields['buddy_name'])<=100
-            or type(fields['workstation_ready']) is not bool
-            or not isinstance(note,str) or not 1<=len(note.strip())<=500):
+    if (not isinstance(fields['first_week_plan'],str)
+            or not isinstance(fields['buddy_name'],str)
+            or type(fields['workstation_ready']) is not bool or not isinstance(note,str)):
+        raise CommandFailure('INVALID_ATTESTATION',422)
+    fields={**fields,'first_week_plan':fields['first_week_plan'].strip(),
+            'buddy_name':fields['buddy_name'].strip()}
+    note=note.strip()
+    if (not 8<=len(fields['first_week_plan'])<=300
+            or not 2<=len(fields['buddy_name'])<=100 or not 1<=len(note)<=500):
         raise CommandFailure('INVALID_ATTESTATION',422)
     payload={'task_id':str(task_id),'fields':fields,'note':note}
     with transaction.atomic():
