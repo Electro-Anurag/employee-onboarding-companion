@@ -10,3 +10,8 @@ def process_foundation_operation(operation_id: str):
         # An intentional hard exit AFTER DB commit and BEFORE Procrastinate ACK.
         # Used only on isolated M0 test fixtures; no public endpoint accepts it.
         os._exit(77)
+
+@app.task(name="m3.secure_document_scan",queue="content")
+def scan_secure_document(upload_id: str):
+    from backend.documents.real_commands import scan_one
+    scan_one(upload_id)
