@@ -6,6 +6,7 @@ from backend.onboarding import api_m2 as m2
 from backend.templates import views as tmpl
 from backend.forms import views as forms
 from backend.provisioning import views as it
+from backend.policies import views as policies
 
 urlpatterns = [
     path('', index),path('health/live', health_live),path('health/ready', health_ready),
@@ -42,5 +43,7 @@ urlpatterns = [
     path('api/v1/cases/<uuid:case_id>/tasks/<uuid:task_id>/it-operation/confirm',it.confirm_it),
     path('api/v1/cases/<uuid:case_id>/tasks/<uuid:task_id>/equipment-receipt',it.receipt),
     path('api/v1/cases/<uuid:case_id>/tasks/<uuid:task_id>/equipment-receipt/source',it.equipment_receipt_source),
+    path('api/v1/cases/<uuid:case_id>/tasks/<uuid:task_id>/assigned-policy',policies.assigned_policy),
+    path('api/v1/cases/<uuid:case_id>/tasks/<uuid:task_id>/policy-acknowledge',policies.acknowledge_policy),
     path('api/v1/workspaces/me',m2.workspaces_me),
 ]

@@ -60,6 +60,18 @@ def _validate_graph(tasks,edges):
                 or not isinstance(item.get('description',''),str)
                 or len(item.get('description',''))>2000):
             raise TemplateFailure('INCOMPATIBLE_TASK_OR_EVIDENCE')
+        if kind=='POLICY_ACK':
+            spec=evidence
+            if (set(spec)!=set(('type','policy_key','policy_version','policy_text','content_sha256'))
+                or spec.get('policy_key')!=key
+                or not isinstance(spec.get('policy_version'),str)
+                or not 1<=len(spec['policy_version'])<=80
+                or not isinstance(spec.get('policy_text'),str)
+                or not 1<=len(spec['policy_text'])<=2000
+                or not isinstance(spec.get('content_sha256'),str)
+                or len(spec['content_sha256'])!=64
+                or hashlib.sha256(spec['policy_text'].encode()).hexdigest()!=spec['content_sha256']):
+                raise TemplateFailure('INVALID_POLICY_EDITION')
         keys[key]=item
     parents={k:set() for k in keys}
     pair_set=set()
