@@ -252,7 +252,7 @@ export default function EvidenceWorkflows({task,caseId,role,read,mutate,uploadDo
     const latestSecure=secureDocuments?.results.at(-1);
     const secureUploadReady=role==='EMPLOYEE'&&secureDocuments?.enabled&&
       (task.state==='READY'||task.state==='IN_PROGRESS')&&
-      (!latestSecure||['REJECTED','NEEDS_CLARIFICATION','REJECTED_SECURITY']
+      (!latestSecure||['REJECTED','NEEDS_CLARIFICATION','REJECTED_SECURITY','SCAN_EXHAUSTED']
         .includes(latestSecure.state));
     const secureReviewReady=role==='HR'&&secureDocuments?.enabled&&
       task.state==='IN_PROGRESS'&&latestSecure?.state==='AWAITING_HR_REVIEW';
