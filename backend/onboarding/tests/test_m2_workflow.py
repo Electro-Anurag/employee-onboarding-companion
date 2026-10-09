@@ -845,3 +845,153 @@ def test_astra_activation_partial_task_insertion_rollback(world):
     assert OnboardingCase.objects.get(pk=case.pk).version==1
     assert AuditEvent.objects.filter(event_type='CASE_ACTIVATED').count()==0
     assert CommandReceipt.objects.filter(route='m2-activate').count()==0
+
+
+@pytest.mark.django_db(transaction=True)
+def test_astra_activation_post_case_lock_credential_revocation_is_authoritative(world):
+    from threading import Event
+    org,p=world
+    v=published(world)
+    created,_=create(world,v)
+    case=OnboardingCase.objects.get(pk=created['case_id'])
+    ready=Event();release=Event()
+    def activate():
+        close_old_connections()
+        try:
+            return activate_case(actor=p['HR'][0],case_id=case.pk,
+                key=uuid.uuid4(),expected_version=1,
+                _test_after_case_lock=lambda:(ready.set(),release.wait(timeout=12)))
+        finally:
+            close_old_connections()
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        attempted=pool.submit(activate)
+        assert ready.wait(timeout=12)
+        employee=p['EMPLOYEE'][0]
+        employee.set_unusable_password()
+        employee.save(update_fields=['password'])
+        release.set()
+        with pytest.raises(CommandFailure) as e:
+            attempted.result(timeout=18)
+    assert e.value.code=='EMPLOYEE_CREDENTIAL_REQUIRED'
+    case.refresh_from_db()
+    assert case.status=='CREATED' and case.version==1
+    assert Task.objects.filter(case=case).count()==0
+    assert TaskDependency.objects.filter(case=case).count()==0
+    assert AuditEvent.objects.filter(event_type='CASE_ACTIVATED').count()==0
+    assert CommandReceipt.objects.filter(route='m2-activate').count()==0
+
+
+@pytest.mark.django_db(transaction=True)
+def test_astra_case_creation_and_other_case_reassignment_obey_global_lock_order(world):
+    org,p=world
+    v=published(world)
+    actor=p['HR'][0]
+    old_case_employee_user=User.objects.create_user(email='astra-otheremployee@example.test',
+                                      password='VerifiedStrongPassword!2026')
+    old_case_employee=Membership.objects.create(user=old_case_employee_user,
+                                                organization=org,role='EMPLOYEE')
+    existing,_=create_case(actor=actor,employee_id=old_case_employee.pk,
+        template_version_id=v,joining_date=timezone.localdate()+timedelta(days=24),
+        owner_ids={'IT':p['IT'][1].pk,'MANAGER':p['MANAGER'][1].pk},key=uuid.uuid4())
+    existing_id=uuid.UUID(existing['case_id'])
+    low_id=uuid.UUID('00000000-0000-4000-8000-000000000011')
+    candidate_user=User.objects.create_user(id=low_id,email='astra-targetit@example.test',
+                                             password='VerifiedStrongPassword!2026')
+    candidate=Membership.objects.create(user=candidate_user,organization=org,role='IT')
+    barrier=Barrier(2)
+    def creation():
+        close_old_connections()
+        try:
+            return create_case(actor=actor,employee_id=p['EMPLOYEE'][1].pk,
+                template_version_id=v,joining_date=timezone.localdate()+timedelta(days=23),
+                owner_ids={'IT':candidate.pk,'MANAGER':p['MANAGER'][1].pk},
+                key=uuid.uuid4(),
+                _test_before_owner_locks=lambda:barrier.wait(timeout=8))
+        finally:close_old_connections()
+    def reassignment():
+        close_old_connections()
+        try:
+            return reassign_owner(actor=actor,case_id=existing_id,role='IT',
+                new_member_id=candidate.pk,reason='Simultaneous cross-case IT rotation',
+                key=uuid.uuid4(),expected_version=1,
+                _test_after_case_lock=lambda:barrier.wait(timeout=8))
+        finally:close_old_connections()
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        a=pool.submit(creation)
+        b=pool.submit(reassignment)
+        created_result=a.result(timeout=19)
+        reassigned=b.result(timeout=19)
+    assert created_result[1]==201 and reassigned[1]==200
+    assert OnboardingCase.objects.count()==2
+    assert OnboardingCase.objects.get(pk=existing_id).version==2
+    assert OnboardingCase.objects.get(pk=created_result[0]['case_id']).version==1
+    assert AuditEvent.objects.filter(event_type='CASE_CREATED').count()==2
+    assert AuditEvent.objects.filter(event_type='OWNER_REASSIGNED').count()==1
+
+
+@pytest.mark.django_db(transaction=True)
+def test_astra_manager_attestation_rolls_back_after_evidence_insert(world):
+    from unittest.mock import patch
+    org,p=world
+    v=published(world)
+    created,_=create(world,v)
+    case=OnboardingCase.objects.get(pk=created['case_id'])
+    activate_case(actor=p['HR'][0],case_id=case.pk,key=uuid.uuid4(),expected_version=1)
+    task=Task.objects.get(case=case,key='manager_preparation')
+    fields={'first_week_plan':'Prepare structured welcome plan',
+            'buddy_name':'Synthetic Manager Buddy','workstation_ready':True}
+    audit=AuditEvent.objects.count()
+    receipts=CommandReceipt.objects.count()
+    with patch('backend.onboarding.commands.TaskCompletion.objects.create',
+               side_effect=RuntimeError('test failure after evidence insert')):
+        with pytest.raises(RuntimeError,match='after evidence insert'):
+            attest_manager(actor=p['MANAGER'][0],case_id=case.pk,task_id=task.pk,
+                fields=fields,note='Validated synthetic note',
+                key=uuid.uuid4(),expected_version=2)
+    assert TaskCompletion.objects.count()==0
+    assert ManagerAttestation.objects.count()==0
+    assert OnboardingCase.objects.get(pk=case.pk).version==2
+    task.refresh_from_db()
+    assert task.execution_state=='READY' and task.completed_at is None
+    assert AuditEvent.objects.count()==audit
+    assert CommandReceipt.objects.count()==receipts
+
+
+@pytest.mark.django_db(transaction=True)
+def test_astra_two_supported_parent_dependencies_have_and_semantics_in_postgres(world):
+    org,p=world
+    tasks=[dict(key=k,kind='MANAGER_PREPARATION',title=k.replace('_',' ').title(),
+          owner_role='MANAGER',required=True,available_offset_days=-30,due_offset_days=0,
+          evidence_spec={'type':'MANAGER_PREPARATION'})
+          for k in ('prepare_a','prepare_b','both_required','unrelated')]
+    edges=[{'predecessor':'prepare_a','successor':'both_required'},
+           {'predecessor':'prepare_b','successor':'both_required'}]
+    draft=create_template(actor=p['HR'][0],key='astra_and_graph',name='AND graph',
+                          tasks=tasks,edges=edges)
+    pub=publish_template(actor=p['HR'][0],template_id=uuid.UUID(draft['id']),revision=1)
+    created,_=create(world,uuid.UUID(pub['version_id']))
+    case=OnboardingCase.objects.get(pk=created['case_id'])
+    activate_case(actor=p['HR'][0],case_id=case.pk,key=uuid.uuid4(),expected_version=1)
+    target=Task.objects.get(case=case,key='both_required')
+    independent=Task.objects.get(case=case,key='unrelated')
+    assert target.execution_state=='BLOCKED'
+    assert 'PREREQUISITE_INCOMPLETE' in target.blocked_reason_codes
+    assert independent.execution_state=='READY'
+    def complete(name,version):
+        task=Task.objects.get(case=case,key=name)
+        return attest_manager(actor=p['MANAGER'][0],case_id=case.pk,
+                task_id=task.pk,fields={'first_week_plan':'Complete mandatory foundation',
+                'buddy_name':'Synthetic Manager','workstation_ready':True},
+                note='Recorded first-week manager preparation',
+                key=uuid.uuid4(),expected_version=version)
+    first,_=complete('prepare_a',2)
+    target.refresh_from_db()
+    assert target.execution_state=='BLOCKED'
+    assert first['result']['progress']['mandatory_completed']==1
+    second,_=complete('prepare_b',3)
+    target.refresh_from_db()
+    independent.refresh_from_db()
+    assert target.execution_state=='READY'
+    assert independent.execution_state=='READY'
+    assert second['result']['progress']['mandatory_completed']==2
+    assert TaskCompletion.objects.filter(task__case=case).count()==2
