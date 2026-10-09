@@ -386,3 +386,20 @@ def test_m4_overdue_activity_can_schedule_reasoned_recovery_without_changing_due
     events=AuditEvent.objects.filter(event_type='ACTIVITY_SCHEDULED')
     assert events.count()==1
     assert events.first().sanitized_change['scheduled_after_due'] is True
+
+@pytest.mark.django_db(transaction=True)
+def test_generic_start_keeps_initial_activity_schedule_reachable(world):
+    case,task,people=activity_case(world)
+    start_task(actor=people['HR'][0],case_id=case.pk,task_id=task.pk,
+        key=uuid.uuid4(),expected_version=2)
+    started=Task.objects.get(pk=task.pk)
+    assert started.execution_state=='IN_PROGRESS'
+    result,status=schedule(actor=people['HR'][0],case_id=case.pk,task_id=task.pk,
+        start=timezone.now()+timedelta(hours=2),
+        end=timezone.now()+timedelta(hours=3),medium='VIDEO',
+        reference='Synthetic meeting after Start',
+        reason='Initial schedule following authorized Start',key=uuid.uuid4(),
+        expected_version=3)
+    assert status==201 and result['result']['revision']==1
+    assert ActivityOccurrence.objects.filter(task=task).count()==1
+    assert TaskCompletion.objects.filter(task=task).count()==0
