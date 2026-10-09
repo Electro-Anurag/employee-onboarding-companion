@@ -368,3 +368,54 @@ def test_m3_content_worker_retries_failed_scans_without_retrying_malware():
     require_completed_scan_result({'state':'AWAITING_HR_REVIEW'})
     with pytest.raises(RetriableDocumentScan):
         require_completed_scan_result({})
+
+@pytest.mark.django_db(transaction=True)
+def test_m3_exhausted_scan_error_permits_only_safe_new_revision(world,s3_doubles):
+    """Three persisted scan errors leave evidence immutable, but cannot trap employee."""
+    org,people=world
+    made,_=create(world,published(world))
+    case=OnboardingCase.objects.get(pk=made['case_id'])
+    activate_case(actor=people['HR'][0],case_id=case.pk,
+        key=uuid.uuid4(),expected_version=1)
+    task=Task.objects.get(case=case,key='identity_document')
+    raw=generated_pdf()
+    sha=hashlib.sha256(raw).hexdigest()
+    intent,_=prepare(actor=people['EMPLOYEE'][0],case_id=case.pk,
+        task_id=task.pk,sha256=sha,size=len(raw),filename='failure_case.pdf',
+        key=uuid.uuid4(),expected_version=2)
+    ident=uuid.UUID(intent['result']['upload_id'])
+    replay_key=uuid.uuid4()
+    old_receipt=receive(actor=people['EMPLOYEE'][0],case_id=case.pk,
+        task_id=task.pk,upload_id=ident,raw=raw,key=replay_key,
+        expected_version=3)
+    from backend.documents.real_commands import _status
+    upload=SecureUpload.objects.get(pk=ident)
+    for n in (1,2):
+        result=scan_one(ident,scanner=lambda _:('ERROR','Temporarily unavailable'))
+        assert result['state']=='SCAN_FAILED'
+        assert _status(upload)=='SCAN_FAILED'
+        with pytest.raises(CommandFailure) as premature:
+            prepare(actor=people['EMPLOYEE'][0],case_id=case.pk,
+                task_id=task.pk,sha256=sha,size=len(raw),
+                filename='replacement.pdf',key=uuid.uuid4(),expected_version=4)
+        assert premature.value.code=='DOCUMENT_REVISION_NOT_REPLACEABLE'
+    assert scan_one(ident,scanner=lambda _:('ERROR','Temporarily unavailable'))['state']=='SCAN_FAILED'
+    assert _status(upload)=='SCAN_EXHAUSTED'
+    assert SecureScanAttempt.objects.filter(upload_id=ident,outcome='ERROR').count()==3
+    assert not SecureCleanObject.objects.filter(upload_id=ident).exists()
+    with pytest.raises(CommandFailure) as exhausted:
+        scan_one(ident,scanner=lambda _:('CLEAN','should never be called'))
+    assert exhausted.value.code=='SCAN_RETRY_LIMIT'
+    replacement,_=prepare(actor=people['EMPLOYEE'][0],case_id=case.pk,
+        task_id=task.pk,sha256=sha,size=len(raw),filename='replacement.pdf',
+        key=uuid.uuid4(),expected_version=4)
+    assert replacement['result']['revision']==2
+    assert receive(actor=people['EMPLOYEE'][0],case_id=case.pk,
+        task_id=task.pk,upload_id=ident,raw=raw,key=replay_key,
+        expected_version=3)==old_receipt
+    with pytest.raises(CommandFailure) as superseded:
+        receive(actor=people['EMPLOYEE'][0],case_id=case.pk,
+            task_id=task.pk,upload_id=ident,raw=raw,key=uuid.uuid4(),
+            expected_version=5)
+    assert superseded.value.code=='UPLOAD_NOT_CURRENT'
+    assert TaskCompletion.objects.filter(task=task).count()==0
