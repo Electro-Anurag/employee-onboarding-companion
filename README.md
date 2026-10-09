@@ -8,8 +8,10 @@ Private personal GitHub repository. Governing scope: PRD v1.1 (28 functional req
 
 - **M0:** Django 5.2, PostgreSQL 17, Procrastinate 3.10, transactional queue/DB effect/audit and hard-kill worker recovery — qualified.
 - **M1:** Email identity, single active membership, four-role authorization, CSRF/session, invitations/reset, assignment controls, append-only auditable changes, idempotent transaction boundaries — independently reviewed GO.
-- **M2:** Versioned synthetic templates and published immutable DAGs; HR case creation and activation; 17-task synthetic snapshot; AND prerequisite evaluation, blocked/ready/in-progress tasks, timezone-local schedules, typed manager-preparation attestation, HR Day 1 transition, role-scoped workspaces and case timeline — **96/96 PostgreSQL-backed Python tests, 2/2 frontend tests and CI build passed**. This is not all 17 tasks completeable yet.
+- **M2:** Versioned synthetic templates and published immutable DAGs; HR case creation and activation; 17-task synthetic snapshot; AND prerequisite evaluation, blocked/ready/in-progress tasks, timezone-local schedules, typed manager-preparation attestation, HR Day 1 transition, role-scoped workspaces and case timeline — **99/99 PostgreSQL-backed Python tests, 2/2 frontend tests and CI build passed**. This is not all 17 tasks completeable yet.
 - **Future work:** M3 evidence files/forms/policies; M4 IT/training integrations; M5 reminders and exception recovery; M6 AI; M7 dashboards/closeout; M8 hosting/operations; M9 hosted journeys/benchmarks; M10 final demonstration.
+
+**Latest focused Astra STOP closure candidate (9 Oct 2026):** R3 stale startup identity and protected-response regression, R5 irreversible case activation migration, and R2 caller-revocation/organization-transfer tests now qualify at `d471b9f9c6d0225afb637e1afdb319e1c0356c7b`. [Focused remediation evidence](docs/qualification/m2-astra-focused-closure-20261009.md): 99/99 PostgreSQL-backed tests, 2/2 React tests, and 2/2 real Chromium scenarios on the same SHA. **Independent Astra GO still pending.**
 
 For exact source SHA, 11/12 passed gates, browser CI results, limitations and 12-item engineering checklist see [M2 qualification and tracker](docs/qualification/m2-20261009.md).
 
