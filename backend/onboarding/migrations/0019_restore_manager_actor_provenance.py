@@ -6,6 +6,22 @@ branch or rewrite historical evidence.
 from django.db import migrations
 
 SQL="""
+-- Before installing the new guard, reject any existing contradictory
+-- attribution. Historical evidence is immutable: never rewrite it silently.
+DO $m3_provenance_upgrade$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM public.onboarding_taskcompletion completion
+    LEFT JOIN public.onboarding_managerattestation att
+      ON att.id=completion.manager_attestation_id
+    WHERE completion.evidence_type='MANAGER_PREPARATION'
+      AND (att.id IS NULL OR att.task_id IS DISTINCT FROM completion.task_id
+           OR att.actor_id IS DISTINCT FROM completion.completed_by_id)
+  ) THEN
+    RAISE EXCEPTION 'historical manager actor mismatch blocks provenance upgrade'
+      USING ERRCODE='23514';
+  END IF;
+END; $m3_provenance_upgrade$;
 CREATE OR REPLACE FUNCTION public.m3_guard_manager_completion_actor()
 RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog,public AS $$
 BEGIN
