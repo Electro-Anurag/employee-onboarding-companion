@@ -8,7 +8,7 @@ function credentials(){
   const lines=fs.readFileSync(path,'utf8').split(/\r?\n/);
   const result={};
   for(const line of lines){
-    const match=line.trim().match(/^(HR|EMPLOYEE|IT|MANAGER)\s+(\S+)\s+(\S+)$/);
+    const match=line.trim().match(/^(HR|HR_B|EMPLOYEE|IT|MANAGER)\s+(\S+)\s+(\S+)$/);
     if(match)result[match[1]]={email:match[2],password:match[3]};
   }
   for(const role of ['HR','EMPLOYEE','IT','MANAGER']){
@@ -185,4 +185,66 @@ test('four-role real-browser case, template, dependency and evidence journey',as
   }finally{
     await Promise.allSettled([hrContext.close(),itContext.close(),managerContext.close(),employeeContext.close()]);
   }
+});
+
+
+test('same mounted browser rejects cross-organization state and late former-session responses',
+  async({page})=>{
+  test.setTimeout(120000);
+  async function mountedLogin(identity){
+    await expect(page.getByRole('heading',{name:'Sign in'})).toBeVisible();
+    await page.getByLabel('Email').fill(users[identity].email);
+    await page.getByLabel('Password').fill(users[identity].password);
+    await page.getByRole('button',{name:'Sign in'}).click();
+    await expect(page.getByText('Role: HR')).toBeVisible();
+  }
+  await page.goto('/');
+  await mountedLogin('HR');
+  await page.getByRole('button',{name:/Templates \(/}).click();
+  const row=page.locator('.case-list').first().getByRole('button').first();
+  await expect(row).toBeVisible();
+  await row.click();
+  await expect(page.getByRole('heading',{name:/Employee First Month/})).toBeVisible();
+  // Create an unsubmitted sensitive draft in mounted component state.
+  await page.getByRole('button',{name:'Create next version draft'}).click();
+  const marker='OLD-ORG-SENSITIVE-EDITOR-MARKER-DO-NOT-DISCLOSE';
+  await page.locator('textarea.json-editor').fill(marker);
+  await page.getByRole('button',{name:'Sign out'}).click();
+  await mountedLogin('HR_B');
+  await expect(page.getByRole('button',{name:'Cases (0)'})).toBeVisible();
+  await page.getByRole('button',{name:/Templates \(/}).click();
+  await expect(page.getByText('No templates published or drafted yet.')).toBeVisible();
+  await expect(page.getByText(marker)).toHaveCount(0);
+  await expect(page.getByRole('heading',{name:/Employee First Month/})).toHaveCount(0);
+  await expect(page.locator('textarea.json-editor')).toHaveCount(0);
+  await page.getByRole('button',{name:'Sign out'}).click();
+
+  // Capture a GET issued by HR A, but deliver its fully fetched response only
+  // after HR B has logged in to the SAME mounted React instance.
+  let requestSeen;
+  const intercepted=new Promise(resolve=>{requestSeen=resolve});
+  let deliver;
+  const release=new Promise(resolve=>{deliver=resolve});
+  let trapped=false;
+  await page.route('**/api/v1/templates',async route=>{
+    if(!trapped && route.request().method()==='GET'){
+      trapped=true;
+      const response=await route.fetch();
+      requestSeen();
+      await release;
+      await route.fulfill({response});
+    }else{
+      await route.continue();
+    }
+  });
+  await mountedLogin('HR');
+  await intercepted;
+  await page.getByRole('button',{name:'Sign out'}).click();
+  await mountedLogin('HR_B');
+  deliver();
+  await page.getByRole('button',{name:/Templates \(/}).click();
+  await expect(page.getByText('No templates published or drafted yet.')).toBeVisible();
+  await expect(page.getByRole('heading',{name:/Employee First Month/})).toHaveCount(0);
+  await expect(page.locator('textarea.json-editor')).toHaveCount(0);
+  await page.unroute('**/api/v1/templates');
 });
