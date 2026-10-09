@@ -60,15 +60,18 @@ def test_real_form_revision_rejection_replacement_acceptance_and_replay(world):
     approved,code=review(actor=persons['HR'][0],case_id=case.pk,task_id=task.pk,
         submission_id=second.pk,decision='ACCEPTED',note='Verified synthetic fields',
         key=uuid.uuid4(),expected_version=5)
-    assert code==201 and approved['result']['task_completion']=='NOT_YET_SUPPORTED'
+    assert code==201 and approved['result']['task_completion']=='COMPLETED'
     assert FormSubmission.objects.filter(task=task).count()==2
     assert FormReview.objects.filter(submission__task=task).count()==2
     with pytest.raises(DatabaseError):
         with transaction.atomic():
             FormSubmission.objects.filter(pk=first.pk).update(answers={'preferred_name':'tamper'})
     assert FormSubmission.objects.get(pk=first.pk).answers==answers
-    assert Task.objects.get(pk=task.pk).execution_state=='IN_PROGRESS'
-    assert not hasattr(Task.objects.get(pk=task.pk),'completion')
+    assert Task.objects.get(pk=task.pk).execution_state=='COMPLETED'
+    completion=Task.objects.get(pk=task.pk).completion
+    assert completion.evidence_type=='FORM' and completion.form_review_id==approved['result']['review_id']
+    assert completion.manager_attestation_id is None
+    assert Task.objects.get(case=case,key='equipment_setup').execution_state=='BLOCKED'
     assert AuditEvent.objects.filter(event_type='FORM_REVIEWED').count()==2
     assert CommandReceipt.objects.filter(route='m3-form-submit').count()==2
 

@@ -37,7 +37,7 @@ def submissions(request,case_id,task_id):
                 'review':None if decision is None else {'decision':decision.decision,
                     'note':decision.note,'reviewed_at':decision.reviewed_at.isoformat()}})
         return JsonResponse({'case_id':str(case.pk),'task_id':str(task.pk),'results':results,
-                            'task_completion':'NOT_YET_SUPPORTED'})
+                            'task_completion':task.execution_state if task.execution_state=='COMPLETED' else 'IN_PROGRESS'})
     except (PermissionDenied,CommandFailure):return error('NOT_FOUND',404)
     except DatabaseError as exc:return transient_db_response(exc,preflight=True)
 

@@ -93,10 +93,14 @@ class ManagerAttestation(models.Model):
 class TaskCompletion(models.Model):
     id=models.UUIDField(primary_key=True,default=uuid.uuid4,editable=False)
     task=models.OneToOneField(Task,on_delete=models.PROTECT,related_name='completion')
-    manager_attestation=models.OneToOneField(ManagerAttestation,on_delete=models.PROTECT)
-    evidence_type=models.CharField(max_length=32,choices=[('MANAGER_PREPARATION','MANAGER_PREPARATION')])
+    manager_attestation=models.OneToOneField(ManagerAttestation,on_delete=models.PROTECT,null=True)
+    form_review=models.OneToOneField('forms.FormReview',on_delete=models.PROTECT,null=True)
+    evidence_type=models.CharField(max_length=32,choices=[('MANAGER_PREPARATION','MANAGER_PREPARATION'),('FORM','FORM')])
     completed_by=models.ForeignKey(User,on_delete=models.PROTECT)
     completed_at=models.DateTimeField(default=__import__('django.utils.timezone',fromlist=['now']).now)
     evidence_hash=models.CharField(max_length=64)
     class Meta:
-        constraints=[models.CheckConstraint(condition=models.Q(evidence_type='MANAGER_PREPARATION'),name='m2_completion_supported_kind')]
+        constraints=[models.CheckConstraint(condition=(
+            models.Q(evidence_type='MANAGER_PREPARATION',manager_attestation__isnull=False,form_review__isnull=True)
+            | models.Q(evidence_type='FORM',manager_attestation__isnull=True,form_review__isnull=False)),
+            name='m3_completion_evidence_exclusive')]

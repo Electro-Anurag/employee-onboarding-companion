@@ -94,14 +94,38 @@ def review(*,actor,case_id,task_id,submission_id,decision,note,key,expected_vers
             raise CommandFailure('FORM_ALREADY_REVIEWED',409)
         evidence=FormReview.objects.create(submission=record,reviewed_by=actor,
                                            decision=decision,note=note)
+        affected=[str(task.pk)]
+        if decision=='ACCEPTED':
+            # A review is NOT completion unless its exact immutable submitted
+            # revision and HR decision are bound to an accepted TaskCompletion.
+            recompute(case)
+            task.refresh_from_db()
+            if task.execution_state!='IN_PROGRESS':
+                raise CommandFailure('TASK_NOT_READY',409)
+            from backend.onboarding.models import TaskCompletion
+            TaskCompletion.objects.create(task=task,manager_attestation=None,form_review=evidence,
+                evidence_type='FORM',completed_by=actor,evidence_hash=record.content_hash)
+            task.execution_state='COMPLETED'
+            task.completed_at=timezone.now()
+            task.version+=1
+            task.save(update_fields=['execution_state','completed_at','version'])
+            affected += [e['task_id'] for e in recompute(case)]
         case.version+=1
         case.save(update_fields=['version'])
         event=append_event(stream_key=f'case:{case.pk}',actor=actor,event_type='FORM_REVIEWED',
             entity_id=task.pk,changes={'revision':record.revision,'decision':decision,
-                                       'case_version':case.version})
+                                       'case_version':case.version,'completed':decision=='ACCEPTED'})
+        events=[str(event[0])]
+        if decision=='ACCEPTED':
+            complete_event=append_event(stream_key=f'case:{case.pk}',actor=actor,
+                event_type='TASK_COMPLETED',entity_id=task.pk,
+                changes={'kind':'FORM','evidence_hash':record.content_hash,
+                         'case_version':case.version,'unlocked':len(affected)-1})
+            events.append(str(complete_event[0]))
         response={'command_id':str(uuid.uuid4()),'case_id':str(case.pk),'case_version':case.version,
                   'result':{'task_id':str(task.pk),'review_id':str(evidence.pk),'revision':record.revision,
-                            'decision':decision,'task_completion':'NOT_YET_SUPPORTED'},
-                  'affected_task_ids':[str(task.pk)],'event_ids':[str(event[0])]}
+                            'decision':decision,
+                            'task_completion':'COMPLETED' if decision=='ACCEPTED' else 'PENDING_CORRECTION'},
+                  'affected_task_ids':affected,'event_ids':events}
         _receipt(actor,'m3-form-review',key,digest,case,response,201)
     return response,201
