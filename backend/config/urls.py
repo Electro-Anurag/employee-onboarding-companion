@@ -39,5 +39,8 @@ urlpatterns = [
     path('api/v1/cases/<uuid:case_id>/tasks/<uuid:task_id>/it-operation',it.operation_detail),
     path('api/v1/cases/<uuid:case_id>/tasks/<uuid:task_id>/it-operation/request',it.request_it),
     path('api/v1/cases/<uuid:case_id>/tasks/<uuid:task_id>/it-operation/simulate',it.simulate_it),
+    path('api/v1/cases/<uuid:case_id>/tasks/<uuid:task_id>/it-operation/confirm',it.confirm_it),
+    path('api/v1/cases/<uuid:case_id>/tasks/<uuid:task_id>/equipment-receipt',it.receipt),
+    path('api/v1/cases/<uuid:case_id>/tasks/<uuid:task_id>/equipment-receipt/source',it.equipment_receipt_source),
     path('api/v1/workspaces/me',m2.workspaces_me),
 ]
