@@ -87,6 +87,9 @@ def download(request,case_id,task_id,upload_id):
         clean=SecureCleanObject.objects.select_related('upload').filter(upload=upload).first()
         if not clean:return error('NOT_FOUND',404)
         body=storage.download(clean)
+        # The S3 network read can overlap role/assignment revocation. Recheck
+        # case and task authority immediately before releasing private bytes.
+        _scope(request,case_id,task_id)
         response=HttpResponse(body,content_type='application/pdf')
         response['Content-Disposition']='attachment; filename="'+upload.filename+'"'
         response['Cache-Control']='private, no-store'
