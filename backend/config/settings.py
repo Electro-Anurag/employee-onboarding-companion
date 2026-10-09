@@ -73,3 +73,15 @@ DATA_UPLOAD_MAX_MEMORY_SIZE = 262144
 M3_QUARANTINE_INTAKE_ENABLED = os.environ.get('M3_QUARANTINE_INTAKE_ENABLED','0') == '1'
 M3_CLAMAV_HOST = os.environ.get('M3_CLAMAV_HOST','')
 M3_CLAMAV_PORT = int(os.environ.get('M3_CLAMAV_PORT','3310'))
+
+# Local integration only until secure hosting, retention and access policies qualify.
+# Do not accept genuine identity documents in the demo.
+M3_REAL_DOCUMENT_ENABLED=os.environ.get('M3_REAL_DOCUMENT_ENABLED','0')=='1'
+M3_S3_QUARANTINE_BUCKET=os.environ.get('M3_S3_QUARANTINE_BUCKET','')
+M3_S3_CLEAN_BUCKET=os.environ.get('M3_S3_CLEAN_BUCKET','')
+M3_S3_ENDPOINT_URL=os.environ.get('M3_S3_ENDPOINT_URL','')
+M3_S3_REGION=os.environ.get('M3_S3_REGION','ap-southeast-1')
+M3_S3_KMS_KEY_ID=os.environ.get('M3_S3_KMS_KEY_ID','')
+M3_S3_ALLOW_LOCAL_TEST_ENDPOINT=os.environ.get('M3_S3_ALLOW_LOCAL_TEST_ENDPOINT','0')=='1'
+DATA_UPLOAD_MAX_MEMORY_SIZE=12*1024*1024 if M3_REAL_DOCUMENT_ENABLED else 262144
+FILE_UPLOAD_MAX_MEMORY_SIZE=12*1024*1024 if M3_REAL_DOCUMENT_ENABLED else 262144

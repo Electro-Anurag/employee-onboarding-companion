@@ -42,3 +42,6 @@ class DocumentReview(models.Model):
 
 # Quarantine models deliberately do not share the HR-accepted revision type.
 from backend.documents.quarantine_models import QuarantinedDocument,QuarantineScanAttempt
+
+# Private versioned S3 object evidence (separate from legacy synthetic records).
+from backend.documents.real_models import SecureUpload,StoredQuarantineObject,SecureScanAttempt,SecureCleanObject,SecureHRReview
