@@ -789,6 +789,13 @@ def test_astra_r8_read_time_expiration_unlocks_without_mutating_state(world):
     assert task.execution_state=='NOT_STARTED'
     future=task.available_at+timedelta(minutes=5)
     from backend.onboarding.state_machine import project_task_states,summary_task
+    # Use the real login endpoint: M1 SessionGuard requires an absolute
+    # m1_session_started timestamp that Django force_login() does not set.
+    browser_session=Client()
+    authenticated=browser_session.post('/api/v1/auth/login',json.dumps({
+        'email':p['MANAGER'][0].email,'password':'VerifiedStrongPassword!2026'}),
+        content_type='application/json')
+    assert authenticated.status_code==200,authenticated.content
     with patch('backend.onboarding.state_machine.timezone.now',return_value=future):
         rows=list(Task.objects.filter(case=case))
         projection=project_task_states(case,rows)
@@ -797,8 +804,6 @@ def test_astra_r8_read_time_expiration_unlocks_without_mutating_state(world):
         assert 'ATTEST_MANAGER_PREPARATION' in manager['allowed_actions']
         assert 'START' in manager['allowed_actions']
         # Exercise actual authorized GET APIs, not just the projection helper.
-        browser_session=Client()
-        browser_session.force_login(p['MANAGER'][0])
         response=browser_session.get('/api/v1/cases/'+str(case.pk)+'/tasks')
         assert response.status_code==200,response.content
         projected=next(t for t in response.json()['tasks'] if t['key']=='manager_preparation')
