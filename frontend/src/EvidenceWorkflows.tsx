@@ -252,8 +252,8 @@ export default function EvidenceWorkflows({task,caseId,role,read,mutate,uploadDo
     const latestSecure=secureDocuments?.results.at(-1);
     const secureUploadReady=role==='EMPLOYEE'&&secureDocuments?.enabled&&
       (task.state==='READY'||task.state==='IN_PROGRESS')&&
-      (!latestSecure||['REJECTED','NEEDS_CLARIFICATION','REJECTED_SECURITY','SCAN_EXHAUSTED']
-        .includes(latestSecure.state));
+      (!latestSecure||['AWAITING_CONTENT','REJECTED','NEEDS_CLARIFICATION',
+        'REJECTED_SECURITY','SCAN_EXHAUSTED'].includes(latestSecure.state));
     const secureReviewReady=role==='HR'&&secureDocuments?.enabled&&
       task.state==='IN_PROGRESS'&&latestSecure?.state==='AWAITING_HR_REVIEW';
     return <section className="subpanel" aria-label="Synthetic document workflow">
@@ -262,6 +262,9 @@ export default function EvidenceWorkflows({task,caseId,role,read,mutate,uploadDo
       <button className="quiet" disabled={busy} onClick={()=>void safeRun(loadSecureHistory)}>
         Load S3 document processing history
       </button>
+      {latestSecure?.state==='AWAITING_CONTENT'&&role==='EMPLOYEE'&&
+        <p className="meta">Select the original exact PDF to resume the pending upload,
+          or select a corrected PDF to create an audited replacement intent.</p>}
       {secureDocuments&&!secureDocuments.enabled&&
         <p className="meta">Real S3 document processing is disabled on this deployment.</p>}
       {secureDocuments?.results.map(x=><p className="meta" key={x.id}>
