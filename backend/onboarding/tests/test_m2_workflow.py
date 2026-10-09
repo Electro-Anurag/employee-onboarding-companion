@@ -1072,3 +1072,102 @@ def test_astra_r1_http_version_identity_prevents_legacy_revision_collision(world
     assert valid.status_code==200,valid.content
     assert valid.json()['version_id']==clone['version_id']
     assert valid.json()['state']=='PUBLISHED'
+
+
+@pytest.mark.django_db(transaction=True)
+def test_astra_final_r2_replay_denied_when_original_hr_user_or_membership_revoked(world):
+    org,people=world
+    hr_user,hr=people['HR']
+    version=published(world)
+    key=uuid.uuid4()
+    options=dict(actor=hr_user,employee_id=people['EMPLOYEE'][1].pk,
+        template_version_id=version,joining_date=timezone.localdate()+timedelta(days=20),
+        owner_ids={'IT':people['IT'][1].pk,'MANAGER':people['MANAGER'][1].pk},key=key)
+    committed,status=create_case(**options)
+    assert status==201 and create_case(**options)==(committed,201)
+    case=OnboardingCase.objects.get(pk=committed['case_id'])
+    original_events=AuditEvent.objects.count()
+    original_receipts=CommandReceipt.objects.count()
+    original_version=case.version
+    User.objects.filter(pk=hr_user.pk).update(is_active=False)
+    with pytest.raises(CommandFailure) as denied_user:
+        create_case(**options)
+    assert denied_user.value.status==404
+    User.objects.filter(pk=hr_user.pk).update(is_active=True)
+    Membership.objects.filter(pk=hr.pk).update(active=False)
+    with pytest.raises(CommandFailure) as denied_membership:
+        create_case(**options)
+    assert denied_membership.value.status==404
+    Membership.objects.filter(pk=hr.pk).update(active=True)
+    assert create_case(**options)==(committed,201)
+    case.refresh_from_db()
+    assert case.version==original_version
+    assert AuditEvent.objects.count()==original_events
+    assert CommandReceipt.objects.count()==original_receipts
+    assert OnboardingCase.objects.count()==1
+
+
+@pytest.mark.django_db(transaction=True)
+def test_astra_final_r2_replay_denied_after_caller_active_org_replacement(world):
+    org,people=world
+    hr_user,old_hr=people['HR']
+    version=published(world)
+    key=uuid.uuid4()
+    options=dict(actor=hr_user,employee_id=people['EMPLOYEE'][1].pk,
+        template_version_id=version,joining_date=timezone.localdate()+timedelta(days=20),
+        owner_ids={'IT':people['IT'][1].pk,'MANAGER':people['MANAGER'][1].pk},key=key)
+    committed,status=create_case(**options)
+    assert status==201
+    original_audit=AuditEvent.objects.count()
+    original_receipts=CommandReceipt.objects.count()
+    original_case=OnboardingCase.objects.get(pk=committed['case_id'])
+    # Replace the caller's active membership in another organization. Keep
+    # old organization relationships unchanged so its case remains intact.
+    new_org=Organization.objects.create(name='Synthetic other organization')
+    Membership.objects.filter(pk=old_hr.pk).update(active=False)
+    other=Membership.objects.create(user=hr_user,organization=new_org,role='HR',
+        can_manage_templates=True,can_coordinate_ownership=True)
+    assert other.active
+    with pytest.raises(CommandFailure) as denied:
+        create_case(**options)
+    assert denied.value.status==404
+    assert OnboardingCase.objects.count()==1
+    assert OnboardingCase.objects.get(pk=original_case.pk).version==original_case.version
+    assert AuditEvent.objects.count()==original_audit
+    assert CommandReceipt.objects.count()==original_receipts
+
+
+@pytest.mark.django_db(transaction=True)
+def test_astra_final_r5_activated_case_cannot_reset_status_and_strip_template(world):
+    org,people=world
+    version=published(world)
+    created,_=create(world,version,offset=-1)
+    case=OnboardingCase.objects.get(pk=created['case_id'])
+    activated,status=activate_case(actor=people['HR'][0],case_id=case.pk,
+                                   key=uuid.uuid4(),expected_version=1)
+    assert status==200 and activated['result']['status']=='ACTIVE'
+    original_version=OnboardingCase.objects.get(pk=case.pk).version
+    original_edge_count=TaskDependency.objects.filter(case=case).count()
+    original_task_count=Task.objects.filter(case=case).count()
+    original_audit_count=AuditEvent.objects.count()
+    first=Task.objects.get(case=case,key='manager_preparation')
+    second=Task.objects.get(case=case,key='month1_checkin')
+    assert not TaskDependency.objects.filter(case=case,predecessor=first,successor=second).exists()
+    with pytest.raises(DatabaseError) as rejected:
+        with transaction.atomic():
+            qs=OnboardingCase.objects.filter(pk=case.pk)
+            qs.update(status='CREATED')
+            qs.update(template_version_id=None)
+            qs.update(status='ACTIVE')
+            TaskDependency.objects.create(case=case,predecessor=first,successor=second)
+    assert getattr(rejected.value.__cause__,'sqlstate',None)=='23514'
+    assert 'cannot return to CREATED' in str(rejected.value)
+    case.refresh_from_db()
+    assert case.status=='ACTIVE' and case.template_version_id==version
+    assert case.version==original_version
+    assert Task.objects.filter(case=case).count()==original_task_count
+    assert TaskDependency.objects.filter(case=case).count()==original_edge_count
+    assert not TaskDependency.objects.filter(case=case,predecessor=first,successor=second).exists()
+    assert AuditEvent.objects.count()==original_audit_count
+    # Normal valid PRE_JOINING -> ACTIVE and CREATED -> PRE_JOINING transitions
+    # remain qualified by the existing Day 1/activation suite.
