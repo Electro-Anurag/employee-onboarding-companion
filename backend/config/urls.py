@@ -8,6 +8,7 @@ from backend.forms import views as forms
 from backend.provisioning import views as it
 from backend.policies import views as policies
 from backend.documents import views as docs
+from backend.documents import quarantine_views as quarantine
 from backend.training import views as training
 from backend.activities import views as activities
 
@@ -51,6 +52,8 @@ urlpatterns = [
     path('api/v1/cases/<uuid:case_id>/tasks/<uuid:task_id>/policy-acknowledge',policies.acknowledge_policy),
     path('api/v1/cases/<uuid:case_id>/tasks/<uuid:task_id>/document-revisions',docs.revisions),
     path('api/v1/cases/<uuid:case_id>/tasks/<uuid:task_id>/document-sample',docs.sample),
+    path('api/v1/cases/<uuid:case_id>/tasks/<uuid:task_id>/quarantine-intake',quarantine.intake),
+    path('api/v1/cases/<uuid:case_id>/tasks/<uuid:task_id>/quarantine-status',quarantine.status),
     path('api/v1/cases/<uuid:case_id>/tasks/<uuid:task_id>/document-revisions/<uuid:revision_id>/download',docs.download),
     path('api/v1/cases/<uuid:case_id>/tasks/<uuid:task_id>/document-revisions/<uuid:revision_id>/review',docs.review),
     path('api/v1/cases/<uuid:case_id>/tasks/<uuid:task_id>/training-module',training.module),
