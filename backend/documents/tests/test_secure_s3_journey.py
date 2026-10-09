@@ -4,6 +4,9 @@ Real S3 and clamd integration is separately mandatory; these tests alone
 do not prove deployed scanner/storage reliability.
 """
 import hashlib
+from types import SimpleNamespace
+from unittest.mock import MagicMock
+from botocore.exceptions import ClientError
 import io
 import json
 import time
@@ -75,10 +78,15 @@ def test_m3_s3_complete_clean_document_hr_acceptance_unlocks_only_real_dependenc
             upload_id=upload_id,raw=raw+b'altered',
             key=uuid.uuid4(),expected_version=3)
     assert wrong_sha.value.code=='UPLOAD_CONTENT_MISMATCH'
+    receive_key=uuid.uuid4()
     stored,status=receive(actor=people['EMPLOYEE'][0],case_id=case.pk,
-        task_id=task.pk,upload_id=upload_id,raw=raw,key=uuid.uuid4(),
+        task_id=task.pk,upload_id=upload_id,raw=raw,key=receive_key,
         expected_version=3)
     assert status==201 and stored['result']['state']=='QUARANTINED'
+    # Exact replay cannot issue a second put_object or scan job.
+    assert receive(actor=people['EMPLOYEE'][0],case_id=case.pk,
+        task_id=task.pk,upload_id=upload_id,raw=raw,key=receive_key,
+        expected_version=3)==(stored,201)
     assert Task.objects.get(pk=task.pk).execution_state=='IN_PROGRESS'
     assert TaskCompletion.objects.count()==0
     result=scan_one(upload_id,scanner=lambda data:('CLEAN','real-service-response-simulated'))
@@ -102,6 +110,11 @@ def test_m3_s3_complete_clean_document_hr_acceptance_unlocks_only_real_dependenc
     assert completion.secure_review.clean_id==clean.id
     assert completion.evidence_hash==sha
     assert Task.objects.get(pk=task.pk).execution_state=='COMPLETED'
+    # Historical receipt remains replayable even after case version and
+    # evidence state have advanced; the object is never overwritten.
+    assert receive(actor=people['EMPLOYEE'][0],case_id=case.pk,
+        task_id=task.pk,upload_id=upload_id,raw=raw,key=receive_key,
+        expected_version=3)==(stored,201)
     assert Task.objects.get(pk=equipment.pk).execution_state=='BLOCKED'
     assert OnboardingCase.objects.get(pk=case.pk).version==5
     with pytest.raises(DatabaseError):
@@ -200,3 +213,39 @@ def test_m3_generated_pdf_validator_rejects_bad_and_active_content():
     assert validate_pdf(valid) is None
     with pytest.raises(CommandFailure):
         validate_pdf(b'%PDF-1.4\\nNOT A PDF\\n%%EOF\\n'.replace(b'\\n',b'\n'))
+
+def test_storage_recovers_only_matching_precondition_conflict_and_exact_bytes():
+    from backend.documents import storage
+    payload=generated_pdf()
+    sha=hashlib.sha256(payload).hexdigest()
+    upload=SimpleNamespace(object_key='quarantine/org/case/object.pdf',
+        byte_length=len(payload),sha256=sha)
+    error=ClientError({'Error':{'Code':'PreconditionFailed'},
+        'ResponseMetadata':{'HTTPStatusCode':412}},'PutObject')
+    s3=MagicMock()
+    s3.put_object.side_effect=error
+    s3.head_object.return_value={'VersionId':'previous-stored-version'}
+    with (override_settings(M3_REAL_DOCUMENT_ENABLED=True,
+            M3_S3_QUARANTINE_BUCKET='quarantine',M3_S3_CLEAN_BUCKET='clean',
+            M3_S3_ENDPOINT_URL='http://127.0.0.1:9000',
+            M3_S3_ALLOW_LOCAL_TEST_ENDPOINT=True),
+          patch.object(storage,'client',return_value=s3),
+          patch.object(storage,'buckets',return_value=('quarantine','clean')),
+          patch.object(storage,'read_exact',return_value=payload) as checked):
+        recovered=storage.put_quarantine(upload,payload)
+        assert recovered=='previous-stored-version'
+        checked.assert_called_once_with('quarantine',upload.object_key,
+            'previous-stored-version',sha)
+        s3.head_object.assert_called_once_with(Bucket='quarantine',
+            Key=upload.object_key)
+        with patch.object(storage,'read_exact',
+                          side_effect=CommandFailure('OBJECT_INTEGRITY_FAILED',409)):
+            with pytest.raises(CommandFailure) as denied:
+                storage.put_quarantine(upload,payload)
+            assert denied.value.code=='OBJECT_INTEGRITY_FAILED'
+        s3.put_object.side_effect=ClientError(
+            {'Error':{'Code':'AccessDenied'},'ResponseMetadata':{'HTTPStatusCode':403}},
+            'PutObject')
+        with pytest.raises(CommandFailure) as no_recovery:
+            storage.put_quarantine(upload,payload)
+        assert no_recovery.value.code=='QUARANTINE_WRITE_FAILED'

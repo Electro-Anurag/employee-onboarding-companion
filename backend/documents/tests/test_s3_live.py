@@ -74,6 +74,10 @@ def test_live_s3_exact_versions_and_actual_antivirus_rejection_then_hr_approval(
     received,_=receive(actor=actors['EMPLOYEE'][0],case_id=case.pk,task_id=task.pk,
         upload_id=id2,raw=raw,key=uuid.uuid4(),expected_version=5)
     assert received['result']['state']=='QUARANTINED'
+    # Exercise actual S3 412 recovery using the immutable object version.
+    from backend.documents.real_models import SecureUpload,StoredQuarantineObject
+    same=storage.put_quarantine(SecureUpload.objects.get(pk=id2),raw)
+    assert same==StoredQuarantineObject.objects.get(upload_id=id2).version_id
     clean_result=scan_one(id2)
     assert clean_result['state']=='AWAITING_HR_REVIEW',clean_result
     obj=SecureCleanObject.objects.get(upload_id=id2)

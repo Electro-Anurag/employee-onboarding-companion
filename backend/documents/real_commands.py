@@ -100,11 +100,24 @@ def receive(*,actor,case_id,task_id,upload_id,raw,key,expected_version):
         pk=upload_id,task_id=task_id,task__case=case,employee=actor).first()
     if not upload or _latest_upload(upload.task).pk!=upload.pk:
         raise CommandFailure('NOT_FOUND',404)
-    if upload.task.execution_state not in ('READY','IN_PROGRESS'):
-        raise CommandFailure('TASK_NOT_READY',409)
     if len(raw)!=upload.byte_length or hashlib.sha256(raw).hexdigest()!=upload.sha256:
         raise CommandFailure('UPLOAD_CONTENT_MISMATCH',422)
     validate_pdf(raw)
+    # A same-key replay after an uncertain COMMIT (or later HR acceptance)
+    # must return its durable receipt BEFORE the 'already received' guard.
+    # The short preflight transaction holds no locks during S3 network I/O.
+    payload={'upload_id':str(upload_id),'sha256':upload.sha256}
+    with transaction.atomic():
+        set_command_timeouts()
+        _,member,_,prior,_=_task_command(actor,case_id,task_id,
+            'm3-secure-receive',key,payload,expected_version)
+        if prior is not None:return prior.response,prior.status_code
+        if member.role!=Membership.EMPLOYEE:
+            raise CommandFailure('NOT_FOUND',404)
+    if _latest_upload(upload.task).pk!=upload.pk:
+        raise CommandFailure('UPLOAD_NOT_CURRENT',409)
+    if upload.task.execution_state not in ('READY','IN_PROGRESS'):
+        raise CommandFailure('TASK_NOT_READY',409)
     # Write outside the DB transaction: no socket or S3 I/O while holding case
     # or identity row locks. An interrupted storage write stays undisclosed.
     existing=StoredQuarantineObject.objects.filter(upload=upload).first()

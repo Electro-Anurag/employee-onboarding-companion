@@ -53,7 +53,31 @@ def put_quarantine(upload,raw):
         if not vid or vid=='null':raise CommandFailure('OBJECT_VERSION_MISSING',503)
         return str(vid)
     except CommandFailure:raise
-    except Exception as exc:raise CommandFailure('QUARANTINE_WRITE_FAILED',503) from exc
+    except Exception as exc:
+        # If a process died after S3 committed but before DB finalization,
+        # If-None-Match correctly rejects re-upload. Reconcile ONLY that exact
+        # conflict, then read and SHA-verify the immutable stored version.
+        # All other storage failures stay fail-closed.
+        from botocore.exceptions import ClientError
+        if (not isinstance(exc,ClientError)
+                or exc.response.get('ResponseMetadata',{}).get('HTTPStatusCode')!=412
+                or exc.response.get('Error',{}).get('Code') not in
+                    ('PreconditionFailed','PreconditionFailedException')):
+            raise CommandFailure('QUARANTINE_WRITE_FAILED',503) from exc
+        try:
+            info=s3.head_object(Bucket=q,Key=upload.object_key)
+            vid=info.get('VersionId')
+            if not vid or vid=='null':
+                raise CommandFailure('OBJECT_VERSION_MISSING',503)
+            # Do not trust caller metadata, ETags or the existence of a key.
+            # read_exact makes recovery content-addressed and version-pinned.
+            recovered=read_exact(q,upload.object_key,str(vid),upload.sha256)
+            if len(recovered)!=upload.byte_length:
+                raise CommandFailure('OBJECT_INTEGRITY_FAILED',409)
+            return str(vid)
+        except CommandFailure:raise
+        except Exception as recovery_error:
+            raise CommandFailure('QUARANTINE_RECOVERY_FAILED',503) from recovery_error
 
 def read_exact(bucket,key,version,expected_sha,max_bytes=MAX_FILE):
     s3=client()
