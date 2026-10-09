@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import './App.css';
+import EvidenceWorkflows from './EvidenceWorkflows';
 
 type Me = { display_name:string;role:'HR'|'IT'|'MANAGER'|'EMPLOYEE';user_id:string;capabilities?:{manage_templates:boolean;coordinate_ownership:boolean} };
 type Progress = { mandatory_total:number;mandatory_completed:number;mandatory_remaining:number;percent:number };
@@ -205,6 +206,14 @@ export default function App(){
       await reloadCase(detail.case_id,me);
     });
   }
+  async function mutateEvidence(path:string,body:unknown){
+    if(!detail||!me)throw new Error('No authenticated case selected');
+    const generation=identityEpoch.current;
+    const caseId=detail.case_id;
+    await request(path,'POST',body,{'If-Match':'"case:'+caseId+':v'+detail.case_version+'"'});
+    if(identityEpoch.current!==generation)return;
+    await reloadCase(caseId,me);
+  }
   async function attest(event:React.FormEvent){
     event.preventDefault();
     if(!detail||!attestTask||!me)return;
@@ -276,7 +285,7 @@ export default function App(){
   }
   return <main className="shell">
     <header className="topbar"><div><span className="eyebrow">Aster Vale Labs — synthetic demo</span><h1>Onboarding Companion</h1>
-      <p>M2 local/CI workflow: published templates, case activation and evidence-governed task progression.</p></div>
+      <p>M2 case engine with M3 versioned form review and M4 synthetic IT operations. Remaining milestone workflows are still under development.</p></div>
       {me&&<button className="quiet" disabled={busy} onClick={()=>void signOut()}>Sign out</button>}
     </header>
     {!me?<section className="panel login"><h2>Sign in</h2>
@@ -319,6 +328,9 @@ export default function App(){
                 {t.allowed_actions.includes('ATTEST_MANAGER_PREPARATION')&&
                   <button disabled={busy} onClick={()=>setAttestTask(old=>old===t.id?null:t.id)}>Complete preparation</button>}
               </div>
+              {(t.kind==='FORM'||t.kind==='ACCESS'||t.kind==='EQUIPMENT')&&
+                <EvidenceWorkflows key={me.user_id+':'+t.id} task={t} caseId={detail.case_id}
+                  role={me.role} read={path=>request(path)} mutate={mutateEvidence}/>}
               {attestTask===t.id&&<form className="form attest" onSubmit={e=>void attest(e)}>
                 <label>First-week plan<input required minLength={8} maxLength={300} value={plan} onChange={e=>setPlan(e.target.value)}/></label>
                 <label>Buddy's name<input required minLength={2} maxLength={100} value={buddy} onChange={e=>setBuddy(e.target.value)}/></label>
@@ -327,7 +339,7 @@ export default function App(){
                 <button disabled={busy||!station} type="submit">Submit recorded evidence</button>
               </form>}
             </article>)}</div>
-            <p className="meta">Document, form, IT, training and activity completion require later evidence-specific workflows and cannot be marked complete here.</p>
+            <p className="meta">Document, policy, training, activity and IT task completion require their own accepted evidence; M3 HR-approved forms can now complete. IT results shown here are synthetic and do not constitute completion.</p>
           </section>}
         </section>}
         {tab==='work'&&<section className="panel"><h2>My assigned tasks</h2>
