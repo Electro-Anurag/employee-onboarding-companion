@@ -27,7 +27,7 @@ def _validate_slot(task,start,end,medium,reference,now):
         or medium not in ('VIDEO','IN_PERSON')
         or start < now+timedelta(minutes=1) or end<=start
         or end-start>timedelta(hours=4)
-        or start<task.available_at or end>task.due_at):
+        or start<task.available_at):
         raise CommandFailure('INVALID_ACTIVITY_SLOT',422)
     return reference.strip()
 
@@ -56,9 +56,8 @@ def schedule(*,actor,case_id,task_id,start,end,medium,reference,reason,key,expec
             attended=ActivityAttendance.objects.filter(occurrence=current).values_list('outcome',flat=True).first()
             if attended=='ATTENDED':
                 raise CommandFailure('ACTIVITY_ALREADY_ATTENDED',409)
-        else:
-            if task.execution_state!='READY':
-                raise CommandFailure('TASK_NOT_READY',409)
+        # A generic Start may have set IN_PROGRESS before an occurrence existed.
+        # The typed scheduling command still owns authoritative evidence creation.
         rev=current.revision+1 if current else 1
         if rev>20:raise CommandFailure('ACTIVITY_RESCHEDULE_LIMIT',409)
         occurrence=ActivityOccurrence.objects.create(task=task,revision=rev,
@@ -75,7 +74,8 @@ def schedule(*,actor,case_id,task_id,start,end,medium,reference,reason,key,expec
             event_type='ACTIVITY_SCHEDULED' if rev==1 else 'ACTIVITY_RESCHEDULED',
             entity_id=task.pk,changes={'revision':rev,'start':start.isoformat(),
              'end':end.isoformat(),'medium':medium,'replaced_occurrence_id':str(current.pk) if current else None,
-             'case_version':case.version})
+             'case_version':case.version,'original_due_at':task.due_at.isoformat(),
+              'scheduled_after_due':end>task.due_at})
         response={'command_id':str(uuid.uuid4()),'case_id':str(case.pk),'case_version':case.version,
             'result':{'task_id':str(task.pk),'occurrence_id':str(occurrence.pk),
                 'revision':rev,'task_completion':'IN_PROGRESS'},

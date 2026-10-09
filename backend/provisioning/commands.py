@@ -22,7 +22,7 @@ def request_it(*,actor,case_id,task_id,key,expected_version):
             raise CommandFailure('WRONG_IT_TASK_KIND',422)
         recompute(case)
         task.refresh_from_db()
-        if task.execution_state!='READY':
+        if task.execution_state not in ('READY','IN_PROGRESS'):
             raise CommandFailure('TASK_NOT_READY',409)
         if ITOperation.objects.filter(task=task).exists():
             raise CommandFailure('IT_OPERATION_EXISTS',409)
@@ -144,7 +144,7 @@ def receive_equipment(*,actor,case_id,task_id,it_confirmation_id,note,key,expect
             raise CommandFailure('WRONG_RECEIPT_TASK',422)
         recompute(case)
         task.refresh_from_db()
-        if task.execution_state!='READY':
+        if task.execution_state not in ('READY','IN_PROGRESS'):
             raise CommandFailure('TASK_NOT_READY',409)
         confirmed=ITConfirmation.objects.select_related('operation__task').filter(pk=it_confirmation_id).first()
         if confirmed is None or confirmed.operation.status!='SIMULATED_FULFILLED':

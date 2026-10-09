@@ -31,7 +31,7 @@ def test_synthetic_training_fails_then_passes_without_premature_completion(world
     assert task.execution_state=='READY'
     assert all('answer' not in q for q in public_spec(spec)['questions'])
     base=dict(actor=people['EMPLOYEE'][0],case_id=case.pk,task_id=task.pk,
-       module_version=spec['module_version'],content_sha256=spec['content_sha256'],
+       module_version=spec['module_version'],content_sha256=public_spec(spec)['content_sha256'],
        expected_version=2)
     with pytest.raises(CommandFailure) as unauthorized:
         attempt(**{**base,'actor':people['MANAGER'][0]},
@@ -103,10 +103,22 @@ def test_training_http_hides_answer_key_and_uses_actual_session_authority(world)
     assert wrong.status_code==409
     res=emp.post(base+'/training-attempts',
         data=json.dumps({'module_version':spec['module_version'],
-               'content_sha256':spec['content_sha256'],'answers':{'q1':'A','q2':'A'}}),
+               'content_sha256':public_spec(spec)['content_sha256'],'answers':{'q1':'A','q2':'A'}}),
         content_type='application/json',HTTP_IDEMPOTENCY_KEY=str(uuid.uuid4()),
         HTTP_IF_MATCH=f'"case:{case.pk}:v2"')
     assert res.status_code==200,res.content
     assert res.json()['result']['passed'] is True
     assert emp.get(base+'/training-module').json()['task_state']=='COMPLETED'
     assert TaskCompletion.objects.get(task=task).evidence_type=='TRAINING'
+
+def test_public_training_fingerprint_cannot_oracle_private_answers():
+    from backend.training.definitions import hash_core,validate_spec
+    from copy import deepcopy
+    original=default_spec('security_training')
+    changed=deepcopy(original)
+    changed['questions'][0]['answer']='B'
+    changed['content_sha256']=hash_core({k:v for k,v in changed.items() if k!='content_sha256'})
+    validate_spec(changed)
+    assert original['content_sha256']!=changed['content_sha256']
+    assert public_spec(original)['content_sha256']==public_spec(changed)['content_sha256']
+    assert public_spec(original)['content_sha256']!=original['content_sha256']

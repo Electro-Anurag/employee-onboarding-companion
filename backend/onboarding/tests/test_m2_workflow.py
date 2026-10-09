@@ -1171,3 +1171,33 @@ def test_astra_final_r5_activated_case_cannot_reset_status_and_strip_template(wo
     assert AuditEvent.objects.count()==original_audit_count
     # Normal valid PRE_JOINING -> ACTIVE and CREATED -> PRE_JOINING transitions
     # remain qualified by the existing Day 1/activation suite.
+
+@pytest.mark.django_db(transaction=True)
+def test_m3_manager_completion_requires_same_attesting_actor_after_all_migrations(world):
+    org,people=world
+    created,_=create(world,published(world))
+    case=OnboardingCase.objects.get(pk=created['case_id'])
+    activate_case(actor=people['HR'][0],case_id=case.pk,key=uuid.uuid4(),expected_version=1)
+    task=Task.objects.get(case=case,key='manager_preparation')
+    start_task(actor=people['MANAGER'][0],case_id=case.pk,task_id=task.pk,
+        key=uuid.uuid4(),expected_version=2)
+    attestation=ManagerAttestation.objects.create(task=task,actor=people['MANAGER'][0],
+        prepared_fields={'first_week_plan':'Planned work','buddy_name':'Sample Buddy',
+                         'workstation_ready':True},note='Valid manager evidence')
+    with pytest.raises(DatabaseError) as denied:
+        with transaction.atomic():
+            TaskCompletion.objects.create(task=task,manager_attestation=attestation,
+                evidence_type='MANAGER_PREPARATION',completed_by=people['HR'][0],
+                evidence_hash='0'*64)
+            Task.objects.filter(pk=task.pk).update(
+                execution_state='COMPLETED',completed_at=timezone.now())
+    assert getattr(denied.value.__cause__,'sqlstate',None)=='23514'
+    assert not TaskCompletion.objects.filter(task=task).exists()
+    assert Task.objects.get(pk=task.pk).execution_state=='IN_PROGRESS'
+    with transaction.atomic():
+        TaskCompletion.objects.create(task=task,manager_attestation=attestation,
+            evidence_type='MANAGER_PREPARATION',completed_by=people['MANAGER'][0],
+            evidence_hash='0'*64)
+        Task.objects.filter(pk=task.pk).update(
+            execution_state='COMPLETED',completed_at=timezone.now())
+    assert TaskCompletion.objects.get(task=task).completed_by_id==people['MANAGER'][0].pk

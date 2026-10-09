@@ -10,7 +10,7 @@ from backend.onboarding.services import CommandFailure,set_command_timeouts
 from backend.onboarding.state_machine import recompute,case_progress
 from backend.audit.services import append_event
 from backend.training.models import TrainingAttempt
-from backend.training.definitions import validate_spec
+from backend.training.definitions import validate_spec,public_spec
 
 def attempt(*,actor,case_id,task_id,module_version,content_sha256,answers,key,expected_version):
     if (not isinstance(module_version,str) or not isinstance(content_sha256,str)
@@ -27,7 +27,7 @@ def attempt(*,actor,case_id,task_id,module_version,content_sha256,answers,key,ex
             raise CommandFailure('WRONG_TRAINING_TASK',422)
         spec=validate_spec(task.evidence_spec)
         if (not hmac.compare_digest(module_version,spec['module_version'])
-                or not hmac.compare_digest(content_sha256,spec['content_sha256'])):
+                or not hmac.compare_digest(content_sha256,public_spec(spec)['content_sha256'])):
             raise CommandFailure('STALE_TRAINING_MODULE',409)
         expected={q['key'] for q in spec['questions']}
         valid={q['key']:{a['value'] for a in q['options']} for q in spec['questions']}
@@ -45,12 +45,12 @@ def attempt(*,actor,case_id,task_id,module_version,content_sha256,answers,key,ex
         score=sum(answers[q['key']]==q['answer'] for q in spec['questions'])
         passed=score>=spec['passing_score']
         row=TrainingAttempt.objects.create(task=task,attempt_number=attempt_number,
-            actor=actor,module_version=module_version,content_sha256=content_sha256,
+            actor=actor,module_version=module_version,content_sha256=spec['content_sha256'],
             answers=answers,score=score,passing_score=spec['passing_score'],passed=passed)
         effects=[]
         if passed:
             TaskCompletion.objects.create(task=task,evidence_type='TRAINING',
-                training_attempt=row,completed_by=actor,evidence_hash=content_sha256)
+                training_attempt=row,completed_by=actor,evidence_hash=spec['content_sha256'])
             task.execution_state='COMPLETED'
             task.completed_at=timezone.now()
             task.version+=1

@@ -58,7 +58,11 @@ def validate_spec(spec):
 
 def public_spec(spec):
     valid=validate_spec(spec)
-    return {'module_version':valid['module_version'],'content_sha256':valid['content_sha256'],
-        'passing_score':valid['passing_score'],
-        'questions':[{'key':q['key'],'prompt':q['prompt'],'options':q['options']}
-                     for q in valid['questions']]}
+    questions=[{'key':q['key'],'prompt':q['prompt'],'options':q['options']}
+               for q in valid['questions']]
+    # Public fingerprint commits only to public presentation. Never publish
+    # the low-entropy answer-bearing private spec checksum (brute-force oracle).
+    public_core={'type':valid['type'],'module_version':valid['module_version'],
+                 'questions':questions,'passing_score':valid['passing_score']}
+    return {'module_version':valid['module_version'],'content_sha256':hash_core(public_core),
+        'passing_score':valid['passing_score'],'questions':questions}

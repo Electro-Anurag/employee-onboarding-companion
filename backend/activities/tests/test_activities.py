@@ -366,3 +366,23 @@ def test_post_m3_migration_db_blocks_cancelled_meeting_attendance_after_end(worl
     assert ActivityAttendance.objects.filter(occurrence=occurrence).count()==0
     assert TaskCompletion.objects.filter(task=task).count()==0
     assert Task.objects.get(pk=task.pk).execution_state=='IN_PROGRESS'
+
+@pytest.mark.django_db(transaction=True)
+def test_m4_overdue_activity_can_schedule_reasoned_recovery_without_changing_due(world):
+    case,task,people=activity_case(world)
+    due=task.due_at
+    future_now=due+timedelta(days=1)
+    from unittest.mock import patch
+    with patch('backend.activities.commands.timezone.now',return_value=future_now):
+        result,status=schedule(actor=people['HR'][0],case_id=case.pk,task_id=task.pk,
+            start=future_now+timedelta(minutes=5),end=future_now+timedelta(minutes=35),
+            medium='VIDEO',reference='Overdue recovery room',
+            reason='Rebook required synthetic meeting beyond original deadline',
+            key=uuid.uuid4(),expected_version=2)
+    assert status==201 and result['result']['revision']==1
+    task.refresh_from_db()
+    assert task.due_at==due and task.execution_state=='IN_PROGRESS'
+    assert TaskCompletion.objects.filter(task=task).count()==0
+    events=AuditEvent.objects.filter(event_type='ACTIVITY_SCHEDULED')
+    assert events.count()==1
+    assert events.first().sanitized_change['scheduled_after_due'] is True
