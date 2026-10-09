@@ -64,7 +64,7 @@ jobs:
             -e MINIO_ROOT_USER=ci-minio-only \
             -e MINIO_ROOT_PASSWORD=ci-minio-temporary-password \
             -p 127.0.0.1:9000:9000 \
-            quay.io/minio/minio:RELEASE.2025-06-13T11-33-47Z server /data
+            chainguard/minio:latest server /data
           docker run --detach --name m3-clamd --rm \
             -p 127.0.0.1:3310:3310 clamav/clamav:1.4
       - name: Wait for S3, enable immutable versions, and require fresh actual clamd
