@@ -565,3 +565,11 @@ def test_m3_outline_actions_fail_closed_before_s3_and_valid_correction_completes
         key=uuid.uuid4(),expected_version=5)
     assert accepted['result']['task_completion']=='COMPLETED'
     assert SecureCleanObject.objects.filter(upload_id=invalid_id).count()==0
+
+def test_m3_passive_local_pdf_outline_navigation_is_allowed():
+    writer=PdfWriter()
+    writer.add_blank_page(width=300,height=300)
+    writer.add_outline_item('Local synthetic chapter',0)
+    payload=io.BytesIO()
+    writer.write(payload)
+    validate_pdf(payload.getvalue())
