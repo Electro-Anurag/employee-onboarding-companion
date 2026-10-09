@@ -1,10 +1,11 @@
 """Live PostgreSQL tests: immutable occurrence, current role, time and typed attendance."""
 import json
+import time as sleeping_time
 import time
 import uuid
 from datetime import timedelta
 import pytest
-from django.db import DatabaseError,transaction
+from django.db import DatabaseError,transaction,connection
 from django.test import Client
 from django.utils import timezone
 from backend.onboarding.tests.test_m2_workflow import world,create
@@ -322,4 +323,46 @@ def test_cancel_http_and_private_history_are_consistent(world):
     assert body['cancellation']['reason']=='Room unavailable, moving schedule'
     assert body['attendance'] is None
     assert employee.get(base).headers['Cache-Control']=='private, no-store'
+    assert Task.objects.get(pk=task.pk).execution_state=='IN_PROGRESS'
+
+@pytest.mark.django_db(transaction=True)
+def test_post_m3_migration_db_blocks_cancelled_meeting_attendance_after_end(world):
+    """M3 0017 must not regress M4 0002's cancelled-occurrence DB guard.
+
+    Create an already-started short synthetic occurrence, cancel it BEFORE
+    its end, then attempt raw attendance AFTER end. The older redefined
+    function would permit this insert, bypassing the safe command layer.
+    """
+    case,task,people=activity_case(world)
+    start_task(actor=people['HR'][0],case_id=case.pk,task_id=task.pk,
+        key=uuid.uuid4(),expected_version=2)
+    now=timezone.now()
+    occurrence=ActivityOccurrence.objects.create(task=task,revision=1,
+        begins_at=now-timedelta(minutes=20),ends_at=now+timedelta(seconds=3),
+        medium='VIDEO',meeting_reference='Short synthetic meeting',
+        reason='Verify cancellation remains enforced after M3 migration',
+        scheduled_by=people['HR'][0])
+    cancelled,status=cancel_occurrence(actor=people['HR'][0],case_id=case.pk,
+        task_id=task.pk,occurrence_id=occurrence.pk,
+        reason='Cancelled before the occurrence could conclude',
+        key=uuid.uuid4(),expected_version=3)
+    assert status==201
+    assert ActivityCancellation.objects.filter(occurrence=occurrence).exists()
+    # Verify the actual database body, not application-side validation.
+    with connection.cursor() as cursor:
+        cursor.execute("""SELECT pg_get_functiondef('public.m4_guard_valid_attendance_insert()'::regprocedure)""")
+        definition=cursor.fetchone()[0]
+    assert 'activities_activitycancellation' in definition
+    assert 'ca.occurrence_id=NEW.occurrence_id' in definition
+    wait=(occurrence.ends_at-timezone.now()).total_seconds()+0.25
+    if wait>0:
+        sleeping_time.sleep(wait)
+    assert timezone.now()>occurrence.ends_at
+    with pytest.raises(DatabaseError):
+        with transaction.atomic():
+            ActivityAttendance.objects.create(occurrence=occurrence,
+                recorded_by=people['HR'][0],outcome='ATTENDED',
+                note='Forged attendance after an earlier cancellation')
+    assert ActivityAttendance.objects.filter(occurrence=occurrence).count()==0
+    assert TaskCompletion.objects.filter(task=task).count()==0
     assert Task.objects.get(pk=task.pk).execution_state=='IN_PROGRESS'
