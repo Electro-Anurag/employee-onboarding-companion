@@ -12,7 +12,7 @@ ALLOWED_HOSTS = [x.strip() for x in os.environ.get("DJANGO_ALLOWED_HOSTS", "loca
 INSTALLED_APPS = [
     "django.contrib.auth", "django.contrib.contenttypes", "django.contrib.sessions", "django.contrib.staticfiles",
     "procrastinate.contrib.django", "backend.jobs.apps.JobsConfig", "backend.foundation.apps.FoundationConfig",
-    "backend.accounts.apps.AccountsConfig", "backend.forms.apps.FormsConfig", "backend.provisioning.apps.ProvisioningConfig", "backend.templates.apps.TemplatesConfig", "backend.onboarding.apps.OnboardingConfig", "backend.audit.apps.AuditConfig",
+    "backend.accounts.apps.AccountsConfig", "backend.forms.apps.FormsConfig", "backend.provisioning.apps.ProvisioningConfig", "backend.policies.apps.PoliciesConfig", "backend.templates.apps.TemplatesConfig", "backend.onboarding.apps.OnboardingConfig", "backend.audit.apps.AuditConfig",
 ]
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",

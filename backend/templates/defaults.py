@@ -1,4 +1,5 @@
 """Synthetic Aster Vale Labs onboarding template, not a real employer policy."""
+from backend.policies.definitions import policy_evidence
 SPEC=[
 ('identity_document','DOCUMENT','EMPLOYEE',-30,-5,()),
 ('employment_document','DOCUMENT','EMPLOYEE',-30,-5,()),
@@ -26,7 +27,8 @@ def first_month_template():
         tasks.append(dict(key=key,kind=kind,title=title,description='Synthetic onboarding work',
             owner_role=owner,required=True,available_offset_days=available,
             due_offset_days=due,position=position,evidence_spec=({'type':'FORM','fields':['preferred_name','contact_email']}
-                if kind=='FORM' and key=='personal_details' else {'type':kind})))
+                if kind=='FORM' and key=='personal_details' else
+                policy_evidence(key) if kind=='POLICY_ACK' else {'type':kind})))
         for before in prereqs:
             edges.append({'predecessor':before,'successor':key})
     return tasks,edges
