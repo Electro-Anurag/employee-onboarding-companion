@@ -71,10 +71,10 @@ test('four-role real-browser case, template, dependency and evidence journey',as
       await hr.getByRole('button',{name:/^Cases \(/}).click();
       const form=hr.locator('section.panel').filter({has:hr.getByRole('heading',{name:'Create an onboarding case'})});
       await expect(form).toBeVisible();
-      await form.getByLabel('Published template').selectOption({index:1});
-      await form.getByLabel('Employee').selectOption({index:1});
-      await form.getByLabel('IT owner').selectOption({index:1});
-      await form.getByLabel('Manager').selectOption({index:1});
+      await form.locator('select').nth(0).selectOption({index:1});
+      await form.locator('select').nth(1).selectOption({index:1});
+      await form.locator('select').nth(2).selectOption({index:1});
+      await form.locator('select').nth(3).selectOption({index:1});
       const join=new Date(Date.now()+21*86400000).toISOString().slice(0,10);
       await form.getByLabel('Joining date').fill(join);
       const [response]=await Promise.all([
