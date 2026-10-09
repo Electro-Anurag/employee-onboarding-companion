@@ -1,35 +1,41 @@
 # Employee Onboarding Companion
 
-**Project stage:** M1 third independent STOP remediation candidate CI-qualified (8 October 2026); **focused independent GO still pending, M2 blocked**. This is not a working end-to-end onboarding product.
+**Project stage:** M0 qualified; M1 independently security-reviewed and approved; **M2 local/CI implementation qualified (9 October 2026), independent M2 review and interactive browser acceptance pending.** Not a complete end-to-end onboarding product.
 
-This is an independent private repository. Governing requirements: Product Requirements v1.1 (28 functional requirements), Business Journey v1.0 (four roles, ten exceptions, five hosted journeys), Architecture Handoff v1.0.
+Private personal GitHub repository. Governing scope: PRD v1.1 (28 functional requirements), Business Journey v1.0 (four roles, ten exception journeys, five hosted acceptance journeys), and Technical Architecture & Engineering Handoff v1.0. Neither M3–M10 implementation nor public deployment has been authorized.
 
-## Verified foundations
+## Milestones
 
-- M0: Django 5.2, PostgreSQL 17 and Procrastinate 3.10; atomic operation/audit/queued-job commit, rollback and real worker crash/recovery.
-- M1: email-login and Argon2, session and CSRF enforcement, four-role membership checks, scoped employee/owner case reads, HR reassignment with optimistic version + idempotency key, immutable audit-event UPDATE/DELETE trigger and hash-chain append function, single-use invitation/reset tokens, and error/denial paths.
-- Remediation CI: **62 PostgreSQL-backed tests passed** including M0 regressions, real two-session security races, restricted-role audit append/denial probes, React build, same-origin API smoke, Docker build and zero current npm audit advisories.
+- **M0:** Django 5.2, PostgreSQL 17, Procrastinate 3.10, transactional queue/DB effect/audit and hard-kill worker recovery — qualified.
+- **M1:** Email identity, single active membership, four-role authorization, CSRF/session, invitations/reset, assignment controls, append-only auditable changes, idempotent transaction boundaries — independently reviewed GO.
+- **M2:** Versioned synthetic templates and published immutable DAGs; HR case creation and activation; 17-task synthetic snapshot; AND prerequisite evaluation, blocked/ready/in-progress tasks, timezone-local schedules, typed manager-preparation attestation, HR Day 1 transition, role-scoped workspaces and case timeline — **84/84 Python tests, 2/2 frontend tests and CI build passed**. This is not all 17 tasks completeable yet.
+- **Future work:** M3 evidence files/forms/policies; M4 IT/training integrations; M5 reminders and exception recovery; M6 AI; M7 dashboards/closeout; M8 hosting/operations; M9 hosted journeys/benchmarks; M10 final demonstration.
 
-See [M0 qualification](docs/qualification/m0-20261008.md), [original M1 qualification](docs/qualification/m1-20261008.md), and [M1 adversarial correction handoff](docs/qualification/m1-security-remediation-20261008.md). The last is a candidate for independent re-review, not a security certification. See [second focused re-review remediation](docs/qualification/m1-second-review-remediation-20261008.md) for the latest source/CI and remaining limits.
+For exact source SHA, automated results, limitations and 12-item engineering checklist see [M2 qualification and tracker](docs/qualification/m2-20261009.md).
 
-## Local development
+## Local synthetic demonstration
 
-Requires Python 3.13, Node.js 22, uv 0.12.23, PostgreSQL 17 and optional Docker. Use separate development-only credentials; never put secrets or real employee data into source or test fixtures.
+Requires Python 3.13, Node.js 22, uv 0.12.23, PostgreSQL 17 and optional Docker. Use local-only credentials and synthetic accounts. Set a non-placeholder `DJANGO_SECRET_KEY`, local `POSTGRES_*` settings and `DJANGO_DEBUG=1`. Never use this DEBUG-only bootstrap on a hosted system.
 
 ```sh
 uv lock --check && uv sync --locked
-(cd frontend && npm ci && npm run build)
-cp .env.example .env
-# Set unique LOCAL credentials and database settings in .env or the shell.
-# Confirm PostgreSQL 17 is running and the database exists.
+(cd frontend && npm ci && npm run test && npm run build)
 uv run python manage.py migrate --noinput
-uv run python manage.py procrastinate healthchecks
 uv run pytest -q
+uv run python manage.py seed_m2_demo --confirm-synthetic
 uv run python manage.py runserver
 ```
 
-The Django application serves the compiled frontend from the same origin. The UI includes a real session sign-in/out shell and scoped case previews; **no permanent demo account bootstrap or full employee onboarding workflow exists yet**. PostgreSQL test fixtures are synthetic and independent from a runnable public demo. The external AWS, AI and Render services are not connected.
+The bootstrap prints fresh credentials for HR, Employee, IT and Manager on the owner's terminal; store them privately. It fails if `DEBUG` is off, explicit confirmation is missing or demo identities already exist.
 
-Local database permissions require proper configuration; the CI audit role probe uses a disposable restricted role and **does not mean real application runtime credentials have been provisioned as least privileged**.
+**Manual workflow:** Sign in as synthetic HR -> create default 17-task template -> publish -> create and activate case -> inspect authorized case tasks -> sign in as Manager -> complete Manager Preparation with typed evidence -> inspect changed task eligibility. The HR Day 1 action is date-gated. Document, IT/access and training completions are intentionally disabled until evidence-specific features exist.
 
-To run the M0 worker tests, use GitHub Actions M1 integration workflow. The resulting CI checks and Docker build are not a hosted-app qualification. Public publishing, paid services and M2 development require separate owner decisions.
+## Qualification and security boundary
+
+- M2 CI: https://github.com/Electro-Anurag/employee-onboarding-companion/actions/runs/37875026828
+- Full source tested: `0482aad5b9def9ab41932ccf3adcf22a76995722`; original main untouched.
+- Local PostgreSQL/CI checks are **not** equivalent to live hosted browser tests, production least-privilege grants, operational resiliency, or independent M2 review.
+- External AI services, cloud hosting, S3, email, and real employee data are not connected or used.
+- M0 and M1 review evidence: [M0](docs/qualification/m0-20261008.md), [M1](docs/qualification/m1-20261008.md), [M1 independent remediation](docs/qualification/m1-third-review-remediation-20261008.md).
+
+No paid service, external production account or public web deployment is required for current M2 local/CI use.
