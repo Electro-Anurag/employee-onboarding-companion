@@ -76,7 +76,7 @@ jobs:
           import django
           django.setup()
           from backend.documents import storage
-          from backend.documents.scanner import clamav_signature_provenance
+          from backend.documents.scanner import clamav_signature_provenance,ScannerUnavailable
           s3=storage.client()
           buckets=[storage.settings.M3_S3_QUARANTINE_BUCKET,storage.settings.M3_S3_CLEAN_BUCKET]
           for i in range(150):
@@ -91,15 +91,24 @@ jobs:
               s3.create_bucket(Bucket=bucket)
               s3.put_bucket_versioning(Bucket=bucket,VersioningConfiguration={'Status':'Enabled'})
           storage.buckets(s3)
-          for i in range(180):
+          # Emit bounded failure codes, not raw document bytes or secrets.
+          # This is an actual ClamAV readiness gate, never a mocked success.
+          last_reason='NOT_ATTEMPTED'
+          for i in range(40):
               try:
                   info=clamav_signature_provenance()
                   print('CLAMAV_FRESH_REAL_SIGNATURES: '+info)
                   break
-              except Exception:
-                  time.sleep(4)
+              except ScannerUnavailable as exc:
+                  reason=str(exc)
+              except Exception as exc:
+                  reason='UNEXPECTED_'+type(exc).__name__
+              if reason!=last_reason or i%10==0:
+                  print(f'CLAMAV_READINESS_CHECK: attempt={i+1} reason={reason}',flush=True)
+              last_reason=reason
+              time.sleep(2)
           else:
-              raise RuntimeError('Actual ClamAV daemon with recent definitions unavailable')
+              raise RuntimeError('Actual ClamAV daemon with recent definitions unavailable: '+last_reason)
           PY
       - name: Live S3 and ClamAV malware, clean promotion and HR review
         run: uv run pytest -q backend/documents/tests/test_s3_live.py
