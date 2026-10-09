@@ -1,0 +1,111 @@
+name: M3 live S3 and ClamAV document saga
+on:
+  push:
+    branches: ['feature/m3-m4-integrated-workflows']
+    paths:
+      - 'backend/documents/**'
+      - 'backend/onboarding/migrations/0017_secure_s3_document_completion.py'
+      - 'pyproject.toml'
+      - 'uv.lock'
+      - '.github/workflows/m3-live-services.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  s3-and-clamd:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    services:
+      postgres:
+        image: postgres:17@sha256:2d2b8998d31037bf721cfdf764d76ba74171b4fab3431b7f72c27c56ddbdf9e3
+        env:
+          POSTGRES_DB: onboarding_m0
+          POSTGRES_USER: onboarding
+          POSTGRES_PASSWORD: ci-temporary-only
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 3s --health-timeout 3s --health-retries 20
+    env:
+      DJANGO_SECRET_KEY: ci-temporary-strong-secret
+      DJANGO_DEBUG: '0'
+      DJANGO_ALLOWED_HOSTS: localhost,127.0.0.1,testserver
+      POSTGRES_HOST: localhost
+      POSTGRES_PORT: '5432'
+      POSTGRES_DB: onboarding_m0
+      POSTGRES_USER: onboarding
+      POSTGRES_PASSWORD: ci-temporary-only
+      M3_REAL_DOCUMENT_ENABLED: '1'
+      M3_S3_QUARANTINE_BUCKET: ci-m3-private-quarantine
+      M3_S3_CLEAN_BUCKET: ci-m3-private-clean
+      M3_S3_ENDPOINT_URL: http://127.0.0.1:9000
+      M3_S3_ALLOW_LOCAL_TEST_ENDPOINT: '1'
+      M3_S3_REGION: us-east-1
+      M3_CLAMAV_HOST: 127.0.0.1
+      M3_CLAMAV_PORT: '3310'
+      AWS_ACCESS_KEY_ID: ci-minio-only
+      AWS_SECRET_ACCESS_KEY: ci-minio-temporary-password
+      M3_LIVE_S3_CLAMAV: '1'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e
+        with:
+          python-version: '3.13'
+          version: '0.12.23'
+      - name: Install locked application and migration schema
+        run: |
+          uv lock --check
+          uv sync --locked
+          uv run python manage.py migrate --noinput
+      - name: Start isolated S3-compatible store and actual ClamAV
+        run: |
+          set -euo pipefail
+          docker run --detach --name m3-minio --rm \
+            -e MINIO_ROOT_USER=ci-minio-only \
+            -e MINIO_ROOT_PASSWORD=ci-minio-temporary-password \
+            -p 127.0.0.1:9000:9000 \
+            quay.io/minio/minio:RELEASE.2025-06-13T11-33-47Z server /data
+          docker run --detach --name m3-clamd --rm \
+            -p 127.0.0.1:3310:3310 clamav/clamav:1.4
+      - name: Wait for S3, enable immutable versions, and require fresh actual clamd
+        run: |
+          uv run python - <<'PY'
+          import time
+          from backend.documents import storage
+          from backend.documents.scanner import clamav_signature_provenance
+          s3=storage.client()
+          buckets=[storage.settings.M3_S3_QUARANTINE_BUCKET,storage.settings.M3_S3_CLEAN_BUCKET]
+          for i in range(150):
+              try:
+                  s3.list_buckets()
+                  break
+              except Exception:
+                  time.sleep(2)
+          else:
+              raise RuntimeError('S3 store unavailable')
+          for bucket in buckets:
+              s3.create_bucket(Bucket=bucket)
+              s3.put_bucket_versioning(Bucket=bucket,VersioningConfiguration={'Status':'Enabled'})
+          storage.buckets(s3)
+          for i in range(180):
+              try:
+                  info=clamav_signature_provenance()
+                  print('CLAMAV_FRESH_REAL_SIGNATURES: '+info)
+                  break
+              except Exception:
+                  time.sleep(4)
+          else:
+              raise RuntimeError('Actual ClamAV daemon with recent definitions unavailable')
+          PY
+      - name: Live S3 and ClamAV malware, clean promotion and HR review
+        run: uv run pytest -q backend/documents/tests/test_s3_live.py
+      - name: Report scanner container status on any failure
+        if: failure()
+        run: |
+          docker ps -a
+          docker logs --tail 60 m3-clamd || true
+          docker logs --tail 30 m3-minio || true
+      - name: Stop isolated test services
+        if: always()
+        run: |
+          docker rm --force m3-clamd m3-minio || true
