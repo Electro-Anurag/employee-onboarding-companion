@@ -100,21 +100,26 @@ class TaskCompletion(models.Model):
     policy_ack=models.OneToOneField('policies.PolicyAcknowledgement',on_delete=models.PROTECT,null=True)
     document_review=models.OneToOneField('documents.DocumentReview',on_delete=models.PROTECT,null=True)
     training_attempt=models.OneToOneField('training.TrainingAttempt',on_delete=models.PROTECT,null=True)
-    evidence_type=models.CharField(max_length=32,choices=[('MANAGER_PREPARATION','MANAGER_PREPARATION'),('FORM','FORM'),('IT_CONFIRMATION','IT_CONFIRMATION'),('EQUIPMENT_RECEIPT','EQUIPMENT_RECEIPT'),('POLICY_ACK','POLICY_ACK'),('DOCUMENT','DOCUMENT'),('TRAINING','TRAINING')])
+    activity_attendance=models.OneToOneField('activities.ActivityAttendance',on_delete=models.PROTECT,null=True)
+    evidence_type=models.CharField(max_length=32,choices=[('MANAGER_PREPARATION','MANAGER_PREPARATION'),('FORM','FORM'),('IT_CONFIRMATION','IT_CONFIRMATION'),('EQUIPMENT_RECEIPT','EQUIPMENT_RECEIPT'),('POLICY_ACK','POLICY_ACK'),('DOCUMENT','DOCUMENT'),('TRAINING','TRAINING'),('ACTIVITY_ATTENDANCE','ACTIVITY_ATTENDANCE')])
     completed_by=models.ForeignKey(User,on_delete=models.PROTECT)
     completed_at=models.DateTimeField(default=__import__('django.utils.timezone',fromlist=['now']).now)
     evidence_hash=models.CharField(max_length=64)
     class Meta:
         constraints=[models.CheckConstraint(condition=(
-            models.Q(evidence_type='MANAGER_PREPARATION',manager_attestation__isnull=False,form_review__isnull=True,it_confirmation__isnull=True,equipment_receipt__isnull=True,policy_ack__isnull=True,document_review__isnull=True,training_attempt__isnull=True)
-            | models.Q(evidence_type='FORM',manager_attestation__isnull=True,form_review__isnull=False,it_confirmation__isnull=True,equipment_receipt__isnull=True,policy_ack__isnull=True,document_review__isnull=True,training_attempt__isnull=True)
-            | models.Q(evidence_type='IT_CONFIRMATION',manager_attestation__isnull=True,form_review__isnull=True,it_confirmation__isnull=False,equipment_receipt__isnull=True,policy_ack__isnull=True,document_review__isnull=True,training_attempt__isnull=True)
-            | models.Q(evidence_type='EQUIPMENT_RECEIPT',manager_attestation__isnull=True,form_review__isnull=True,it_confirmation__isnull=True,equipment_receipt__isnull=False,policy_ack__isnull=True,document_review__isnull=True,training_attempt__isnull=True)
-            | models.Q(evidence_type='POLICY_ACK',manager_attestation__isnull=True,form_review__isnull=True,it_confirmation__isnull=True,equipment_receipt__isnull=True,policy_ack__isnull=False,document_review__isnull=True,training_attempt__isnull=True)
+            models.Q(evidence_type='MANAGER_PREPARATION',manager_attestation__isnull=False,form_review__isnull=True,it_confirmation__isnull=True,equipment_receipt__isnull=True,policy_ack__isnull=True,document_review__isnull=True,training_attempt__isnull=True,activity_attendance__isnull=True)
+            | models.Q(evidence_type='FORM',manager_attestation__isnull=True,form_review__isnull=False,it_confirmation__isnull=True,equipment_receipt__isnull=True,policy_ack__isnull=True,document_review__isnull=True,training_attempt__isnull=True,activity_attendance__isnull=True)
+            | models.Q(evidence_type='IT_CONFIRMATION',manager_attestation__isnull=True,form_review__isnull=True,it_confirmation__isnull=False,equipment_receipt__isnull=True,policy_ack__isnull=True,document_review__isnull=True,training_attempt__isnull=True,activity_attendance__isnull=True)
+            | models.Q(evidence_type='EQUIPMENT_RECEIPT',manager_attestation__isnull=True,form_review__isnull=True,it_confirmation__isnull=True,equipment_receipt__isnull=False,policy_ack__isnull=True,document_review__isnull=True,training_attempt__isnull=True,activity_attendance__isnull=True)
+            | models.Q(evidence_type='POLICY_ACK',manager_attestation__isnull=True,form_review__isnull=True,it_confirmation__isnull=True,equipment_receipt__isnull=True,policy_ack__isnull=False,document_review__isnull=True,training_attempt__isnull=True,activity_attendance__isnull=True)
             | models.Q(evidence_type='DOCUMENT',manager_attestation__isnull=True,form_review__isnull=True,
                        it_confirmation__isnull=True,equipment_receipt__isnull=True,
-                       policy_ack__isnull=True,document_review__isnull=False,training_attempt__isnull=True)
+                       policy_ack__isnull=True,document_review__isnull=False,training_attempt__isnull=True,activity_attendance__isnull=True)
             | models.Q(evidence_type='TRAINING',manager_attestation__isnull=True,form_review__isnull=True,
                        it_confirmation__isnull=True,equipment_receipt__isnull=True,
-                       policy_ack__isnull=True,document_review__isnull=True,training_attempt__isnull=False)),
-            name='m4_training_completion_evidence_exclusive')]
+                       policy_ack__isnull=True,document_review__isnull=True,training_attempt__isnull=False,activity_attendance__isnull=True)
+            | models.Q(evidence_type='ACTIVITY_ATTENDANCE',manager_attestation__isnull=True,
+                form_review__isnull=True,it_confirmation__isnull=True,equipment_receipt__isnull=True,
+                policy_ack__isnull=True,document_review__isnull=True,training_attempt__isnull=True,
+                activity_attendance__isnull=False)),
+            name='m4_activity_completion_evidence_exclusive')]
