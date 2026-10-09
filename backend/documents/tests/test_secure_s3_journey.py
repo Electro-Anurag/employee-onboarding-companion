@@ -495,3 +495,20 @@ def test_m3_invalid_unreceived_document_can_be_audited_superseded(world,s3_doubl
         key=uuid.uuid4(),expected_version=5)
     assert reviewed['result']['task_completion']=='COMPLETED'
     assert TaskCompletion.objects.get(task=task).evidence_type=='SECURE_DOCUMENT'
+
+def test_m3_bounded_parser_rejects_active_pdf_and_process_timeout():
+    from pypdf.generic import DictionaryObject,NameObject
+    import subprocess
+    writer=PdfWriter()
+    writer.add_blank_page(width=300,height=300)
+    writer._root_object[NameObject('/OpenAction')]=DictionaryObject()
+    out=io.BytesIO()
+    writer.write(out)
+    with pytest.raises(CommandFailure) as active:
+        validate_pdf(out.getvalue())
+    assert active.value.code=='INVALID_OR_UNSAFE_PDF'
+    with patch('backend.documents.pdf_validation.subprocess.run',
+               side_effect=subprocess.TimeoutExpired('pdf-parser',6)):
+        with pytest.raises(CommandFailure) as timed_out:
+            validate_pdf(generated_pdf())
+    assert timed_out.value.code=='PDF_PARSER_TIMEOUT'
