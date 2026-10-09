@@ -5,6 +5,8 @@ on:
     paths:
       - 'backend/documents/**'
       - 'backend/onboarding/migrations/0017_secure_s3_document_completion.py'
+      - 'backend/onboarding/migrations/0018_restore_activity_cancellation_authority.py'
+      - 'backend/activities/**'
       - 'pyproject.toml'
       - 'uv.lock'
       - '.github/workflows/m3-live-services.yml'
