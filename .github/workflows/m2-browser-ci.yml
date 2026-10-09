@@ -58,7 +58,7 @@ jobs:
           set -euo pipefail
           umask 077
           export M2_BROWSER_CREDENTIAL_FILE="$RUNNER_TEMP/m2-synthetic-accounts.txt"
-          uv run python manage.py seed_m2_demo --confirm-synthetic > "$M2_BROWSER_CREDENTIAL_FILE"
+          uv run python manage.py seed_m2_demo --confirm-synthetic --include-second-hr > "$M2_BROWSER_CREDENTIAL_FILE"
           uv run python manage.py runserver --nostatic --noreload 127.0.0.1:8000 > "$RUNNER_TEMP/m2-django-server.log" 2>&1 &
           server_pid=$!
           trap 'kill "$server_pid" 2>/dev/null || true; rm -f "$M2_BROWSER_CREDENTIAL_FILE"' EXIT
