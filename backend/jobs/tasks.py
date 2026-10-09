@@ -11,7 +11,23 @@ def process_foundation_operation(operation_id: str):
         # Used only on isolated M0 test fixtures; no public endpoint accepts it.
         os._exit(77)
 
-@app.task(name="m3.secure_document_scan",queue="content")
+class RetriableDocumentScan(RuntimeError):
+    """Transient scanner or clean-object promotion needs bounded retry."""
+
+
+def require_completed_scan_result(result):
+    """Do not ACK a persisted scanner failure as a successful queue job."""
+    state=result.get('state') if isinstance(result,dict) else None
+    if state in ('SCAN_FAILED','PROMOTION_PENDING') or state not in (
+            'AWAITING_HR_REVIEW','REJECTED_SECURITY'):
+        raise RetriableDocumentScan(state or 'INVALID_SCAN_STATE')
+
+
+from procrastinate import RetryStrategy
+
+@app.task(name="m3.secure_document_scan",queue="content",
+          retry=RetryStrategy(max_attempts=3,wait=30,
+                              retry_exceptions={RetriableDocumentScan}))
 def scan_secure_document(upload_id: str):
     from backend.documents.real_commands import scan_one
-    scan_one(upload_id)
+    require_completed_scan_result(scan_one(upload_id))

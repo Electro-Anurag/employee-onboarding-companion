@@ -351,3 +351,20 @@ def test_m3_reconcile_does_not_starve_new_valid_upload_after_100_old_intents(wor
         call_command('reconcile_secure_documents',limit=1,stdout=output)
     assert 'PROCESSED=1 ERRORS=0' in output.getvalue()
     worker.assert_called_once_with(current.pk)
+
+def test_m3_content_worker_retries_failed_scans_without_retrying_malware():
+    from backend.jobs.tasks import require_completed_scan_result,RetriableDocumentScan,scan_secure_document
+    from procrastinate import RetryStrategy
+    strategy=scan_secure_document.retry_strategy
+    assert isinstance(strategy,RetryStrategy)
+    assert strategy.max_attempts==3
+    assert RetriableDocumentScan in strategy.retry_exceptions
+    for state in ('SCAN_FAILED','PROMOTION_PENDING'):
+        with pytest.raises(RetriableDocumentScan):
+            require_completed_scan_result({'state':state})
+    # Malware remains terminal; a real clean promotion is reviewable but
+    # never auto-accepted by the worker.
+    require_completed_scan_result({'state':'REJECTED_SECURITY'})
+    require_completed_scan_result({'state':'AWAITING_HR_REVIEW'})
+    with pytest.raises(RetriableDocumentScan):
+        require_completed_scan_result({})
