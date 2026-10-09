@@ -580,3 +580,67 @@ def test_m2_template_idempotency_receipt_denied_after_org_transfer(world):
     assert TemplateVersion.objects.filter(template__organization=org).count()==1
     assert TemplateVersion.objects.filter(template__organization=second_org).count()==0
     assert CommandReceipt.objects.filter(route='m2-template-create').count()==1
+
+
+@pytest.mark.django_db(transaction=True)
+def test_m2_day_one_requires_joining_date_and_replays_once(world):
+    from unittest.mock import patch
+    from backend.onboarding.commands import begin_day_one
+    org,people=world
+    template=published(world)
+    created,_=create(world,template,offset=21)
+    case=OnboardingCase.objects.get(pk=created['case_id'])
+    activate_case(actor=people['HR'][0],case_id=case.pk,key=uuid.uuid4(),expected_version=1)
+    assert OnboardingCase.objects.get(pk=case.pk).status=='PRE_JOINING'
+    assert Task.objects.filter(case=case).count()==17
+    key=uuid.uuid4()
+    with pytest.raises(CommandFailure) as early:
+        begin_day_one(actor=people['HR'][0],case_id=case.pk,key=key,expected_version=2)
+    assert early.value.code=='JOIN_DATE_NOT_REACHED'
+    assert AuditEvent.objects.filter(event_type='CASE_DAY_ONE_STARTED').count()==0
+    with patch('backend.onboarding.commands.timezone.localdate',return_value=case.joining_date):
+        with pytest.raises(CommandFailure) as employee_denied:
+            begin_day_one(actor=people['EMPLOYEE'][0],case_id=case.pk,key=uuid.uuid4(),expected_version=2)
+        assert employee_denied.value.status==404
+        result,status=begin_day_one(actor=people['HR'][0],case_id=case.pk,
+                                    key=key,expected_version=2)
+        assert status==200 and result['result']['status']=='ACTIVE'
+        replay,code=begin_day_one(actor=people['HR'][0],case_id=case.pk,
+                                  key=key,expected_version=2)
+        assert code==200 and replay==result
+        with pytest.raises(CommandFailure) as conflict:
+            begin_day_one(actor=people['HR'][0],case_id=case.pk,
+                          key=uuid.uuid4(),expected_version=2)
+        assert conflict.value.code=='STALE_VERSION'
+    assert OnboardingCase.objects.get(pk=case.pk).status=='ACTIVE'
+    assert OnboardingCase.objects.get(pk=case.pk).version==3
+    assert Task.objects.filter(case=case).count()==17
+    assert AuditEvent.objects.filter(event_type='CASE_DAY_ONE_STARTED').count()==1
+    assert CommandReceipt.objects.filter(route='m2-begin-day-one').count()==1
+
+@pytest.mark.django_db(transaction=True)
+def test_m2_day_one_http_requires_preconditions_and_denies_early_transition(world):
+    org,people=world
+    v=published(world)
+    created,_=create(world,v,offset=20)
+    case=OnboardingCase.objects.get(pk=created['case_id'])
+    activate_case(actor=people['HR'][0],case_id=case.pk,key=uuid.uuid4(),expected_version=1)
+    client=Client(enforce_csrf_checks=True)
+    token=client.get('/api/v1/auth/csrf').json()['csrf_token']
+    login=client.post('/api/v1/auth/login',json.dumps({
+        'email':people['HR'][0].email,'password':'VerifiedStrongPassword!2026'}),
+        content_type='application/json',HTTP_X_CSRFTOKEN=token)
+    assert login.status_code==200,login.content
+    token=client.get('/api/v1/auth/csrf').json()['csrf_token']
+    url='/api/v1/cases/'+str(case.pk)+'/day-one'
+    request_body='{}'
+    early=client.post(url,request_body,content_type='application/json',
+        HTTP_X_CSRFTOKEN=token,HTTP_IDEMPOTENCY_KEY=str(uuid.uuid4()))
+    assert early.status_code==428,early.content
+    refused=client.post(url,request_body,content_type='application/json',
+        HTTP_X_CSRFTOKEN=token,HTTP_IDEMPOTENCY_KEY=str(uuid.uuid4()),
+        HTTP_IF_MATCH=f'"case:{case.pk}:v2"')
+    assert refused.status_code==409,refused.content
+    assert refused.json()['error']['code']=='JOIN_DATE_NOT_REACHED'
+    assert OnboardingCase.objects.get(pk=case.pk).version==2
+    assert AuditEvent.objects.filter(event_type='CASE_DAY_ONE_STARTED').count()==0
