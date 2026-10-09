@@ -192,10 +192,21 @@ test('four-role real-browser case, template, dependency and evidence journey',as
       let intercepted;
       const held=new Promise(resolve=>{intercepted=resolve;});
       const release=new Promise(resolve=>{releaseResponse=resolve;});
+      let markSettled;
+      const settled=new Promise(resolve=>{markSettled=resolve;});
       await hr.route('**/api/v1/templates',async route=>{
         intercepted();
         await release;
-        await route.continue();
+        try{
+          await route.continue();
+        }catch(error){
+          // A request cancelled during logout may be handled by Chromium.
+          // Other route errors still fail this acceptance test.
+          if(!String(error).includes('Route is already handled') &&
+             !String(error).includes('Target closed'))throw error;
+        }finally{
+          markSettled();
+        }
       });
       await hr.getByRole('button',{name:'Sign out'}).click();
       await expect(hr.getByRole('heading',{name:'Sign in'})).toBeVisible();
@@ -206,6 +217,7 @@ test('four-role real-browser case, template, dependency and evidence journey',as
       await expect(hr.getByRole('heading',{name:'Sign in'})).toBeVisible();
       await login(hr,'IT');
       releaseResponse();
+      await settled;
       await hr.unroute('**/api/v1/templates');
       await expect(hr.getByText('Role: IT')).toBeVisible();
       await expect(hr.getByText('OLD_HR_PRIVATE_DRAFT_CONTENT')).toHaveCount(0);
