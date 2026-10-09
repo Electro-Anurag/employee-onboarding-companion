@@ -120,5 +120,8 @@ def test_public_training_fingerprint_cannot_oracle_private_answers():
     changed['content_sha256']=hash_core({k:v for k,v in changed.items() if k!='content_sha256'})
     validate_spec(changed)
     assert original['content_sha256']!=changed['content_sha256']
-    assert public_spec(original)['content_sha256']==public_spec(changed)['content_sha256']
+    # An answer-only private edition change must change its public token;
+    # publishing the unsalted private checksum would expose the answer oracle.
+    assert public_spec(original)['content_sha256']!=public_spec(changed)['content_sha256']
     assert public_spec(original)['content_sha256']!=original['content_sha256']
+    assert public_spec(changed)['content_sha256']!=changed['content_sha256']
