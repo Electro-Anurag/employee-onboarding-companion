@@ -73,15 +73,28 @@ export default function App(){
     return result as T;
   }
 
-  useEffect(()=>{void (async()=>{
-    try{
-      const r=await fetch('/api/v1/auth/csrf',{credentials:'same-origin'});
-      if(!r.ok)throw new Error('CSRF endpoint unavailable');
-      setCsrf((await r.json()).csrf_token);
-      const identity=await fetch('/api/v1/auth/me',{credentials:'same-origin'});
-      if(identity.ok)replaceIdentity(await identity.json());
-    }catch{setMessage('Authentication endpoint unavailable. Retry later.');}
-  })();},[]);
+  useEffect(()=>{
+    // Startup is an identity-bearing read. Do not let a delayed old /auth/me
+    // response replace a newer session established through sign-in/logout.
+    const generation=identityEpoch.current;
+    void (async()=>{
+      try{
+        const r=await fetch('/api/v1/auth/csrf',{credentials:'same-origin'});
+        if(!r.ok)throw new Error('CSRF endpoint unavailable');
+        const initialCsrf=(await r.json()).csrf_token;
+        if(identityEpoch.current!==generation)return;
+        setCsrf(initialCsrf);
+        const identity=await fetch('/api/v1/auth/me',{credentials:'same-origin'});
+        if(!identity.ok)return;
+        const initialIdentity=await identity.json();
+        if(identityEpoch.current!==generation)return;
+        replaceIdentity(initialIdentity);
+      }catch{
+        if(identityEpoch.current===generation)
+          setMessage('Authentication endpoint unavailable. Retry later.');
+      }
+    })();
+  },[]);
 
   async function refresh(identity:Me){
     const generation=identityEpoch.current;
@@ -126,18 +139,26 @@ export default function App(){
 
   async function signIn(event:React.FormEvent){
     event.preventDefault();
+    // Invalidate any startup identity response BEFORE the login round-trip.
+    const transition=++identityEpoch.current;
     await perform(async()=>{
       await request('/api/v1/auth/login','POST',{email,password});
       const m=await request<Me>('/api/v1/auth/me');
       const token=await fetch('/api/v1/auth/csrf',{credentials:'same-origin'});
       if(!token.ok)throw new Error('Could not refresh CSRF');
-      setCsrf((await token.json()).csrf_token);
+      const newCsrf=(await token.json()).csrf_token;
+      if(identityEpoch.current!==transition)return;
+      setCsrf(newCsrf);
       replaceIdentity(m);setPassword('');
     });
   }
   async function signOut(){
+    // Prevent responses from the previous authenticated identity from
+    // committing data while logout is in progress.
+    const transition=++identityEpoch.current;
     await perform(async()=>{
       await request('/api/v1/auth/logout','POST',{});
+      if(identityEpoch.current!==transition)return;
       replaceIdentity(null);
       const token=await fetch('/api/v1/auth/csrf',{credentials:'same-origin'});
       if(token.ok)setCsrf((await token.json()).csrf_token);
