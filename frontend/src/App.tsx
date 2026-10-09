@@ -219,7 +219,7 @@ export default function App(){
     if(!me||!template)return;
     await perform(async()=>{
       const result=await request<Template>('/api/v1/templates/'+template.id+'/publish','POST',{},
-        {'If-Match':'"template:'+template.id+':r'+template.revision+'"'});
+        {'If-Match':'"template:'+template.id+':version:'+template.version_id+':r'+template.revision+'"'});
       setTemplate(result);await refresh(me);
     });
   }
@@ -238,7 +238,7 @@ export default function App(){
       const draft=JSON.parse(editor) as {tasks:unknown[];dependencies:unknown[]};
       if(!Array.isArray(draft.tasks)||!Array.isArray(draft.dependencies))throw Error('Expected arrays for tasks and dependencies');
       const result=await request<Template>('/api/v1/templates/'+template.id+'/draft','PATCH',draft,
-        {'If-Match':'"template:'+template.id+':r'+template.revision+'"'});
+        {'If-Match':'"template:'+template.id+':version:'+template.version_id+':r'+template.revision+'"'});
       setTemplate(result);await refresh(me);
     });
   }

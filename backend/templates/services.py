@@ -166,7 +166,7 @@ def list_templates(actor):
         template__organization_id=member.organization_id).order_by('template__key','-version_number')[:100]
     return [summary(v) for v in ts]
 
-def edit_template(*,actor,template_id,revision,tasks,edges):
+def edit_template(*,actor,template_id,revision,tasks,edges,expected_version_id=None):
     with transaction.atomic():
         _editor(actor)
         template=OnboardingTemplate.objects.select_for_update().filter(pk=template_id).first()
@@ -174,7 +174,9 @@ def edit_template(*,actor,template_id,revision,tasks,edges):
         _editor(actor,template.organization_id)
         version=TemplateVersion.objects.select_for_update().filter(template=template).order_by('-version_number').first()
         if version.state!=TemplateVersion.DRAFT: raise TemplateFailure('DRAFT_REQUIRED',409)
-        if version.revision!=revision: raise TemplateFailure('STALE_VERSION',409)
+        if (version.revision!=revision or
+                (expected_version_id is not None and version.pk!=expected_version_id)):
+            raise TemplateFailure('STALE_VERSION',409)
         _replace_draft(version,tasks,edges)
         version.revision+=1
         version.save(update_fields=['revision'])
@@ -183,14 +185,16 @@ def edit_template(*,actor,template_id,revision,tasks,edges):
             changes={'version':version.version_number,'revision':version.revision})
         return summary(version,True)
 
-def publish_template(*,actor,template_id,revision):
+def publish_template(*,actor,template_id,revision,expected_version_id=None):
     with transaction.atomic():
         member=_editor(actor)
         t=OnboardingTemplate.objects.select_for_update().filter(pk=template_id,organization=member.organization).first()
         if t is None: raise TemplateFailure('NOT_FOUND',404)
         v=TemplateVersion.objects.select_for_update().filter(template=t).order_by('-version_number').first()
         if v.state!=TemplateVersion.DRAFT: raise TemplateFailure('DRAFT_REQUIRED',409)
-        if v.revision!=revision: raise TemplateFailure('STALE_VERSION',409)
+        if (v.revision!=revision or
+                (expected_version_id is not None and v.pk!=expected_version_id)):
+            raise TemplateFailure('STALE_VERSION',409)
         tasks,edges=_snapshot(v)
         ordered=_validate_graph(tasks,edges)
         h=hashlib.sha256(json.dumps({'tasks':tasks,'dependencies':edges},
