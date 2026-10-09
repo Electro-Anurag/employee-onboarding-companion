@@ -57,5 +57,6 @@ urlpatterns = [
     path('api/v1/cases/<uuid:case_id>/tasks/<uuid:task_id>/activity-occurrences',activities.history),
     path('api/v1/cases/<uuid:case_id>/tasks/<uuid:task_id>/activity-occurrences/schedule',activities.schedule),
     path('api/v1/cases/<uuid:case_id>/tasks/<uuid:task_id>/activity-occurrences/<uuid:occurrence_id>/attendance',activities.attendance),
+    path('api/v1/cases/<uuid:case_id>/tasks/<uuid:task_id>/activity-occurrences/<uuid:occurrence_id>/cancel',activities.cancel),
     path('api/v1/workspaces/me',m2.workspaces_me),
 ]

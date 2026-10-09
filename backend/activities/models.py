@@ -32,3 +32,11 @@ class ActivityAttendance(models.Model):
     class Meta:
         constraints=[models.CheckConstraint(condition=models.Q(outcome__in=['ATTENDED','MISSED']),
               name='m4_activity_attendance_outcome_valid')]
+
+class ActivityCancellation(models.Model):
+    """A reasoned cancellation of one particular current occurrence, not of its task."""
+    id=models.UUIDField(primary_key=True,default=uuid.uuid4,editable=False)
+    occurrence=models.OneToOneField(ActivityOccurrence,on_delete=models.PROTECT,related_name='cancellation')
+    cancelled_by=models.ForeignKey('accounts.User',on_delete=models.PROTECT)
+    reason=models.CharField(max_length=300)
+    cancelled_at=models.DateTimeField(default=timezone.now)

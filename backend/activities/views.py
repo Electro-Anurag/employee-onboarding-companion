@@ -10,7 +10,7 @@ from backend.common.http import error,InputError,json_payload,required_uuid,tran
 from backend.onboarding.api_m2 import command,headers
 from backend.onboarding.services import CommandFailure,get_authorized_case
 from backend.onboarding.models import Task
-from backend.activities.models import ActivityOccurrence
+from backend.activities.models import ActivityOccurrence,ActivityCancellation
 from backend.activities import commands
 
 @require_GET
@@ -30,10 +30,14 @@ def history(request,case_id,task_id):
         result=[]
         for occ in ActivityOccurrence.objects.filter(task=task).order_by('revision'):
             attendance=getattr(occ,'attendance',None)
+            cancellation=getattr(occ,'cancellation',None)
             result.append({'id':str(occ.pk),'revision':occ.revision,
                 'start':occ.begins_at.isoformat(),'end':occ.ends_at.isoformat(),
                 'medium':occ.medium,'meeting_reference':occ.meeting_reference,
                 'reason':occ.reason,
+                'cancellation':None if cancellation is None else {
+                    'id':str(cancellation.pk),'reason':cancellation.reason,
+                    'cancelled_at':cancellation.cancelled_at.isoformat()},
                 'attendance':None if attendance is None else {
                     'id':str(attendance.pk),'outcome':attendance.outcome,
                     'note':attendance.note}})
@@ -73,4 +77,16 @@ def attendance(request,case_id,task_id,occurrence_id):
         return commands.record_attendance(actor=request.user,case_id=case_id,task_id=task_id,
              occurrence_id=occurrence_id,outcome=data['outcome'],note=data['note'],
              key=key,expected_version=version)
+    return command(execute)
+
+@csrf_protect
+@require_POST
+def cancel(request,case_id,task_id,occurrence_id):
+    def execute():
+        data=json_payload(request,1024,{'reason'})
+        if set(data)!={'reason'}:raise InputError('MISSING_FIELD',422)
+        key,version=headers(request,case_id)
+        return commands.cancel_occurrence(actor=request.user,case_id=case_id,
+            task_id=task_id,occurrence_id=occurrence_id,reason=data['reason'],
+            key=key,expected_version=version)
     return command(execute)

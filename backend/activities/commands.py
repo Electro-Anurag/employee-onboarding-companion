@@ -7,11 +7,11 @@ from django.db import transaction
 from django.utils import timezone
 from backend.accounts.models import Membership
 from backend.audit.services import append_event
-from backend.onboarding.commands import _task_command,_receipt
-from backend.onboarding.models import TaskCompletion
+from backend.onboarding.commands import _task_command,_command_case,_receipt
+from backend.onboarding.models import Task,TaskCompletion
 from backend.onboarding.services import CommandFailure,set_command_timeouts
 from backend.onboarding.state_machine import recompute,case_progress
-from backend.activities.models import ActivityOccurrence,ActivityAttendance
+from backend.activities.models import ActivityOccurrence,ActivityAttendance,ActivityCancellation
 
 KINDS=('ACTIVITY','INTRODUCTION','CHECK_IN')
 def _eligible(task,member):
@@ -51,6 +51,8 @@ def schedule(*,actor,case_id,task_id,start,end,medium,reference,reason,key,expec
         reference=_validate_slot(task,start,end,medium,reference,now)
         current=ActivityOccurrence.objects.filter(task=task).order_by('-revision').first()
         if current:
+            # Cancellation is historical evidence. It is not an attendance
+            # result and cannot satisfy a mandatory activity.
             attended=ActivityAttendance.objects.filter(occurrence=current).values_list('outcome',flat=True).first()
             if attended=='ATTENDED':
                 raise CommandFailure('ACTIVITY_ALREADY_ATTENDED',409)
@@ -101,6 +103,8 @@ def record_attendance(*,actor,case_id,task_id,occurrence_id,outcome,note,key,exp
             raise CommandFailure('CURRENT_ACTIVITY_OCCURRENCE_REQUIRED',409)
         if ActivityAttendance.objects.filter(occurrence=occurrence).exists():
             raise CommandFailure('ATTENDANCE_ALREADY_RECORDED',409)
+        if ActivityCancellation.objects.filter(occurrence=occurrence).exists():
+            raise CommandFailure('ACTIVITY_OCCURRENCE_CANCELLED',409)
         if timezone.now()<occurrence.ends_at:
             raise CommandFailure('FUTURE_ATTENDANCE_FORBIDDEN',409)
         proof=hashlib.sha256(json.dumps({'occurrence_id':str(occurrence.pk),
@@ -137,4 +141,63 @@ def record_attendance(*,actor,case_id,task_id,occurrence_id,outcome,note,key,exp
             'affected_task_ids':[str(task.pk)]+[x['task_id'] for x in effects],
             'event_ids':events}
         _receipt(actor,'m4-activity-attendance',key,digest,case,response,201)
+    return response,201
+
+def cancel_occurrence(*,actor,case_id,task_id,occurrence_id,reason,key,expected_version):
+    """Cancel the latest not-yet-finished occurrence. Preserve unresolved task.
+
+    The assigned organizer, or the currently assigned case HR, may cancel.
+    HR override does not grant HR attendance or new schedule authority.
+    """
+    if not isinstance(reason,str) or not 8<=len(reason.strip())<=300:
+        raise CommandFailure('ACTIVITY_CANCELLATION_REASON_REQUIRED',422)
+    normalized={'task_id':str(task_id),'occurrence_id':str(occurrence_id),
+                'reason':reason.strip()}
+    with transaction.atomic():
+        set_command_timeouts()
+        case,member,prior,digest=_command_case(actor,case_id,
+            'm4-activity-cancel',key,normalized,expected_version)
+        if prior is not None:return prior.response,prior.status_code
+        if case.status not in ('PRE_JOINING','ACTIVE'):
+            raise CommandFailure('CASE_NOT_ACTIVE',409)
+        task=Task.objects.select_for_update().filter(pk=task_id,case=case,
+            kind__in=KINDS).first()
+        if task is None:raise CommandFailure('NOT_FOUND',404)
+        if member.role!=Membership.HR:
+            if (member.role!=Membership.MANAGER or task.owner_role!=Membership.MANAGER
+                or not case.assignments.filter(pk=task.owner_assignment_id,
+                    member=member,role=Membership.MANAGER,effective_to__isnull=True,
+                    effective_from__lte=timezone.now()).exists()):
+                raise CommandFailure('NOT_FOUND',404)
+        recompute(case)
+        task.refresh_from_db()
+        if task.execution_state!='IN_PROGRESS':
+            raise CommandFailure('TASK_NOT_IN_PROGRESS',409)
+        current=ActivityOccurrence.objects.filter(task=task).order_by('-revision').first()
+        if current is None or current.pk!=occurrence_id:
+            raise CommandFailure('CURRENT_ACTIVITY_OCCURRENCE_REQUIRED',409)
+        if ActivityAttendance.objects.filter(occurrence=current).exists():
+            raise CommandFailure('ATTENDANCE_ALREADY_RECORDED',409)
+        if ActivityCancellation.objects.filter(occurrence=current).exists():
+            raise CommandFailure('ACTIVITY_ALREADY_CANCELLED',409)
+        if current.ends_at<=timezone.now():
+            raise CommandFailure('ACTIVITY_ALREADY_ENDED',409)
+        cancellation=ActivityCancellation.objects.create(occurrence=current,
+            cancelled_by=actor,reason=reason.strip())
+        # The task stays IN_PROGRESS. There is no TaskCompletion row.
+        case.version+=1
+        case.save(update_fields=['version'])
+        event=append_event(stream_key=f'case:{case.pk}',actor=actor,
+            event_type='ACTIVITY_OCCURRENCE_CANCELLED',entity_id=task.pk,
+            changes={'occurrence_id':str(current.pk),'revision':current.revision,
+                'case_version':case.version,'reason':reason.strip(),
+                'task_completion':'IN_PROGRESS'})
+        response={'command_id':str(uuid.uuid4()),'case_id':str(case.pk),
+            'case_version':case.version,'result':{
+                'task_id':str(task.pk),'occurrence_id':str(current.pk),
+                'cancellation_id':str(cancellation.pk),
+                'task_completion':'IN_PROGRESS','reschedule_required':True,
+                'progress':case_progress(case)},
+            'affected_task_ids':[str(task.pk)],'event_ids':[str(event[0])]}
+        _receipt(actor,'m4-activity-cancel',key,digest,case,response,201)
     return response,201
