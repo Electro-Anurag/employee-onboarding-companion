@@ -175,7 +175,7 @@ test('four-role real-browser case, template, dependency and evidence journey',as
 
     await test.step('same-mounted-page identity switch clears HR template and pending reads',async()=>{
       // Keep the page mounted: no reload, new browser context, or remount.
-      await hr.getByRole('button',{name:/Templates \\(/}).click();
+      await hr.getByRole('button',{name:/Templates \(/}).click();
       const item=hr.locator('.case-list').first().getByRole('button').first();
       await expect(item).toBeVisible();
       await item.click();
@@ -207,7 +207,7 @@ test('four-role real-browser case, template, dependency and evidence journey',as
       await expect(hr.getByText('Role: IT')).toBeVisible();
       await expect(hr.getByText('OLD_HR_PRIVATE_DRAFT_CONTENT')).toHaveCount(0);
       await expect(hr.locator('textarea.json-editor')).toHaveCount(0);
-      await expect(hr.getByRole('button',{name:/Templates \\(/})).toHaveCount(0);
+      await expect(hr.getByRole('button',{name:/Templates \(/})).toHaveCount(0);
       await expect(hr.getByRole('button',{name:'Cases (1)'})).toBeVisible();
     });
 
