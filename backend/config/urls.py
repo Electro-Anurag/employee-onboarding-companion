@@ -4,6 +4,7 @@ from backend.accounts import views as auth
 from backend.onboarding import views as cases
 from backend.onboarding import api_m2 as m2
 from backend.templates import views as tmpl
+from backend.forms import views as forms
 
 urlpatterns = [
     path('', index),path('health/live', health_live),path('health/ready', health_ready),
@@ -32,5 +33,7 @@ urlpatterns = [
     path('api/v1/cases/<uuid:case_id>/tasks/<uuid:task_id>',m2.task_detail),
     path('api/v1/cases/<uuid:case_id>/tasks/<uuid:task_id>/start',m2.task_start),
     path('api/v1/cases/<uuid:case_id>/tasks/<uuid:task_id>/attest-manager',m2.manager_attest),
+    path('api/v1/cases/<uuid:case_id>/tasks/<uuid:task_id>/form-submissions',forms.submissions),
+    path('api/v1/cases/<uuid:case_id>/tasks/<uuid:task_id>/form-submissions/<uuid:submission_id>/review',forms.review_submission),
     path('api/v1/workspaces/me',m2.workspaces_me),
 ]
