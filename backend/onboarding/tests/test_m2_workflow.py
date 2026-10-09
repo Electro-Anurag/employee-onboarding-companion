@@ -796,6 +796,21 @@ def test_astra_r8_read_time_expiration_unlocks_without_mutating_state(world):
         assert manager['state']=='READY'
         assert 'ATTEST_MANAGER_PREPARATION' in manager['allowed_actions']
         assert 'START' in manager['allowed_actions']
+        # Exercise actual authorized GET APIs, not just the projection helper.
+        browser_session=Client()
+        browser_session.force_login(p['MANAGER'][0])
+        response=browser_session.get('/api/v1/cases/'+str(case.pk)+'/tasks')
+        assert response.status_code==200,response.content
+        projected=next(t for t in response.json()['tasks'] if t['key']=='manager_preparation')
+        assert projected['state']=='READY'
+        assert 'START' in projected['allowed_actions']
+        assert 'ATTEST_MANAGER_PREPARATION' in projected['allowed_actions']
+        workspace=browser_session.get('/api/v1/workspaces/me')
+        assert workspace.status_code==200,workspace.content
+        visible=next(t for t in workspace.json()['results'] if t['key']=='manager_preparation')
+        assert visible['state']=='READY'
+        assert 'START' in visible['allowed_actions']
+        assert Task.objects.get(pk=task.pk).execution_state=='NOT_STARTED'
         start_task(actor=p['MANAGER'][0],case_id=case.pk,task_id=task.pk,
                    key=uuid.uuid4(),expected_version=2)
     task.refresh_from_db()
