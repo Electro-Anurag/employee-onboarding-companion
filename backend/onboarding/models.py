@@ -107,6 +107,6 @@ class TaskCompletion(models.Model):
             models.Q(evidence_type='MANAGER_PREPARATION',manager_attestation__isnull=False,form_review__isnull=True,it_confirmation__isnull=True,equipment_receipt__isnull=True,policy_ack__isnull=True)
             | models.Q(evidence_type='FORM',manager_attestation__isnull=True,form_review__isnull=False,it_confirmation__isnull=True,equipment_receipt__isnull=True,policy_ack__isnull=True)
             | models.Q(evidence_type='IT_CONFIRMATION',manager_attestation__isnull=True,form_review__isnull=True,it_confirmation__isnull=False,equipment_receipt__isnull=True,policy_ack__isnull=True)
-            | models.Q(evidence_type='EQUIPMENT_RECEIPT',manager_attestation__isnull=True,form_review__isnull=True,it_confirmation__isnull=True,equipment_receipt__isnull=False,policy_ack__isnull=True)),
+            | models.Q(evidence_type='EQUIPMENT_RECEIPT',manager_attestation__isnull=True,form_review__isnull=True,it_confirmation__isnull=True,equipment_receipt__isnull=False,policy_ack__isnull=True)
             | models.Q(evidence_type='POLICY_ACK',manager_attestation__isnull=True,form_review__isnull=True,it_confirmation__isnull=True,equipment_receipt__isnull=True,policy_ack__isnull=False)),
             name='m3_m4_completion_evidence_exclusive')]
