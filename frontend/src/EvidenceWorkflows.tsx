@@ -8,6 +8,11 @@ type DocumentRow={id:string;revision:number;filename:string;scan_status:string;
   scan_profile:string;malware_scanned:boolean;
   review:null|{decision:'ACCEPTED'|'REJECTED'|'NEEDS_CLARIFICATION';note:string}};
 type DocumentList={results:DocumentRow[];synthetic_only:boolean;malware_scanned:boolean};
+type SecureDoc={id:string;revision:number;filename:string;size:number;sha256:string;
+  state:string;quarantine_stored:boolean;clean_version_verified:boolean;
+  download_available:boolean;scan_attempts:{number:number;outcome:string}[];
+  review:null|{decision:'ACCEPTED'|'REJECTED'|'NEEDS_CLARIFICATION';note:string}};
+type SecureHistory={enabled:boolean;results:SecureDoc[];task_state:string};
 type ActivityOccurrence={id:string;revision:number;start:string;end:string;
   medium:'VIDEO'|'IN_PERSON';meeting_reference:string;reason:string;
   cancellation:null|{id:string;reason:string;cancelled_at:string};
@@ -25,11 +30,12 @@ type PolicyEdition={task_id:string;policy:{version:string;content_sha256:string;
   acknowledged:boolean};
 type Task={id:string;key:string;kind:string;state:string;owner_role:string};
 
-export default function EvidenceWorkflows({task,caseId,role,read,mutate,uploadDocument}:{
+export default function EvidenceWorkflows({task,caseId,role,read,mutate,uploadDocument,uploadSecureDocument}:{
   task:Task;caseId:string;role:Role;
   read:(path:string)=>Promise<unknown>;
   mutate:(path:string,body:unknown)=>Promise<void>;
   uploadDocument:(path:string,file:File)=>Promise<void>;
+  uploadSecureDocument:(base:string,file:File)=>Promise<void>;
 }){
   const [history,setHistory]=useState<FormEntry[]|null>(null);
   const [operation,setOperation]=useState<ITOperation|null>(null);
@@ -52,6 +58,10 @@ export default function EvidenceWorkflows({task,caseId,role,read,mutate,uploadDo
   const [documentFile,setDocumentFile]=useState<File|null>(null);
   const [documentDecision,setDocumentDecision]=useState<'ACCEPTED'|'REJECTED'|'NEEDS_CLARIFICATION'>('ACCEPTED');
   const [documentNote,setDocumentNote]=useState('');
+  const [secureDocuments,setSecureDocuments]=useState<SecureHistory|null>(null);
+  const [secureFile,setSecureFile]=useState<File|null>(null);
+  const [secureNote,setSecureNote]=useState('');
+  const [secureDecision,setSecureDecision]=useState<'ACCEPTED'|'REJECTED'|'NEEDS_CLARIFICATION'>('ACCEPTED');
   const [training,setTraining]=useState<TrainingModule|null>(null);
   const [trainingAnswers,setTrainingAnswers]=useState<Record<string,string>>({});
   const [trainingResult,setTrainingResult]=useState('');
@@ -91,6 +101,10 @@ export default function EvidenceWorkflows({task,caseId,role,read,mutate,uploadDo
     const result=await read(base+'/training-module') as TrainingModule;
     setTraining(result);
     setTrainingResult('');
+  }
+  async function loadSecureHistory(){
+    const history=await read(base+'/secure-documents') as SecureHistory;
+    setSecureDocuments(history);
   }
   async function loadDocumentHistory(){
     const result=await read(base+'/document-revisions') as DocumentList;
@@ -235,7 +249,61 @@ export default function EvidenceWorkflows({task,caseId,role,read,mutate,uploadDo
     const mayUpload=role==='EMPLOYEE'&&(task.state==='READY'||task.state==='IN_PROGRESS')&&
       (!current||current.review?.decision==='REJECTED'||current.review?.decision==='NEEDS_CLARIFICATION');
     const mayReview=role==='HR'&&task.state==='IN_PROGRESS'&&current&&!current.review;
+    const latestSecure=secureDocuments?.results.at(-1);
+    const secureUploadReady=role==='EMPLOYEE'&&secureDocuments?.enabled&&
+      (task.state==='READY'||task.state==='IN_PROGRESS')&&
+      (!latestSecure||['REJECTED','NEEDS_CLARIFICATION','REJECTED_SECURITY']
+        .includes(latestSecure.state));
+    const secureReviewReady=role==='HR'&&secureDocuments?.enabled&&
+      task.state==='IN_PROGRESS'&&latestSecure?.state==='AWAITING_HR_REVIEW';
     return <section className="subpanel" aria-label="Synthetic document workflow">
+      <h5>Versioned S3 document security workflow</h5>
+      <p className="meta">For generated or anonymized test PDFs only. A real ClamAV scan is required before HR can review an exact clean object. The demo is not authorized for real identity data.</p>
+      <button className="quiet" disabled={busy} onClick={()=>void safeRun(loadSecureHistory)}>
+        Load S3 document processing history
+      </button>
+      {secureDocuments&&!secureDocuments.enabled&&
+        <p className="meta">Real S3 document processing is disabled on this deployment.</p>}
+      {secureDocuments?.results.map(x=><p className="meta" key={x.id}>
+        S3 revision {x.revision} ({x.filename}): {x.state}.
+        {x.scan_attempts.map(a=>' Scan '+a.number+' '+a.outcome).join(';')}
+        {x.review?' HR '+x.review.decision+' — '+x.review.note:''}
+        {x.download_available&&<a href={base+'/secure-documents/'+x.id+'/download'}>
+          Download verified clean version</a>}
+      </p>)}
+      {secureUploadReady&&<form className="form" onSubmit={ev=>{
+        ev.preventDefault();
+        if(!secureFile)return;
+        void safeRun(async()=>{await uploadSecureDocument(base,secureFile);
+          await loadSecureHistory();setSecureFile(null);});
+      }}>
+        <label>Generated/anonymized PDF (up to 10 MiB)
+          <input required type="file" accept=".pdf,application/pdf"
+            onChange={ev=>setSecureFile(ev.target.files?.[0]||null)}/>
+        </label>
+        <button disabled={busy||!secureFile} type="submit">Upload to private S3 quarantine</button>
+      </form>}
+      {secureReviewReady&&latestSecure&&<div className="form">
+        <label>Clean-object HR decision
+          <select value={secureDecision} onChange={ev=>setSecureDecision(
+            ev.target.value as 'ACCEPTED'|'REJECTED'|'NEEDS_CLARIFICATION')}>
+            <option value="ACCEPTED">Accept verified clean PDF</option>
+            <option value="REJECTED">Reject — request replacement</option>
+            <option value="NEEDS_CLARIFICATION">Request clarification</option>
+          </select>
+        </label>
+        <label>HR review evidence
+          <textarea maxLength={500} value={secureNote}
+            onChange={ev=>setSecureNote(ev.target.value)}/>
+        </label>
+        <button disabled={busy||!secureNote.trim()}
+          onClick={()=>void safeRun(async()=>{
+            await mutate(base+'/secure-documents/'+latestSecure.id+'/review',{
+              decision:secureDecision,note:secureNote});
+            await loadSecureHistory();setSecureNote('');
+          })}>Record HR decision for exact clean version</button>
+      </div>}
+
       <h5>Synthetic document submission and HR verification</h5>
       <p className="meta">Only exact demonstration text files are accepted. These files are NOT antivirus scanned. Do not upload real employee documents.</p>
       <a href={base+'/document-sample'}>Download allowed synthetic text sample</a>

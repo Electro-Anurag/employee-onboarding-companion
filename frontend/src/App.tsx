@@ -220,6 +220,32 @@ export default function App(){
     if(identityEpoch.current!==generation)return;
     await reloadCase(caseId,me);
   }
+  async function uploadSecureDocument(base:string,file:File){
+    if(!detail||!me)throw new Error('No authenticated case selected');
+    if(file.type!=='application/pdf'||file.size<40||file.size>10*1024*1024)
+      throw new Error('Select a generated/anonymized PDF under 10 MiB.');
+    const epoch=identityEpoch.current,caseId=detail.case_id;
+    const bytes=await file.arrayBuffer();
+    const sha=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',bytes)))
+      .map(x=>x.toString(16).padStart(2,'0')).join('');
+    if(identityEpoch.current!==epoch)return;
+    const ready=await request<{case_version:number;result:{upload_id:string}}>(
+      base+'/secure-documents/prepare','POST',
+      {sha256:sha,size:file.size,filename:file.name},
+      {'If-Match':'"case:'+caseId+':v'+detail.case_version+'"'});
+    if(identityEpoch.current!==epoch)return;
+    const multipart=new FormData();
+    multipart.set('file',file);
+    const response=await fetch(base+'/secure-documents/'+ready.result.upload_id+'/content',{
+      method:'POST',credentials:'same-origin',
+      headers:{'X-CSRFToken':csrf,'Idempotency-Key':crypto.randomUUID(),
+        'If-Match':'"case:'+caseId+':v'+ready.case_version+'"'},
+      body:multipart});
+    const data=await response.json() as ApiError;
+    if(!response.ok)throw new Error(data.error?.code||'HTTP '+response.status);
+    if(identityEpoch.current!==epoch)return;
+    await reloadCase(caseId,me);
+  }
   async function mutateEvidence(path:string,body:unknown){
     if(!detail||!me)throw new Error('No authenticated case selected');
     const generation=identityEpoch.current;
@@ -344,7 +370,7 @@ export default function App(){
               </div>
               {(t.kind==='FORM'||t.kind==='DOCUMENT'||t.kind==='TRAINING'||t.kind==='POLICY_ACK'||t.kind==='ACTIVITY'||t.kind==='INTRODUCTION'||t.kind==='CHECK_IN'||t.kind==='ACCESS'||t.kind==='EQUIPMENT'||t.kind==='EQUIPMENT_RECEIPT')&&
                 <EvidenceWorkflows key={me.user_id+':'+t.id} task={t} caseId={detail.case_id}
-                  role={me.role} read={path=>request(path)} mutate={mutateEvidence} uploadDocument={uploadDocument}/>}
+                  role={me.role} read={path=>request(path)} mutate={mutateEvidence} uploadDocument={uploadDocument} uploadSecureDocument={uploadSecureDocument}/>}
               {attestTask===t.id&&<form className="form attest" onSubmit={e=>void attest(e)}>
                 <label>First-week plan<input required minLength={8} maxLength={300} value={plan} onChange={e=>setPlan(e.target.value)}/></label>
                 <label>Buddy's name<input required minLength={2} maxLength={100} value={buddy} onChange={e=>setBuddy(e.target.value)}/></label>
@@ -353,7 +379,7 @@ export default function App(){
                 <button disabled={busy||!station} type="submit">Submit recorded evidence</button>
               </form>}
             </article>)}</div>
-            <p className="meta">Synthetic document handling is not general malware scanning or production storage. Training completion requires server grading; meetings use versioned scheduling and organizer-recorded attendance. External calendar notifications remain unimplemented.</p>
+            <p className="meta">Separate real S3 processing requires explicitly configured private buckets and a scanner; do not upload genuine employee data to the demo. Training completion requires server grading; meetings use versioned scheduling and organizer-recorded attendance. External calendar notifications remain unimplemented.</p>
           </section>}
         </section>}
         {tab==='work'&&<section className="panel"><h2>My assigned tasks</h2>
