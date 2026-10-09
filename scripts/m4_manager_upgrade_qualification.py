@@ -26,6 +26,10 @@ from backend.onboarding.models import OnboardingCase,Task,ManagerAttestation,Tas
 
 # Intentionally stop before the additive provenance migration.
 call_command('migrate','onboarding','0018',interactive=False,verbosity=0)
+# An earlier onboarding migration does not depend on later (unchanged)
+# template-schema additions. Bring that app to its leaf before using the
+# current model-based synthetic fixture; leave onboarding explicitly at 0018.
+call_command('migrate','templates',interactive=False,verbosity=0)
 org=Organization.objects.create(name='Disposable M4 Manager Upgrade Evidence',timezone='UTC')
 users={}
 members={}
