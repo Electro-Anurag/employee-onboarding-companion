@@ -189,8 +189,10 @@ test('R3: successfully delivered prior identity and protected payload never over
       expect(continuationSettled).toBe(true);
       await page.unroute('**/api/v1/templates');
       await page.getByRole('button',{name:/Templates \(/}).click();
+      // This assertion MUST detect the CI-only removal of the refresh guard.
+      await expect(page.getByText('Employee First Month (Synthetic)'),
+        'R3_STALE_TEMPLATE_LEAK').toHaveCount(0);
       await expect(page.getByRole('button',{name:'Templates (0)'})).toBeVisible();
-      await expect(page.getByText('Employee First Month (Synthetic)')).toHaveCount(0);
       await expect(page.locator('textarea.json-editor')).toHaveCount(0);
       await expect(page.getByText('Synthetic HR Other Organization',{exact:true})).toBeVisible();
     });
