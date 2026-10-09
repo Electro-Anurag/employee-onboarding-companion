@@ -6,7 +6,10 @@ not real employee data. A healthy actual ClamAV daemon is REQUIRED.
 import hashlib
 import os
 import uuid
+import io
 import pytest
+from pypdf import PdfWriter
+from pypdf.generic import DecodedStreamObject,NameObject
 from django.conf import settings
 from backend.onboarding.tests.test_m2_workflow import world,published,create
 from backend.onboarding.commands import activate_case
@@ -37,11 +40,17 @@ def test_live_s3_exact_versions_and_actual_antivirus_rejection_then_hr_approval(
     equipment=Task.objects.get(case=case,key='equipment_setup')
     assert equipment.execution_state=='BLOCKED'
     raw=generated_pdf()
-    # PDF comments are legal immediately before startxref. Insert the
-    # contiguous EICAR signature after the xref and trailer, so its absolute
-    # offsets stay valid and the strict PDF validator remains enabled.
-    assert raw.count(b'startxref\n')==1
-    attack=raw.replace(b'startxref\n',b'%'+EICAR+b'\nstartxref\n',1)
+    # ClamAV does not reliably scan PDF comments. Place the contiguous
+    # standard EICAR bytes in an uncompressed PDF page-content stream.
+    # Keep the strict PDF parser enabled and the document structurally valid.
+    infected=io.BytesIO()
+    writer=PdfWriter()
+    page=writer.add_blank_page(width=300,height=300)
+    marker=DecodedStreamObject()
+    marker.set_data(EICAR)
+    page[NameObject('/Contents')]=writer._add_object(marker)
+    writer.write(infected)
+    attack=infected.getvalue()
     assert attack.count(EICAR)==1
     # Must still be a well-formed PDF for the scanner security gate.
     from backend.documents.pdf_validation import validate_pdf
