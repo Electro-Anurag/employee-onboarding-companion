@@ -90,8 +90,12 @@ jobs:
           cd "$RUNNER_TEMP/m2-playwright"
           ./node_modules/.bin/playwright test -c playwright.config.cjs
           # Test-only mutation control: remove one stale-refresh generation guard.
-          # Never write modified application code to GitHub; restore after probe.
+          # The first run consumes synthetic login throttle quotas (even successful
+          # logins count). Reset only this disposable CI database's counters before
+          # a second replay; do not weaken or bypass the production policy.
           cd "$GITHUB_WORKSPACE"
+          uv run python manage.py shell -c "from backend.accounts.models import LoginThrottle; LoginThrottle.objects.all().delete()"
+          # Never write modified application code to GitHub; restore after probe.
           cp frontend/src/App.tsx "$RUNNER_TEMP/m2-original-App.tsx"
           python - <<'PY'
           from pathlib import Path
