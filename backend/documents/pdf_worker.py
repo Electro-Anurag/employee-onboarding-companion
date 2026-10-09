@@ -20,6 +20,28 @@ def inspect(raw):
     names=root.get('/Names')
     if names and any(k in names.get_object() for k in ('/JavaScript','/EmbeddedFiles')):
         raise ValueError('embedded content')
+    # PDF outline/bookmark actions are not confined to the catalog/page.
+    # Walk nested First/Next links with a strict bound, preserving passive
+    # bookmarks but rejecting action dictionaries (including JS/Launch/URI).
+    if '/Outlines' in root:
+        catalog_outline=root['/Outlines'].get_object()
+        if not isinstance(catalog_outline,dict) or any(
+                k in catalog_outline for k in ('/A','/AA')):
+            raise ValueError('invalid or active outline root')
+        pending=[catalog_outline.get('/First')]
+        seen=set()
+        while pending:
+            ref=pending.pop()
+            if ref is None:
+                continue
+            marker=(ref.idnum,ref.generation) if hasattr(ref,'idnum') else id(ref)
+            if marker in seen or len(seen)>=512:
+                raise ValueError('cyclic or excessive PDF outline')
+            seen.add(marker)
+            item=ref.get_object() if hasattr(ref,'get_object') else ref
+            if not isinstance(item,dict) or any(k in item for k in ('/A','/AA')):
+                raise ValueError('active outline action')
+            pending.extend((item.get('/First'),item.get('/Next')))
     for page in reader.pages:
         if any(k in page for k in ('/AA','/Annots')):
             raise ValueError('active page annotations')
