@@ -1022,3 +1022,60 @@ def test_astra_two_supported_parent_dependencies_have_and_semantics_in_postgres(
     assert independent.execution_state=='READY'
     assert second['result']['progress']['mandatory_completed']==2
     assert TaskCompletion.objects.filter(task__case=case).count()==2
+
+
+@pytest.mark.django_db(transaction=True)
+def test_astra_r2_case_creation_receipt_denied_after_new_active_org_membership(world):
+    org,people=world
+    version=published(world)
+    former_user,former_hr=people['HR']
+    key=uuid.uuid4()
+    arguments=dict(actor=former_user,employee_id=people['EMPLOYEE'][1].pk,
+        template_version_id=version,joining_date=timezone.localdate()+timedelta(days=26),
+        owner_ids={'IT':people['IT'][1].pk,'MANAGER':people['MANAGER'][1].pk},key=key)
+    committed,status=create_case(**arguments)
+    assert status==201
+    other=Organization.objects.create(name='Synthetic foreign organization')
+    former_hr.active=False
+    former_hr.save(update_fields=['active'])
+    Membership.objects.create(user=former_user,organization=other,role='HR',
+                              can_coordinate_ownership=True,can_manage_templates=True)
+    with pytest.raises(CommandFailure) as failed:
+        create_case(**arguments)
+    assert failed.value.code=='NOT_FOUND'
+    assert OnboardingCase.objects.count()==1
+    assert AuditEvent.objects.filter(event_type='CASE_CREATED').count()==1
+    assert CommandReceipt.objects.filter(route='m2-create-case').count()==1
+
+
+@pytest.mark.django_db(transaction=True)
+def test_astra_r9_activation_rechecks_employee_availability_after_case_lock(world):
+    from threading import Event
+    org,people=world
+    version=published(world)
+    result,_=create(world,version)
+    case=OnboardingCase.objects.get(pk=result['case_id'])
+    ready=Event()
+    release=Event()
+    def activate_while_revoked():
+        close_old_connections()
+        try:
+            return activate_case(actor=people['HR'][0],case_id=case.pk,
+                key=uuid.uuid4(),expected_version=1,
+                _test_after_case_lock=lambda:(ready.set(),release.wait(timeout=12)))
+        finally:
+            close_old_connections()
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        submitted=pool.submit(activate_while_revoked)
+        assert ready.wait(timeout=12)
+        Membership.objects.filter(pk=people['EMPLOYEE'][1].pk).update(available=False)
+        release.set()
+        with pytest.raises(CommandFailure) as rejected:
+            submitted.result(timeout=18)
+    assert rejected.value.code=='EMPLOYEE_NOT_READY'
+    persisted=OnboardingCase.objects.get(pk=case.pk)
+    assert persisted.status=='CREATED' and persisted.version==1
+    assert Task.objects.filter(case=case).count()==0
+    assert TaskDependency.objects.filter(case=case).count()==0
+    assert AuditEvent.objects.filter(event_type='CASE_ACTIVATED').count()==0
+    assert CommandReceipt.objects.filter(route='m2-activate').count()==0
