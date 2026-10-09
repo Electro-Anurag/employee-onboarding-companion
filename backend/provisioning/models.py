@@ -18,3 +18,21 @@ class ITOperation(models.Model):
             models.Q(status='REQUESTED',simulated_by__isnull=True,simulated_at__isnull=True,simulation_digest='',note='')
             | models.Q(status='SIMULATED_FULFILLED',simulated_by__isnull=False,simulated_at__isnull=False)
         ),name='m4_it_operation_consistent_status')]
+
+class ITConfirmation(models.Model):
+    """Human IT acceptance of one immutable simulated provider operation."""
+    id=models.UUIDField(primary_key=True,default=uuid.uuid4,editable=False)
+    operation=models.OneToOneField(ITOperation,on_delete=models.PROTECT,related_name='confirmation')
+    confirmed_by=models.ForeignKey('accounts.User',on_delete=models.PROTECT)
+    simulation_digest=models.CharField(max_length=64)
+    note=models.CharField(max_length=300)
+    confirmed_at=models.DateTimeField(default=timezone.now)
+
+class EquipmentReceipt(models.Model):
+    """Employee receipt is distinct from provider simulation and IT confirmation."""
+    id=models.UUIDField(primary_key=True,default=uuid.uuid4,editable=False)
+    task=models.OneToOneField('onboarding.Task',on_delete=models.PROTECT,related_name='equipment_receipt')
+    it_confirmation=models.OneToOneField(ITConfirmation,on_delete=models.PROTECT)
+    accepted_by=models.ForeignKey('accounts.User',on_delete=models.PROTECT)
+    note=models.CharField(max_length=300)
+    received_at=models.DateTimeField(default=timezone.now)
