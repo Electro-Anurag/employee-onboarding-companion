@@ -11,7 +11,7 @@ class ScannerUnavailable(Exception):
     pass
 
 def clamav_scan(payload):
-    if not isinstance(payload,bytes) or not 1<=len(payload)<=262144:
+    if not isinstance(payload,bytes) or not 1<=len(payload)<=10*1024*1024:
         raise ScannerUnavailable('INVALID_SCAN_PAYLOAD')
     host=getattr(settings,'M3_CLAMAV_HOST','')
     port=getattr(settings,'M3_CLAMAV_PORT',3310)
