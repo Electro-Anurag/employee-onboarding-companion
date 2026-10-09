@@ -70,7 +70,34 @@ def recompute(case,*,now=None):
             changes.append({'task_id':str(t.pk),'key':t.key,'from':previous,'to':new})
     return changes
 
+def preview_task_state(t,case,now=None):
+    """Read-only eligibility projection, never an implicit command on GET.
+
+    A task can become READY simply because available_at has passed. The
+    authoritative write command still locks the case and recomputes.
+    """
+    now=now or timezone.now()
+    if t.execution_state in ('COMPLETED','CANCELLED'):
+        return t.execution_state,list(t.blocked_reason_codes)
+    if case.status not in ('PRE_JOINING','ACTIVE'):
+        return t.execution_state,list(t.blocked_reason_codes)
+    unmet=TaskDependency.objects.filter(case=case,successor=t).exclude(
+        predecessor__execution_state='COMPLETED',
+        predecessor__completion__isnull=False).exists()
+    blocked=[]
+    if unmet:
+        blocked.append('PREREQUISITE_INCOMPLETE')
+    if not owner_valid(t,case,current_assignments(case,now)):
+        blocked.append('OWNER_UNAVAILABLE')
+    if blocked:
+        return 'BLOCKED',blocked
+    if now<t.available_at:
+        return 'NOT_STARTED',[]
+    return ('IN_PROGRESS' if t.work_started_at is not None else 'READY'),[]
+
+
 def summary_task(t,member,case):
+    effective_state,effective_blockers=preview_task_state(t,case)
     role=member.role
     ownerscope=(t.owner_role==role and (
         case.employee_id==member.pk if role==Membership.EMPLOYEE else
@@ -78,14 +105,14 @@ def summary_task(t,member,case):
                                 effective_to__isnull=True).exists()))
     actions=[]
     if case.status in ('PRE_JOINING','ACTIVE') and ownerscope:
-        if t.execution_state=='READY': actions.append('START')
-        if t.kind=='MANAGER_PREPARATION' and t.execution_state in ('READY','IN_PROGRESS'):
+        if effective_state=='READY': actions.append('START')
+        if t.kind=='MANAGER_PREPARATION' and effective_state in ('READY','IN_PROGRESS'):
             actions.append('ATTEST_MANAGER_PREPARATION')
     return {'id':str(t.pk),'key':t.key,'kind':t.kind,'title':t.title,
-        'required':t.required,'state':t.execution_state,'owner_role':t.owner_role,
+        'required':t.required,'state':effective_state,'owner_role':t.owner_role,
         'available_at':t.available_at.isoformat(),'due_at':t.due_at.isoformat(),
         'overdue':t.execution_state not in ('COMPLETED','CANCELLED') and timezone.now()>t.due_at,
-        'blocked_reason_codes':t.blocked_reason_codes,'started_at':t.work_started_at.isoformat() if t.work_started_at else None,
+        'blocked_reason_codes':effective_blockers,'started_at':t.work_started_at.isoformat() if t.work_started_at else None,
         'completed_at':t.completed_at.isoformat() if t.completed_at else None,
         'version':t.version,'allowed_actions':actions}
 
