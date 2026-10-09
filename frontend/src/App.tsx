@@ -328,7 +328,7 @@ export default function App(){
                 {t.allowed_actions.includes('ATTEST_MANAGER_PREPARATION')&&
                   <button disabled={busy} onClick={()=>setAttestTask(old=>old===t.id?null:t.id)}>Complete preparation</button>}
               </div>
-              {(t.kind==='FORM'||t.kind==='ACCESS'||t.kind==='EQUIPMENT')&&
+              {(t.kind==='FORM'||t.kind==='ACCESS'||t.kind==='EQUIPMENT'||t.kind==='EQUIPMENT_RECEIPT')&&
                 <EvidenceWorkflows key={me.user_id+':'+t.id} task={t} caseId={detail.case_id}
                   role={me.role} read={path=>request(path)} mutate={mutateEvidence}/>}
               {attestTask===t.id&&<form className="form attest" onSubmit={e=>void attest(e)}>
@@ -339,7 +339,7 @@ export default function App(){
                 <button disabled={busy||!station} type="submit">Submit recorded evidence</button>
               </form>}
             </article>)}</div>
-            <p className="meta">Document, policy, training, activity and IT task completion require their own accepted evidence; M3 HR-approved forms can now complete. IT results shown here are synthetic and do not constitute completion.</p>
+            <p className="meta">Document, policy, training and activity completion require separate evidence. M4 IT confirmation and equipment receipts are explicitly synthetic; no external system is connected.</p>
           </section>}
         </section>}
         {tab==='work'&&<section className="panel"><h2>My assigned tasks</h2>

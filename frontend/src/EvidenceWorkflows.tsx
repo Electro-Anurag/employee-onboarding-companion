@@ -4,7 +4,9 @@ type Role='HR'|'IT'|'MANAGER'|'EMPLOYEE';
 type FormEntry={id:string;revision:number;answers:Record<string,string>;
   review:null|{decision:'ACCEPTED'|'CHANGES_REQUESTED';note:string}};
 type FormList={results:FormEntry[]};
-type ITOperation={state:'REQUESTED'|'SIMULATED_FULFILLED';provider:string;simulation_digest:string|null};
+type ITOperation={state:'REQUESTED'|'SIMULATED_FULFILLED';provider:string;simulation_digest:string|null;
+  confirmation_id:string|null;task_completion:string};
+type ReceiptSource={provider:string;candidates:{task_id:string;confirmation_id:string;title:string}[]};
 type Task={id:string;key:string;kind:string;state:string;owner_role:string};
 
 export default function EvidenceWorkflows({task,caseId,role,read,mutate}:{
@@ -20,6 +22,10 @@ export default function EvidenceWorkflows({task,caseId,role,read,mutate}:{
   const [contactEmail,setContactEmail]=useState('');
   const [reviewNote,setReviewNote]=useState('');
   const [simulationNote,setSimulationNote]=useState('');
+  const [confirmationNote,setConfirmationNote]=useState('');
+  const [receiptNote,setReceiptNote]=useState('');
+  const [receiptSource,setReceiptSource]=useState<ReceiptSource|null>(null);
+  const [receiptConfirmation,setReceiptConfirmation]=useState('');
   const base='/api/v1/cases/'+caseId+'/tasks/'+task.id;
   async function safeRun(fn:()=>Promise<void>){
     setBusy(true);setError('');
@@ -33,6 +39,11 @@ export default function EvidenceWorkflows({task,caseId,role,read,mutate}:{
   async function loadIT(){
     const r=await read(base+'/it-operation') as ITOperation;
     setOperation(r);
+  }
+  async function loadReceiptSource(){
+    const result=await read(base+'/equipment-receipt/source') as ReceiptSource;
+    setReceiptSource(result);
+    setReceiptConfirmation(current=>current||result.candidates[0]?.confirmation_id||'');
   }
   if(task.kind==='FORM'&&(role==='EMPLOYEE'||role==='HR')){
     const last=history?.at(-1);
@@ -82,7 +93,7 @@ export default function EvidenceWorkflows({task,caseId,role,read,mutate}:{
   if(['ACCESS','EQUIPMENT'].includes(task.kind)&&(role==='IT'||role==='HR')){
     return <section className="subpanel" aria-label="Synthetic IT workflow">
       <h5>IT provisioning — synthetic simulation only</h5>
-      <p className="meta">No external IT system is connected. Simulation does not complete the task.</p>
+      <p className="meta">No external IT system is connected. Only a separate human IT confirmation can mark this synthetic task complete.</p>
       <button className="quiet" disabled={busy} onClick={()=>void safeRun(loadIT)}>Inspect IT operation</button>
       {operation&&<p className="meta">Provider {operation.provider}: {operation.state}
         {operation.simulation_digest?' · receipt '+operation.simulation_digest.slice(0,12):''}</p>}
@@ -99,7 +110,46 @@ export default function EvidenceWorkflows({task,caseId,role,read,mutate}:{
             await loadIT();setSimulationNote('');
           })}>Record simulated fulfillment</button>
         </div>}
+      {role==='IT'&&task.state==='IN_PROGRESS'&&operation?.state==='SIMULATED_FULFILLED'&&!operation.confirmation_id&&
+        <div className="form">
+          <label>IT confirmation note<input required minLength={8} maxLength={300}
+            value={confirmationNote} onChange={e=>setConfirmationNote(e.target.value)}/></label>
+          <button disabled={busy||confirmationNote.trim().length<8}
+            onClick={()=>void safeRun(async()=>{
+              await mutate(base+'/it-operation/confirm',{note:confirmationNote});
+              await loadIT();setConfirmationNote('');
+            })}>Confirm simulated IT outcome and complete task</button>
+        </div>}
+      {operation?.confirmation_id&&<p className="meta">Explicit IT confirmation recorded. This does not verify external provisioning.</p>}
       {error&&<p role="alert" className="block">IT operation failed: {error}</p>}
+    </section>;
+  }
+  if(task.kind==='EQUIPMENT_RECEIPT'&&role==='EMPLOYEE'){
+    return <section className="subpanel" aria-label="Equipment receipt workflow">
+      <h5>Equipment acknowledgement — synthetic case</h5>
+      <p className="meta">Only acknowledge a specifically confirmed upstream equipment request.</p>
+      <button className="quiet" disabled={busy} onClick={()=>void safeRun(loadReceiptSource)}>
+        Load confirmed equipment evidence
+      </button>
+      {receiptSource&&<p className="meta">{receiptSource.candidates.length} confirmed equipment record(s)</p>}
+      {receiptSource&&receiptSource.candidates.length>0&&task.state==='READY'&&
+        <div className="form">
+          <label>Confirmed equipment
+            <select value={receiptConfirmation} onChange={e=>setReceiptConfirmation(e.target.value)}>
+              {receiptSource.candidates.map(c=><option key={c.confirmation_id}
+                value={c.confirmation_id}>{c.title}</option>)}
+            </select>
+          </label>
+          <label>Receipt note<input required minLength={8} maxLength={300}
+            value={receiptNote} onChange={e=>setReceiptNote(e.target.value)}/></label>
+          <button disabled={busy||receiptNote.trim().length<8||!receiptConfirmation}
+            onClick={()=>void safeRun(async()=>{
+              await mutate(base+'/equipment-receipt',
+                {it_confirmation_id:receiptConfirmation,note:receiptNote});
+              setReceiptNote('');await loadReceiptSource();
+            })}>Acknowledge confirmed synthetic equipment</button>
+        </div>}
+      {error&&<p role="alert" className="block">Equipment receipt failed: {error}</p>}
     </section>;
   }
   return null;

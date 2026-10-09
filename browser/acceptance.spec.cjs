@@ -135,7 +135,7 @@ test('four-role real-browser case, template, dependency and evidence journey',as
       await expect(manager.getByText('1/17 mandatory tasks completed')).toBeVisible();
       await expect(taskCard(manager,'Team Introduction')).not.toContainText('PREREQUISITE_INCOMPLETE');
       await expect(taskCard(manager,'Workspace Access')).toContainText('PREREQUISITE_INCOMPLETE');
-      await expect(manager.getByText(/Document, policy, training, activity and IT task completion require their own accepted evidence/)).toBeVisible();
+      await expect(manager.getByText(/Document, policy, training and activity completion require separate evidence/)).toBeVisible();
       await expect(taskCard(manager,'Manager Preparation').getByRole('button',{name:'Complete preparation'})).toHaveCount(0);
     });
 
@@ -194,6 +194,26 @@ test('four-role real-browser case, template, dependency and evidence journey',as
       await expect(hr.getByText('Role: HR')).toBeVisible();
       await openCase(hr);
       await expect(taskCard(hr,'Personal Details')).toContainText('COMPLETED');
+    });
+
+    await test.step('IT requires an explicit signoff after the synthetic provider result',async()=>{
+      await it.reload();
+      await expect(it.getByText('Role: IT')).toBeVisible();
+      await openCase(it);
+      const equipment=taskCard(it,'Equipment Setup');
+      await expect(equipment).toContainText('READY');
+      await equipment.getByRole('button',{name:'Create synthetic IT request'}).click();
+      await expect(equipment).toContainText('IN_PROGRESS');
+      await equipment.getByRole('button',{name:'Inspect IT operation'}).click();
+      await expect(equipment).toContainText('REQUESTED');
+      await equipment.getByLabel('Simulation note').fill('Only a local synthetic provider ran');
+      await equipment.getByRole('button',{name:'Record simulated fulfillment'}).click();
+      await expect(equipment).toContainText('SIMULATED_FULFILLED');
+      await expect(it.getByText('2/17 mandatory tasks completed')).toBeVisible();
+      await equipment.getByLabel('IT confirmation note').fill('Human IT confirms the simulated outcome');
+      await equipment.getByRole('button',{name:'Confirm simulated IT outcome and complete task'}).click();
+      await expect(taskCard(it,'Equipment Setup')).toContainText('COMPLETED');
+      await expect(it.getByText('3/17 mandatory tasks completed')).toBeVisible();
     });
 
     await test.step('same-mounted-page identity switch clears HR template and pending reads',async()=>{
