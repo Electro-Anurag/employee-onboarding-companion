@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import './App.css';
 
 type Me = { display_name:string;role:'HR'|'IT'|'MANAGER'|'EMPLOYEE';user_id:string;capabilities?:{manage_templates:boolean;coordinate_ownership:boolean} };
@@ -39,6 +39,21 @@ export default function App(){
   const [message,setMessage]=useState('Sign in to access assigned onboarding work.');
   const [busy,setBusy]=useState(false);
   const [tab,setTab]=useState<'cases'|'work'|'templates'>('cases');
+  // Every identity transition invalidates all in-flight identity-bound reads.
+  // The generation is checked immediately before committing any fetched data.
+  const identityEpoch=useRef(0);
+  function forgetProtectedIdentity(){
+    identityEpoch.current+=1;
+    setCases([]);setWork([]);setTemplates([]);setOwners({});
+    setTemplate(null);setEditor('');setSelected(null);setDetail(null);
+    setEmployeeId('');setItId('');setManagerId('');setTemplateId('');setJoiningDate('');
+    setAttestTask(null);setPlan('');setBuddy('');setStation(false);setNote('');
+    setTab('cases');
+  }
+  function replaceIdentity(next:Me|null){
+    forgetProtectedIdentity();
+    setMe(next);
+  }
 
   async function request<T>(path:string,method='GET',body?:unknown,extra:Record<string,string>={}):Promise<T>{
     const headers:Record<string,string>={...extra};
@@ -64,32 +79,42 @@ export default function App(){
       if(!r.ok)throw new Error('CSRF endpoint unavailable');
       setCsrf((await r.json()).csrf_token);
       const identity=await fetch('/api/v1/auth/me',{credentials:'same-origin'});
-      if(identity.ok)setMe(await identity.json());
+      if(identity.ok)replaceIdentity(await identity.json());
     }catch{setMessage('Authentication endpoint unavailable. Retry later.');}
   })();},[]);
 
   async function refresh(identity:Me){
+    const generation=identityEpoch.current;
     const nextCases=await request<{results:Case[]}>('/api/v1/cases');
     const nextWork=await request<{results:WorkspaceTask[]}>('/api/v1/workspaces/me');
-    setCases(nextCases.results);
-    setWork(nextWork.results);
+    let nextTemplates:Template[]=[];
+    let nextOwners:Record<string,Owner[]>={};
     if(identity.role==='HR'){
       const t=await request<{results:Template[]}>('/api/v1/templates');
-      setTemplates(t.results);
+      nextTemplates=t.results;
       const entries=await Promise.all(['EMPLOYEE','IT','MANAGER'].map(async(role)=>{
         const v=await request<{results:Owner[]}>('/api/v1/owners?role='+role);
         return [role,v.results] as const;
       }));
-      setOwners(Object.fromEntries(entries));
+      nextOwners=Object.fromEntries(entries);
     }
+    if(identityEpoch.current!==generation)return;
+    setCases(nextCases.results);setWork(nextWork.results);
+    setTemplates(nextTemplates);setOwners(nextOwners);
   }
   useEffect(()=>{if(me)void refresh(me).catch(e=>setMessage('Unable to read workspace: '+String(e)));},[me]);
 
   async function perform(workflow:()=>Promise<void>){
+    const generation=identityEpoch.current;
     setBusy(true);
-    try{await workflow();setMessage('Saved successfully. All status updates come from the server.');}
-    catch(e){setMessage('Operation not completed: '+(e instanceof Error?e.message:String(e)));}
-    finally{setBusy(false);}
+    try{
+      await workflow();
+      if(identityEpoch.current===generation)
+        setMessage('Saved successfully. All status updates come from the server.');
+    }catch(e){
+      if(identityEpoch.current===generation)
+        setMessage('Operation not completed: '+(e instanceof Error?e.message:String(e)));
+    }finally{setBusy(false);}
   }
 
   async function signIn(event:React.FormEvent){
@@ -100,27 +125,33 @@ export default function App(){
       const token=await fetch('/api/v1/auth/csrf',{credentials:'same-origin'});
       if(!token.ok)throw new Error('Could not refresh CSRF');
       setCsrf((await token.json()).csrf_token);
-      setMe(m);setPassword('');
+      replaceIdentity(m);setPassword('');
     });
   }
   async function signOut(){
     await perform(async()=>{
       await request('/api/v1/auth/logout','POST',{});
-      setMe(null);setSelected(null);setDetail(null);setCases([]);setWork([]);setTemplates([]);
+      replaceIdentity(null);
       const token=await fetch('/api/v1/auth/csrf',{credentials:'same-origin'});
       if(token.ok)setCsrf((await token.json()).csrf_token);
     });
   }
   async function selectCase(c:Case){
+    const generation=identityEpoch.current;
     await perform(async()=>{
       const result=await request<TaskPayload>('/api/v1/cases/'+c.id+'/tasks');
+      if(identityEpoch.current!==generation)return;
       setSelected(c);setDetail(result);setTab('cases');setAttestTask(null);
     });
   }
   async function reloadCase(caseId:string,identity:Me){
+    const generation=identityEpoch.current;
     await refresh(identity);
+    if(identityEpoch.current!==generation)return;
     const result=await request<TaskPayload>('/api/v1/cases/'+caseId+'/tasks');
-    setDetail(result);setSelected(old=>old&&old.id===caseId?{...old,version:result.case_version,status:result.case_status}:old);
+    if(identityEpoch.current!==generation)return;
+    setDetail(result);
+    setSelected(old=>old&&old.id===caseId?{...old,version:result.case_version,status:result.case_status}:old);
   }
   async function activate(){
     if(!selected||!detail||!me)return;
@@ -159,15 +190,20 @@ export default function App(){
   }
   async function createDefault(){
     if(!me)return;
+    const generation=identityEpoch.current;
     await perform(async()=>{
       const result=await request<Template>('/api/v1/templates','POST',{use_default:true});
+      if(identityEpoch.current!==generation)return;
       setTemplate(result);
-      await refresh(me);setTab('templates');
+      await refresh(me);
+      if(identityEpoch.current===generation)setTab('templates');
     });
   }
   async function showTemplate(item:Template){
+    const generation=identityEpoch.current;
     await perform(async()=>{
       const result=await request<Template>('/api/v1/templates/'+item.id);
+      if(identityEpoch.current!==generation)return;
       setTemplate(result);
       setEditor(JSON.stringify({tasks:result.tasks,dependencies:result.dependencies},null,2));
     });
