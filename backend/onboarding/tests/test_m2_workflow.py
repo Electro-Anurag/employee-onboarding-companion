@@ -796,14 +796,18 @@ def test_astra_r8_read_time_expiration_unlocks_without_mutating_state(world):
         'email':p['MANAGER'][0].email,'password':'VerifiedStrongPassword!2026'}),
         content_type='application/json')
     assert authenticated.status_code==200,authenticated.content
-    with patch('backend.onboarding.state_machine.timezone.now',return_value=future):
-        rows=list(Task.objects.filter(case=case))
-        projection=project_task_states(case,rows)
-        manager=summary_task(task,p['MANAGER'][1],case,projection)
-        assert manager['state']=='READY'
-        assert 'ATTEST_MANAGER_PREPARATION' in manager['allowed_actions']
-        assert 'START' in manager['allowed_actions']
-        # Exercise actual authorized GET APIs, not just the projection helper.
+    rows=list(Task.objects.filter(case=case))
+    projection=project_task_states(case,rows,now=future)
+    manager=summary_task(task,p['MANAGER'][1],case,projection)
+    assert manager['state']=='READY'
+    assert 'ATTEST_MANAGER_PREPARATION' in manager['allowed_actions']
+    assert 'START' in manager['allowed_actions']
+    # Advance ONLY eligibility time in real GET handlers, not Django's
+    # authentication/session clock (which would expire the live session).
+    from backend.onboarding import api_m2
+    real_project=project_task_states
+    with patch.object(api_m2,'project_task_states',
+                      side_effect=lambda scope,items:real_project(scope,items,now=future)):
         response=browser_session.get('/api/v1/cases/'+str(case.pk)+'/tasks')
         assert response.status_code==200,response.content
         projected=next(t for t in response.json()['tasks'] if t['key']=='manager_preparation')
@@ -815,7 +819,9 @@ def test_astra_r8_read_time_expiration_unlocks_without_mutating_state(world):
         visible=next(t for t in workspace.json()['results'] if t['key']=='manager_preparation')
         assert visible['state']=='READY'
         assert 'START' in visible['allowed_actions']
-        assert Task.objects.get(pk=task.pk).execution_state=='NOT_STARTED'
+    assert Task.objects.get(pk=task.pk).execution_state=='NOT_STARTED'
+    # The command path remains authoritative and re-evaluates at its clock.
+    with patch('backend.onboarding.state_machine.timezone.now',return_value=future):
         start_task(actor=p['MANAGER'][0],case_id=case.pk,task_id=task.pk,
                    key=uuid.uuid4(),expected_version=2)
     task.refresh_from_db()
