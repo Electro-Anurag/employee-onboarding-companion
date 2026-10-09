@@ -250,3 +250,42 @@ def test_failed_it_attempt_api_is_role_scoped_and_replayable(world):
     assert info.json()['retry_explicitly_available'] is True
     assert employee.get(base).status_code==404
     assert TaskCompletion.objects.count()==0
+
+@pytest.mark.django_db(transaction=True)
+def test_generic_start_keeps_typed_it_and_equipment_receipt_reachable(world):
+    from backend.onboarding.commands import start_task
+    org,people=world
+    draft=create_template(actor=people['HR'][0],key='started_equipment',
+        name='Generic Start followed by typed workflow',tasks=[
+        dict(key='device',kind='EQUIPMENT',owner_role='IT',
+            title='Synthetic equipment',required=True,available_offset_days=-30,
+            due_offset_days=1,evidence_spec={'type':'EQUIPMENT'}),
+        dict(key='receipt',kind='EQUIPMENT_RECEIPT',owner_role='EMPLOYEE',
+            title='Acknowledge synthetic equipment',required=True,
+            available_offset_days=-30,due_offset_days=1,
+            evidence_spec={'type':'EQUIPMENT_RECEIPT'})],
+        edges=[{'predecessor':'device','successor':'receipt'}])
+    version=publish_template(actor=people['HR'][0],template_id=uuid.UUID(draft['id']),revision=1)
+    made,_=create(world,uuid.UUID(version['version_id']))
+    case=OnboardingCase.objects.get(pk=made['case_id'])
+    activate_case(actor=people['HR'][0],case_id=case.pk,key=uuid.uuid4(),expected_version=1)
+    device=Task.objects.get(case=case,key='device')
+    receipt=Task.objects.get(case=case,key='receipt')
+    start_task(actor=people['IT'][0],case_id=case.pk,task_id=device.pk,
+        key=uuid.uuid4(),expected_version=2)
+    initial,_=request_it(actor=people['IT'][0],case_id=case.pk,task_id=device.pk,
+        key=uuid.uuid4(),expected_version=3)
+    assert initial['result']['provider']=='SYNTHETIC_ONLY'
+    simulate_fulfillment(actor=people['IT'][0],case_id=case.pk,task_id=device.pk,
+        note='Test adapter only',key=uuid.uuid4(),expected_version=4)
+    signed,_=confirm_it(actor=people['IT'][0],case_id=case.pk,task_id=device.pk,
+        note='Human test confirmation',key=uuid.uuid4(),expected_version=5)
+    receipt.refresh_from_db()
+    assert receipt.execution_state=='READY'
+    start_task(actor=people['EMPLOYEE'][0],case_id=case.pk,task_id=receipt.pk,
+        key=uuid.uuid4(),expected_version=6)
+    final,_=receive_equipment(actor=people['EMPLOYEE'][0],case_id=case.pk,
+        task_id=receipt.pk,it_confirmation_id=uuid.UUID(signed['result']['confirmation_id']),
+        note='Synthetic device received by employee',key=uuid.uuid4(),expected_version=7)
+    assert final['result']['state']=='COMPLETED'
+    assert TaskCompletion.objects.filter(task__in=[device,receipt]).count()==2
