@@ -747,3 +747,93 @@ def test_astra_r9_credential_or_availability_revoked_after_case_lock(world):
         assert CommandReceipt.objects.filter(route='m2-activate',case=case).count()==0
         case.status='CANCELLED'
         case.save(update_fields=['status'])
+
+
+@pytest.mark.django_db(transaction=True)
+def test_astra_r4_unbacked_task_completion_rejected_by_postgres(world):
+    org,people=world
+    version=published(world)
+    created,_=create(world,version)
+    case=OnboardingCase.objects.get(pk=created['case_id'])
+    activate_case(actor=people['HR'][0],case_id=case.pk,key=uuid.uuid4(),expected_version=1)
+    for name in ('identity_document','manager_preparation'):
+        target=Task.objects.get(case=case,key=name)
+        with pytest.raises(DatabaseError) as err:
+            with transaction.atomic():
+                Task.objects.filter(pk=target.pk).update(execution_state='COMPLETED',
+                    completed_at=timezone.now())
+        assert getattr(err.value.__cause__,'sqlstate',None)=='23514'
+        target.refresh_from_db()
+        assert target.execution_state!='COMPLETED'
+    manager=Task.objects.get(case=case,key='manager_preparation')
+    fields={'first_week_plan':'Plan realistic first-week goals',
+            'buddy_name':'Synthetic Buddy','workstation_ready':True}
+    completed,_=attest_manager(actor=people['MANAGER'][0],case_id=case.pk,
+       task_id=manager.pk,fields=fields,note='Workstation verified',
+       key=uuid.uuid4(),expected_version=2)
+    assert completed['result']['state']=='COMPLETED'
+    manager.refresh_from_db()
+    with pytest.raises(DatabaseError) as err:
+        with transaction.atomic():
+            Task.objects.filter(pk=manager.pk).update(completed_at=None)
+    assert getattr(err.value.__cause__,'sqlstate',None)=='23514'
+    assert TaskCompletion.objects.filter(task=manager).count()==1
+
+
+@pytest.mark.django_db(transaction=True)
+def test_astra_r5_activated_schedule_and_template_binding_immutable(world):
+    org,people=world
+    version=published(world)
+    created,_=create(world,version)
+    case=OnboardingCase.objects.get(pk=created['case_id'])
+    activate_case(actor=people['HR'][0],case_id=case.pk,key=uuid.uuid4(),expected_version=1)
+    task=Task.objects.get(case=case,key='manager_preparation')
+    before=(task.available_at,task.due_at)
+    for updates in ({'available_at':task.available_at+timedelta(minutes=1)},
+                    {'due_at':task.due_at+timedelta(days=1)}):
+        with pytest.raises(DatabaseError) as err:
+            with transaction.atomic():
+                Task.objects.filter(pk=task.pk).update(**updates)
+        assert getattr(err.value.__cause__,'sqlstate',None)=='23514'
+    for binding in (None,):
+        with pytest.raises(DatabaseError) as err:
+            with transaction.atomic():
+                OnboardingCase.objects.filter(pk=case.pk).update(template_version_id=binding)
+        assert getattr(err.value.__cause__,'sqlstate',None)=='23514'
+    task.refresh_from_db()
+    case.refresh_from_db()
+    assert (task.available_at,task.due_at)==before
+    assert case.template_version_id==version
+    assert TaskDependency.objects.filter(case=case).count()>0
+
+
+@pytest.mark.django_db(transaction=True)
+def test_astra_r6_blank_required_manager_evidence_denied_without_side_effects(world):
+    org,people=world
+    version=published(world)
+    created,_=create(world,version)
+    case=OnboardingCase.objects.get(pk=created['case_id'])
+    activate_case(actor=people['HR'][0],case_id=case.pk,key=uuid.uuid4(),expected_version=1)
+    manager=Task.objects.get(case=case,key='manager_preparation')
+    before_audit=AuditEvent.objects.count()
+    for fields,note in (
+        ({'first_week_plan':'        ','buddy_name':'Synthetic Buddy','workstation_ready':True},'Valid note'),
+        ({'first_week_plan':'Meaningful plan','buddy_name':'  ','workstation_ready':True},'Valid note'),
+        ({'first_week_plan':'Meaningful plan','buddy_name':'Buddy','workstation_ready':True},'  ')):
+        with pytest.raises(CommandFailure) as exc:
+            attest_manager(actor=people['MANAGER'][0],case_id=case.pk,
+                task_id=manager.pk,fields=fields,note=note,key=uuid.uuid4(),expected_version=2)
+        assert exc.value.code=='INVALID_ATTESTATION'
+    assert TaskCompletion.objects.count()==0
+    assert ManagerAttestation.objects.count()==0
+    assert AuditEvent.objects.count()==before_audit
+    assert CommandReceipt.objects.filter(route='m2-attest-manager').count()==0
+    assert OnboardingCase.objects.get(pk=case.pk).version==2
+    accepted,_=attest_manager(actor=people['MANAGER'][0],case_id=case.pk,task_id=manager.pk,
+        fields={'first_week_plan':'  Plan the first week carefully  ','buddy_name':'  Buddy  ','workstation_ready':True},
+        note='  Evidence reviewed  ',key=uuid.uuid4(),expected_version=2)
+    assert accepted['result']['state']=='COMPLETED'
+    saved=ManagerAttestation.objects.get(task=manager)
+    assert saved.prepared_fields['first_week_plan']=='Plan the first week carefully'
+    assert saved.prepared_fields['buddy_name']=='Buddy'
+    assert saved.note=='Evidence reviewed'
