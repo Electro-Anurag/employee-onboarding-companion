@@ -26,7 +26,7 @@ def test_seed_m2_demo_requires_debug_and_confirmation():
     assert Membership.objects.count()==4
     assert Organization.objects.count()==1
     assert Membership.objects.get(role='HR').can_manage_templates is True
-    assert 'Synthetic' in out.getvalue()
+    assert 'synthetic local accounts created' in out.getvalue().lower()
     for role in ['HR','EMPLOYEE','IT','MANAGER']:
         assert (role.lower()+'@demo.aster-vale.invalid') in out.getvalue()
         assert User.objects.get(email=role.lower()+'@demo.aster-vale.invalid').has_usable_password()
