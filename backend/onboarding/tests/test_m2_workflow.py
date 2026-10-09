@@ -1025,3 +1025,50 @@ def test_astra_real_postgres_two_parent_and_independent_task(world):
     assert TaskCompletion.objects.filter(task__case=case).count()==2
     assert AuditEvent.objects.filter(event_type='TASK_COMPLETED',entity_id__in=
         list(Task.objects.filter(case=case,kind='MANAGER_PREPARATION').values_list('pk',flat=True))).count()==2
+
+
+@pytest.mark.django_db(transaction=True)
+def test_astra_r1_http_version_identity_prevents_legacy_revision_collision(world):
+    org,people=world
+    draft=create_default(actor=people['HR'][0])
+    edited=edit_template(actor=people['HR'][0],template_id=uuid.UUID(draft['id']),
+                         revision=1,tasks=draft['tasks'],edges=draft['dependencies'])
+    assert edited['revision']==2
+    publish_template(actor=people['HR'][0],template_id=uuid.UUID(draft['id']),revision=2)
+    clone=next_draft(actor=people['HR'][0],template_id=uuid.UUID(draft['id']))
+    # Reproduce a persisted draft produced BEFORE revisions became monotonic:
+    # v2/r2 collides with historical v1/r2. Both states remain DB-valid.
+    TemplateVersion.objects.filter(pk=clone['version_id']).update(revision=2)
+    TemplateTask.objects.filter(version_id=clone['version_id'],
+                                key='manager_preparation').update(title='Different second-version content')
+    client=Client(enforce_csrf_checks=True)
+    csrf=client.get('/api/v1/auth/csrf').json()['csrf_token']
+    response=client.post('/api/v1/auth/login',json.dumps({
+        'email':people['HR'][0].email,'password':'VerifiedStrongPassword!2026'}),
+        content_type='application/json',HTTP_X_CSRFTOKEN=csrf)
+    assert response.status_code==200,response.content
+    csrf=client.get('/api/v1/auth/csrf').json()['csrf_token']
+    tid=draft['id']
+    old_etag=f'"template:{tid}:version:{draft["version_id"]}:r2"'
+    latest_etag=f'"template:{tid}:version:{clone["version_id"]}:r2"'
+    payload={'tasks':clone['tasks'],'dependencies':clone['dependencies']}
+    previous_audit=AuditEvent.objects.count()
+    for verb in ('draft','publish'):
+        url=f'/api/v1/templates/{tid}/'+verb
+        request_args={'content_type':'application/json','HTTP_X_CSRFTOKEN':csrf,
+                     'HTTP_IF_MATCH':old_etag,'HTTP_IDEMPOTENCY_KEY':str(uuid.uuid4())}
+        if verb=='draft':
+            stale=client.generic('PATCH',url,json.dumps(payload),**request_args)
+        else:
+            stale=client.post(url,'{}',**request_args)
+        assert stale.status_code==409,stale.content
+        assert stale.json()['error']['code']=='STALE_VERSION'
+    assert AuditEvent.objects.count()==previous_audit
+    assert CommandReceipt.objects.filter(route__in=['m2-template-edit','m2-template-publish']).count()==0
+    assert TemplateVersion.objects.get(pk=clone['version_id']).state=='DRAFT'
+    valid=client.post(f'/api/v1/templates/{tid}/publish','{}',
+        content_type='application/json',HTTP_X_CSRFTOKEN=csrf,
+        HTTP_IF_MATCH=latest_etag,HTTP_IDEMPOTENCY_KEY=str(uuid.uuid4()))
+    assert valid.status_code==200,valid.content
+    assert valid.json()['version_id']==clone['version_id']
+    assert valid.json()['state']=='PUBLISHED'
