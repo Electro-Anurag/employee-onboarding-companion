@@ -94,7 +94,7 @@ jobs:
           # Emit bounded failure codes, not raw document bytes or secrets.
           # This is an actual ClamAV readiness gate, never a mocked success.
           last_reason='NOT_ATTEMPTED'
-          for i in range(40):
+          for i in range(20):
               try:
                   info=clamav_signature_provenance()
                   print('CLAMAV_FRESH_REAL_SIGNATURES: '+info)
@@ -105,6 +105,17 @@ jobs:
                   reason='UNEXPECTED_'+type(exc).__name__
               if reason!=last_reason or i%10==0:
                   print(f'CLAMAV_READINESS_CHECK: attempt={i+1} reason={reason}',flush=True)
+              if reason=='STALE_SCANNER_SIGNATURES' and last_reason!=reason:
+                  # Diagnostic: clamd VERSION contains only public engine/db metadata.
+                  import socket
+                  try:
+                      with socket.create_connection(('127.0.0.1',3310),timeout=2) as channel:
+                          channel.settimeout(2)
+                          channel.sendall(b'zVERSION\\0'.replace(b'\\0',bytes([0])))
+                          version=channel.recv(180).split(bytes([0]))[0]
+                          print('CLAMAV_VERSION_DIAGNOSTIC: '+repr(version[:150]),flush=True)
+                  except OSError as exc:
+                      print('CLAMAV_VERSION_PROBE_FAILED: '+type(exc).__name__,flush=True)
               last_reason=reason
               time.sleep(2)
           else:
