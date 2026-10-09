@@ -178,6 +178,41 @@ def activate_case(*,actor,case_id,key,expected_version):
         _receipt(actor,'m2-activate',key,digest,case,response)
     return response,200
 
+def begin_day_one(*,actor,case_id,key,expected_version):
+    """Explicit, date-checked PRE_JOINING -> ACTIVE transition.
+
+    Scheduled automation is deliberately not claimed in M2. The same
+    idempotency and current-authorization guarantees apply as activation.
+    """
+    from zoneinfo import ZoneInfo
+    with transaction.atomic():
+        set_command_timeouts()
+        case,member,prior,digest=_command_case(actor,case_id,'m2-begin-day-one',
+                     key,{},expected_version,True)
+        if prior is not None:
+            return prior.response,prior.status_code
+        if case.status!='PRE_JOINING':
+            raise CommandFailure('INVALID_CASE_STATE',409)
+        today=timezone.localdate(timezone=ZoneInfo(case.organization.timezone))
+        if today<case.joining_date:
+            raise CommandFailure('JOIN_DATE_NOT_REACHED',409)
+        case.status='ACTIVE'
+        affected=recompute(case)
+        case.version+=1
+        case.save(update_fields=['status','version'])
+        event=append_event(stream_key=f'case:{case.pk}',actor=actor,
+                 event_type='CASE_DAY_ONE_STARTED',entity_id=case.pk,
+                 changes={'status':'ACTIVE','case_version':case.version,
+                          'task_state_changes':len(affected)})
+        response={'command_id':str(uuid.uuid4()),'case_id':str(case.pk),
+                  'case_version':case.version,
+                  'result':{'status':'ACTIVE','progress':case_progress(case)},
+                  'affected_task_ids':[x['task_id'] for x in affected],
+                  'event_ids':[str(event[0])]}
+        _receipt(actor,'m2-begin-day-one',key,digest,case,response)
+    return response,200
+
+
 def _task_command(actor,case_id,task_id,route,key,payload,expected_version):
     case,member,prior,digest=_command_case(actor,case_id,route,key,payload,expected_version)
     if prior is not None:

@@ -69,6 +69,16 @@ def activate(request,case_id):
         return commands.activate_case(actor=request.user,case_id=case_id,key=key,expected_version=version)
     return command(execute)
 
+@csrf_protect
+@require_POST
+def day_one(request,case_id):
+    def execute():
+        json_payload(request,1024,set())
+        key,version=headers(request,case_id)
+        return commands.begin_day_one(actor=request.user,case_id=case_id,
+                                      key=key,expected_version=version)
+    return command(execute)
+
 @require_GET
 def tasks(request,case_id):
     try:

@@ -130,6 +130,14 @@ export default function App(){
       await reloadCase(selected.id,me);
     });
   }
+  async function beginDayOne(){
+    if(!selected||!detail||!me)return;
+    await perform(async()=>{
+      await request('/api/v1/cases/'+selected.id+'/day-one','POST',{},
+        {'If-Match':'"case:'+selected.id+':v'+detail.case_version+'"'});
+      await reloadCase(selected.id,me);
+    });
+  }
   async function start(task:Task){
     if(!detail||!me)return;
     await perform(async()=>{
@@ -235,6 +243,7 @@ export default function App(){
             <div className="heading"><h3>{selected.employee_name} — {detail.case_status}</h3>
               <p>{detail.progress.mandatory_completed}/{detail.progress.mandatory_total} mandatory tasks completed ({detail.progress.percent}%)</p></div>
             {detail.case_status==='CREATED'&&me.role==='HR'&&<button disabled={busy} onClick={()=>void activate()}>Activate case</button>}
+            {detail.case_status==='PRE_JOINING'&&me.role==='HR'&&<button disabled={busy} onClick={()=>void beginDayOne()}>Begin Day 1 (joining date required)</button>}
             {detail.tasks.length===0&&<p>Tasks will be instantiated only after successful activation.</p>}
             <div className="task-list">{detail.tasks.map(t=><article key={t.id} className="task">
               <div><h4>{t.title}</h4><span className="meta">{t.kind} · {t.owner_role} · {t.state}</span>
