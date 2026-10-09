@@ -898,6 +898,7 @@ def test_astra_r8_clock_only_refresh_projects_ready_and_respects_revocation(worl
     created,_=create(world,uuid.UUID(version['version_id']),offset=2)
     case=OnboardingCase.objects.get(pk=created['case_id'])
     activate_case(actor=people['HR'][0],case_id=case.pk,key=uuid.uuid4(),expected_version=1)
+    case.refresh_from_db()  # read projection needs the committed PRE_JOINING state
     manager=Task.objects.get(case=case,key='manager_preparation')
     assert manager.execution_state=='NOT_STARTED'
     first=summary_task(manager,people['MANAGER'][1],case)
