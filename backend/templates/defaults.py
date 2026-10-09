@@ -1,5 +1,6 @@
 """Synthetic Aster Vale Labs onboarding template, not a real employer policy."""
 from backend.policies.definitions import policy_evidence
+from backend.training.definitions import default_spec
 SPEC=[
 ('identity_document','DOCUMENT','EMPLOYEE',-30,-5,()),
 ('employment_document','DOCUMENT','EMPLOYEE',-30,-5,()),
@@ -28,7 +29,8 @@ def first_month_template():
             owner_role=owner,required=True,available_offset_days=available,
             due_offset_days=due,position=position,evidence_spec=({'type':'FORM','fields':['preferred_name','contact_email']}
                 if kind=='FORM' and key=='personal_details' else
-                policy_evidence(key) if kind=='POLICY_ACK' else {'type':kind})))
+                policy_evidence(key) if kind=='POLICY_ACK' else
+                default_spec(key) if kind=='TRAINING' else {'type':kind})))
         for before in prereqs:
             edges.append({'predecessor':before,'successor':key})
     return tasks,edges

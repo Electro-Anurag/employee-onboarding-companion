@@ -10,6 +10,7 @@ from backend.accounts.models import Membership
 from backend.accounts.security import actor_context
 from backend.audit.models import CommandReceipt
 from backend.audit.services import append_event
+from backend.onboarding.services import CommandFailure
 from backend.templates.models import (OnboardingTemplate,TemplateVersion,TemplateTask,
     TemplateDependency,KINDS,OWNER_ROLES)
 from backend.templates.defaults import first_month_template
@@ -72,6 +73,10 @@ def _validate_graph(tasks,edges):
                 or len(spec['content_sha256'])!=64
                 or hashlib.sha256(spec['policy_text'].encode()).hexdigest()!=spec['content_sha256']):
                 raise TemplateFailure('INVALID_POLICY_EDITION')
+        if kind=='TRAINING':
+            from backend.training.definitions import validate_spec
+            try:validate_spec(evidence)
+            except CommandFailure:raise TemplateFailure('INVALID_TRAINING_MODULE')
         keys[key]=item
     parents={k:set() for k in keys}
     pair_set=set()
