@@ -229,20 +229,41 @@ export default function App(){
     const sha=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',bytes)))
       .map(x=>x.toString(16).padStart(2,'0')).join('');
     if(identityEpoch.current!==epoch)return;
-    const ready=await request<{case_version:number;result:{upload_id:string}}>(
-      base+'/secure-documents/prepare','POST',
-      {sha256:sha,size:file.size,filename:file.name},
-      {'If-Match':'"case:'+caseId+':v'+detail.case_version+'"'});
+    // Resume the exact pending intent across reloads rather than creating
+    // a second immutable intent. A different PDF gets audited supersession.
+    const history=await request<{results:{id:string;sha256:string;size:number;state:string}[]}>(
+      base+'/secure-documents');
     if(identityEpoch.current!==epoch)return;
+    const latest=history.results.at(-1);
+    const resume=latest?.state==='AWAITING_CONTENT'&&
+      latest.sha256===sha&&latest.size===file.size;
+    let uploadId:string;
+    let version=detail.case_version;
+    if(resume){
+      uploadId=latest.id;
+    }else{
+      const ready=await request<{case_version:number;result:{upload_id:string}}>(
+        base+'/secure-documents/prepare','POST',
+        {sha256:sha,size:file.size,filename:file.name},
+        {'If-Match':'"case:'+caseId+':v'+detail.case_version+'"'});
+      if(identityEpoch.current!==epoch)return;
+      uploadId=ready.result.upload_id;
+      version=ready.case_version;
+    }
     const multipart=new FormData();
     multipart.set('file',file);
-    const response=await fetch(base+'/secure-documents/'+ready.result.upload_id+'/content',{
-      method:'POST',credentials:'same-origin',
-      headers:{'X-CSRFToken':csrf,'Idempotency-Key':crypto.randomUUID(),
-        'If-Match':'"case:'+caseId+':v'+ready.case_version+'"'},
-      body:multipart});
-    const data=await response.json() as ApiError;
-    if(!response.ok)throw new Error(data.error?.code||'HTTP '+response.status);
+    try{
+      const response=await fetch(base+'/secure-documents/'+uploadId+'/content',{
+        method:'POST',credentials:'same-origin',
+        headers:{'X-CSRFToken':csrf,'Idempotency-Key':uploadId,
+          'If-Match':'"case:'+caseId+':v'+version+'"'},
+        body:multipart});
+      const data=await response.json() as ApiError;
+      if(!response.ok)throw new Error(data.error?.code||'HTTP '+response.status);
+    }catch(e){
+      if(identityEpoch.current===epoch)await reloadCase(caseId,me);
+      throw e;
+    }
     if(identityEpoch.current!==epoch)return;
     await reloadCase(caseId,me);
   }
