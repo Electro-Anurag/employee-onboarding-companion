@@ -135,7 +135,7 @@ test('four-role real-browser case, template, dependency and evidence journey',as
       await expect(manager.getByText('1/17 mandatory tasks completed')).toBeVisible();
       await expect(taskCard(manager,'Team Introduction')).not.toContainText('PREREQUISITE_INCOMPLETE');
       await expect(taskCard(manager,'Workspace Access')).toContainText('PREREQUISITE_INCOMPLETE');
-      await expect(manager.getByText(/Synthetic document handling is not general malware scanning or production storage/)).toBeVisible();
+      await expect(manager.getByText(/Separate real S3 processing requires explicitly configured private buckets and a scanner/)).toBeVisible();
       await expect(taskCard(manager,'Manager Preparation').getByRole('button',{name:'Complete preparation'})).toHaveCount(0);
     });
 
