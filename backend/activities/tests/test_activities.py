@@ -403,3 +403,75 @@ def test_generic_start_keeps_initial_activity_schedule_reachable(world):
     assert status==201 and result['result']['revision']==1
     assert ActivityOccurrence.objects.filter(task=task).count()==1
     assert TaskCompletion.objects.filter(task=task).count()==0
+
+@pytest.mark.django_db(transaction=True)
+def test_overdue_cancelled_meeting_recovers_with_real_elapsed_reschedule(world):
+    """E04/R6: command-only occurrence revisions; no ORM-created past meeting.
+
+    Real wall-clock delay is intentional: both Django and PostgreSQL enforce
+    that attendance is recorded only after the current occurrence ends.
+    """
+    org,people=world
+    tasks=[
+        dict(key='overdue_orientation',kind='ACTIVITY',owner_role='HR',
+            title='Overdue mandatory orientation',required=True,
+            available_offset_days=-33,due_offset_days=-30,
+            evidence_spec={'type':'ACTIVITY'}),
+        dict(key='followup',kind='CHECK_IN',owner_role='MANAGER',
+            title='Unlocked after actual attended session',required=True,
+            available_offset_days=-30,due_offset_days=5,
+            evidence_spec={'type':'CHECK_IN'}),
+    ]
+    draft=create_template(actor=people['HR'][0],key='overdue_'+str(uuid.uuid4())[:8],
+        name='Overdue real attendee recovery',tasks=tasks,
+        edges=[{'predecessor':'overdue_orientation','successor':'followup'}])
+    published=publish_template(actor=people['HR'][0],template_id=uuid.UUID(draft['id']),
+        revision=1)
+    made,_=create(world,uuid.UUID(published['version_id']),offset=28)
+    case=OnboardingCase.objects.get(pk=made['case_id'])
+    activate_case(actor=people['HR'][0],case_id=case.pk,
+        key=uuid.uuid4(),expected_version=1)
+    task=Task.objects.get(case=case,key='overdue_orientation')
+    dependent=Task.objects.get(case=case,key='followup')
+    due=task.due_at
+    assert due<timezone.now() and dependent.execution_state=='BLOCKED'
+    first_start=timezone.now()+timedelta(seconds=65)
+    first,_=schedule(actor=people['HR'][0],case_id=case.pk,task_id=task.pk,
+        start=first_start,end=first_start+timedelta(seconds=1),
+        medium='VIDEO',reference='Cancelled overdue orientation',
+        reason='Rearrange mandatory activity past old deadline',
+        key=uuid.uuid4(),expected_version=2)
+    first_id=uuid.UUID(first['result']['occurrence_id'])
+    cancelled,_=cancel_occurrence(actor=people['HR'][0],case_id=case.pk,
+        task_id=task.pk,occurrence_id=first_id,
+        reason='Synthetic organizer cannot conduct original occurrence',
+        key=uuid.uuid4(),expected_version=3)
+    assert cancelled['result']['reschedule_required']
+    replacement_start=timezone.now()+timedelta(seconds=65)
+    replacement,_=schedule(actor=people['HR'][0],case_id=case.pk,task_id=task.pk,
+        start=replacement_start,end=replacement_start+timedelta(seconds=1),
+        medium='IN_PERSON',reference='Overdue rescheduled meeting',
+        reason='Recover after confirmed cancellation and overdue date',
+        key=uuid.uuid4(),expected_version=4)
+    assert replacement['result']['revision']==2
+    second_id=uuid.UUID(replacement['result']['occurrence_id'])
+    assert second_id!=first_id
+    assert Task.objects.get(pk=task.pk).due_at==due
+    assert not TaskCompletion.objects.filter(task=task).exists()
+    assert not ActivityAttendance.objects.filter(occurrence_id=first_id).exists()
+    remaining=(replacement_start+timedelta(seconds=1)-timezone.now()).total_seconds()+.35
+    if remaining>0:
+        sleeping_time.sleep(remaining)
+    assert timezone.now()>replacement_start+timedelta(seconds=1)
+    attended,_=record_attendance(actor=people['HR'][0],
+        case_id=case.pk,task_id=task.pk,occurrence_id=second_id,
+        outcome='ATTENDED',note='Assigned organizer verified actually elapsed recovery session',
+        key=uuid.uuid4(),expected_version=5)
+    assert attended['result']['task_completion']=='COMPLETED'
+    assert Task.objects.get(pk=task.pk).execution_state=='COMPLETED'
+    assert Task.objects.get(pk=dependent.pk).execution_state=='READY'
+    assert TaskCompletion.objects.get(task=task).activity_attendance_id==second_id or (
+        TaskCompletion.objects.get(task=task).activity_attendance.occurrence_id==second_id)
+    assert ActivityCancellation.objects.filter(occurrence_id=first_id).exists()
+    assert AuditEvent.objects.filter(event_type='ACTIVITY_RESCHEDULED',
+        sanitized_change__scheduled_after_due=True).exists()
