@@ -837,3 +837,86 @@ def test_astra_r6_blank_required_manager_evidence_denied_without_side_effects(wo
     assert saved.prepared_fields['first_week_plan']=='Plan the first week carefully'
     assert saved.prepared_fields['buddy_name']=='Buddy'
     assert saved.note=='Evidence reviewed'
+
+
+@pytest.mark.django_db(transaction=True)
+def test_astra_r7_mixed_create_and_reassign_follow_same_order(world):
+    org,people=world
+    version=published(world)
+    old,_=create(world,version)
+    existing_case=OnboardingCase.objects.get(pk=old['case_id'])
+    # A deterministic target T sorts before the active HR user H.
+    target_user=User.objects.create_user(id=uuid.UUID(int=1),
+        email='it-sorted-before-hr@example.test',password='VerifiedStrongPassword!2026')
+    target=Membership.objects.create(user=target_user,organization=org,role='IT')
+    other_user=User.objects.create_user(email='second-employee@astervalelabs.test',
+        password='VerifiedStrongPassword!2026')
+    employee=Membership.objects.create(user=other_user,organization=org,role='EMPLOYEE')
+    barrier=Barrier(2)
+    def create_new():
+        close_old_connections()
+        try:
+            return create_case(actor=people['HR'][0],employee_id=employee.pk,
+                template_version_id=version,joining_date=timezone.localdate()+timedelta(days=27),
+                owner_ids={'IT':target.pk,'MANAGER':people['MANAGER'][1].pk},
+                key=uuid.uuid4(),_test_before_user_locks=lambda:barrier.wait(timeout=8))
+        finally:close_old_connections()
+    def rotate_old():
+        close_old_connections()
+        try:
+            return reassign_owner(actor=people['HR'][0],case_id=existing_case.pk,
+                role='IT',new_member_id=target.pk,reason='Sorted mixed-owner rotation',
+                expected_version=1,key=uuid.uuid4(),
+                _test_after_case_lock=lambda:barrier.wait(timeout=8))
+        finally:close_old_connections()
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        a=pool.submit(create_new);b=pool.submit(rotate_old)
+        newly_created=a.result(timeout=15)
+        reassigned=b.result(timeout=15)
+    assert newly_created[1]==201
+    assert reassigned[1]==200
+    assert OnboardingCase.objects.count()==2
+    assert OnboardingCase.objects.get(pk=existing_case.pk).version==2
+    assert CaseAssignment.objects.get(case=existing_case,role='IT',effective_to__isnull=True).member_id==target.pk
+    assert CaseAssignment.objects.get(case_id=newly_created[0]['case_id'],role='IT').member_id==target.pk
+    assert AuditEvent.objects.filter(event_type='CASE_CREATED').count()==2
+
+
+@pytest.mark.django_db(transaction=True)
+def test_astra_r8_clock_only_refresh_projects_ready_and_respects_revocation(world):
+    from unittest.mock import patch
+    from backend.onboarding.state_machine import summary_task
+    org,people=world
+    draft=create_default(actor=people['HR'][0])
+    modified=[{**task,'available_offset_days':0,'due_offset_days':1}
+              if task['key']=='manager_preparation' else task
+              for task in draft['tasks']]
+    updated=edit_template(actor=people['HR'][0],template_id=uuid.UUID(draft['id']),
+        revision=1,tasks=modified,edges=draft['dependencies'])
+    version=publish_template(actor=people['HR'][0],template_id=uuid.UUID(draft['id']),
+        revision=updated['revision'])
+    created,_=create(world,uuid.UUID(version['version_id']),offset=2)
+    case=OnboardingCase.objects.get(pk=created['case_id'])
+    activate_case(actor=people['HR'][0],case_id=case.pk,key=uuid.uuid4(),expected_version=1)
+    manager=Task.objects.get(case=case,key='manager_preparation')
+    assert manager.execution_state=='NOT_STARTED'
+    first=summary_task(manager,people['MANAGER'][1],case)
+    assert first['state']=='NOT_STARTED' and first['allowed_actions']==[]
+    future=manager.available_at+timedelta(minutes=5)
+    with patch('backend.onboarding.state_machine.timezone.now',return_value=future):
+        ready=summary_task(manager,people['MANAGER'][1],case)
+        assert ready['state']=='READY'
+        assert 'START' in ready['allowed_actions']
+        people['MANAGER'][1].available=False
+        people['MANAGER'][1].save(update_fields=['available'])
+        blocked=summary_task(manager,people['MANAGER'][1],case)
+        assert blocked['state']=='BLOCKED'
+        assert 'OWNER_UNAVAILABLE' in blocked['blocked_reason_codes']
+        assert blocked['allowed_actions']==[]
+        people['MANAGER'][1].available=True
+        people['MANAGER'][1].save(update_fields=['available'])
+        started,status=start_task(actor=people['MANAGER'][0],case_id=case.pk,
+            task_id=manager.pk,key=uuid.uuid4(),expected_version=2)
+        assert status==200 and started['result']['state']=='IN_PROGRESS'
+    manager.refresh_from_db()
+    assert manager.execution_state=='IN_PROGRESS'
