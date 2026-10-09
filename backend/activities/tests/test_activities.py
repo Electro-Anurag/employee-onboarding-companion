@@ -61,6 +61,13 @@ def test_schedule_is_organizer_owned_append_only_and_never_self_completes(world)
             occurrence_id=occ.pk,outcome='ATTENDED',note='Invalid early attendance',
             key=uuid.uuid4(),expected_version=3)
     assert future.value.code=='FUTURE_ATTENDANCE_FORBIDDEN'
+    # Direct ORM insertion must also fail: API validation is not enough.
+    with pytest.raises(DatabaseError):
+        with transaction.atomic():
+            ActivityAttendance.objects.create(occurrence=occ,
+                recorded_by=people['HR'][0],outcome='ATTENDED',
+                note='Forged event that has not happened')
+    assert ActivityAttendance.objects.count()==0
     changed,code=schedule(actor=people['HR'][0],case_id=case.pk,task_id=task.pk,
         start=now+timedelta(hours=4),end=now+timedelta(hours=5),
         medium='IN_PERSON',reference='Synthetic conference room',
@@ -95,6 +102,12 @@ def test_current_elapsed_organizer_attendance_missed_then_passed_unlocks_depende
             occurrence_id=first.pk,outcome='ATTENDED',note='Not the assigned manager',
             key=uuid.uuid4(),expected_version=3)
     assert wrong_role.value.code=='NOT_FOUND'
+    with pytest.raises(DatabaseError):
+        with transaction.atomic():
+            ActivityAttendance.objects.create(occurrence=first,
+                recorded_by=people['HR'][0],outcome='ATTENDED',
+                note='Direct database spoof of manager authority')
+    assert ActivityAttendance.objects.count()==0
     missed,status=record_attendance(actor=people['MANAGER'][0],
         case_id=case.pk,task_id=task.pk,occurrence_id=first.pk,
         outcome='MISSED',note='Employee did not attend this time',
