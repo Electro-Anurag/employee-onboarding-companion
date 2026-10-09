@@ -98,8 +98,11 @@ def receive(*,actor,case_id,task_id,upload_id,raw,key,expected_version):
         raise CommandFailure('NOT_FOUND',404)
     upload=SecureUpload.objects.select_related('task').filter(
         pk=upload_id,task_id=task_id,task__case=case,employee=actor).first()
-    if not upload or _latest_upload(upload.task).pk!=upload.pk:
+    if not upload:
         raise CommandFailure('NOT_FOUND',404)
+    # An authorized historical receipt must be replayable even after a
+    # replacement revision supersedes this upload; NEW writes are checked
+    # against the latest revision below, after the receipt preflight.
     if len(raw)!=upload.byte_length or hashlib.sha256(raw).hexdigest()!=upload.sha256:
         raise CommandFailure('UPLOAD_CONTENT_MISMATCH',422)
     validate_pdf(raw)

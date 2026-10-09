@@ -140,8 +140,10 @@ def test_m3_s3_malware_cannot_be_reviewed_and_allows_fresh_revision(world,s3_dou
         sha256=sha,size=len(raw),filename='anonymized_example.pdf',
         key=uuid.uuid4(),expected_version=2)
     upload_id=uuid.UUID(first['result']['upload_id'])
-    receive(actor=people['EMPLOYEE'][0],case_id=case.pk,task_id=task.pk,
-        upload_id=upload_id,raw=raw,key=uuid.uuid4(),expected_version=3)
+    original_key=uuid.uuid4()
+    original_receipt=receive(actor=people['EMPLOYEE'][0],case_id=case.pk,
+        task_id=task.pk,upload_id=upload_id,raw=raw,key=original_key,
+        expected_version=3)
     scan=scan_one(upload_id,scanner=lambda content:('MALWARE','EICAR test signature found'))
     assert scan['state']=='REJECTED_SECURITY'
     assert not SecureCleanObject.objects.exists()
@@ -156,6 +158,14 @@ def test_m3_s3_malware_cannot_be_reviewed_and_allows_fresh_revision(world,s3_dou
         key=uuid.uuid4(),expected_version=4)
     assert replacement['result']['revision']==2
     assert Task.objects.get(pk=task.pk).execution_state=='IN_PROGRESS'
+    assert receive(actor=people['EMPLOYEE'][0],case_id=case.pk,task_id=task.pk,
+        upload_id=upload_id,raw=raw,key=original_key,
+        expected_version=3)==original_receipt
+    # New idempotency key cannot upload into the superseded revision.
+    with pytest.raises(CommandFailure) as outdated:
+        receive(actor=people['EMPLOYEE'][0],case_id=case.pk,task_id=task.pk,
+            upload_id=upload_id,raw=raw,key=uuid.uuid4(),expected_version=5)
+    assert outdated.value.code=='UPLOAD_NOT_CURRENT'
 
 @pytest.mark.django_db(transaction=True)
 def test_m3_s3_http_private_download_and_employee_content_auth(world,s3_doubles):
