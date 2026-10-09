@@ -206,7 +206,7 @@ def test_m2_hr_only_draft_and_created_case_privacy_http(world):
     r=c.post('/api/v1/templates/'+tmpl['id']+'/publish','{}',
           content_type='application/json',HTTP_X_CSRFTOKEN=csrf,
           HTTP_IDEMPOTENCY_KEY=str(uuid.uuid4()),
-          HTTP_IF_MATCH=f'"template:{tmpl["id"]}:r1"')
+          HTTP_IF_MATCH=f'"template:{tmpl["id"]}:version:{tmpl["version_id"]}:r1"')
     assert r.status_code==200,r.content
     body={'employee_id':str(p['EMPLOYEE'][1].pk),'template_version_id':tmpl['version_id'],
           'joining_date':(timezone.localdate()+timedelta(days=28)).isoformat(),

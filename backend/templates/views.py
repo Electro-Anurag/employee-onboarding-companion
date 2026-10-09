@@ -1,4 +1,5 @@
 """Scoped template HTTP endpoints. No publish, update or clone bypasses service authority."""
+import uuid
 from django.core.exceptions import PermissionDenied
 from django.db import transaction,DatabaseError,IntegrityError
 from django.http import JsonResponse
@@ -63,26 +64,36 @@ def detail(request,template_id):
     except DatabaseError as exc:return transient_db_response(exc,preflight=True)
 
 def _revision(request,template_id):
+    """Precondition binds a concrete version UUID AND its current revision."""
     match=request.headers.get('If-Match','')
-    prefix=f'"template:{template_id}:r'
+    prefix=f'"template:{template_id}:version:'
     if not match.startswith(prefix) or not match.endswith('"'):
         raise InputError('PRECONDITION_REQUIRED',428)
-    try:revision=int(match[len(prefix):-1])
-    except ValueError:raise InputError('INVALID_ETAG',422)
-    if revision<1:raise InputError('INVALID_ETAG',422)
-    return revision
+    tail=match[len(prefix):-1]
+    if ':r' not in tail:
+        raise InputError('INVALID_ETAG',422)
+    version_text,revision_text=tail.rsplit(':r',1)
+    try:
+        version_id=uuid.UUID(version_text)
+        revision=int(revision_text)
+    except (ValueError,TypeError):
+        raise InputError('INVALID_ETAG',422)
+    if revision<1 or version_text!=str(version_id):
+        raise InputError('INVALID_ETAG',422)
+    return version_id,revision
 
 @csrf_protect
 @require_http_methods(['PATCH'])
 def draft(request,template_id):
     try:
-        revision=_revision(request,template_id)
+        version_id,revision=_revision(request,template_id)
         data=json_payload(request,65536,{'tasks','dependencies'})
         if set(data)!=set(('tasks','dependencies')):raise InputError('INVALID_TEMPLATE',422)
     except InputError as exc:return error(exc.code,exc.status)
-    return _apply(request,'m2-template-edit',str(template_id),{'revision':revision,**data},
+    return _apply(request,'m2-template-edit',str(template_id),{'version_id':str(version_id),'revision':revision,**data},
         lambda:services.edit_template(actor=request.user,template_id=template_id,
-            revision=revision,tasks=data['tasks'],edges=data['dependencies']))
+            revision=revision,expected_version_id=version_id,
+            tasks=data['tasks'],edges=data['dependencies']))
 
 @csrf_protect
 @require_POST
@@ -91,8 +102,9 @@ def publish(request,template_id):
         revision=_revision(request,template_id)
         json_payload(request,1024,set())
     except InputError as exc:return error(exc.code,exc.status)
-    return _apply(request,'m2-template-publish',str(template_id),{'revision':revision},
-        lambda:services.publish_template(actor=request.user,template_id=template_id,revision=revision))
+    return _apply(request,'m2-template-publish',str(template_id),{'version_id':str(version_id),'revision':revision},
+        lambda:services.publish_template(actor=request.user,template_id=template_id,revision=revision,
+            expected_version_id=version_id))
 
 @csrf_protect
 @require_POST
