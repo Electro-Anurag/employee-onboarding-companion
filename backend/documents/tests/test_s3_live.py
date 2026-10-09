@@ -37,8 +37,12 @@ def test_live_s3_exact_versions_and_actual_antivirus_rejection_then_hr_approval(
     equipment=Task.objects.get(case=case,key='equipment_setup')
     assert equipment.execution_state=='BLOCKED'
     raw=generated_pdf()
-    attack=raw.replace(b'%%EOF',b'%'+EICAR+b'\\n%%EOF')
-    attack=attack.replace(b'\\n%%EOF',b'\n%%EOF')
+    # PDF comments are legal immediately before startxref. Insert the
+    # contiguous EICAR signature after the xref and trailer, so its absolute
+    # offsets stay valid and the strict PDF validator remains enabled.
+    assert raw.count(b'startxref\n')==1
+    attack=raw.replace(b'startxref\n',b'%'+EICAR+b'\nstartxref\n',1)
+    assert attack.count(EICAR)==1
     # Must still be a well-formed PDF for the scanner security gate.
     from backend.documents.pdf_validation import validate_pdf
     validate_pdf(attack)
