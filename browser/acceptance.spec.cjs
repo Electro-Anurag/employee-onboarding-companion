@@ -227,9 +227,12 @@ test('four-role real-browser case, template, dependency and evidence journey',as
       await openCase(employee);
       const document=taskCard(employee,'Identity Document');
       await expect(document).toContainText('READY');
-      const fixture=Buffer.from(
-        'SYNTHETIC DOCUMENT V1\\nIDENTITY EXAMPLE: DEMO-IDENTITY-001\\nNO REAL PERSON OR IDENTITY DATA\\n'
-          .replaceAll('\\n','\\n'),'utf8');
+      const fixture=Buffer.from([
+        'SYNTHETIC DOCUMENT V1',
+        'IDENTITY EXAMPLE: DEMO-IDENTITY-001',
+        'NO REAL PERSON OR IDENTITY DATA',
+        ''
+      ].join(String.fromCharCode(10)),'utf8');
       await document.locator('input[type="file"]').setInputFiles({
         name:'synthetic_identity.txt',mimeType:'text/plain',buffer:fixture});
       await document.getByRole('button',{name:'Upload synthetic document'}).click();
