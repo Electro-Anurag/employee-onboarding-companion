@@ -8,7 +8,7 @@ from backend.onboarding.commands import _task_command,_receipt
 from backend.onboarding.services import CommandFailure,set_command_timeouts
 from backend.onboarding.state_machine import recompute
 from backend.audit.services import append_event
-from backend.provisioning.models import ITOperation,ITConfirmation,EquipmentReceipt
+from backend.provisioning.models import ITOperation,ITConfirmation,EquipmentReceipt,ITSimulationFailure
 from backend.onboarding.models import Task,TaskDependency,TaskCompletion
 from backend.onboarding.state_machine import case_progress
 
@@ -180,3 +180,50 @@ def receive_equipment(*,actor,case_id,task_id,it_confirmation_id,note,key,expect
             'event_ids':[str(event[0])]}
         _receipt(actor,'m4-equipment-receipt',key,digest,case,response,200)
     return response,200
+
+def record_simulated_failure(*,actor,case_id,task_id,cause,note,key,expected_version):
+    """Record an explicit synthetic provider failure without unlocking any task.
+
+    Each bounded retry uses the existing operation; success remains a separate
+    command followed by a separate authorized IT confirmation.
+    """
+    if (cause not in ('PROVIDER_UNAVAILABLE','SIMULATED_TIMEOUT','SIMULATED_REJECTION')
+        or not isinstance(note,str) or not 8<=len(note.strip())<=300):
+        raise CommandFailure('INVALID_SIMULATED_FAILURE',422)
+    note=note.strip()
+    with transaction.atomic():
+        set_command_timeouts()
+        case,member,task,prior,digest=_task_command(actor,case_id,task_id,
+            'm4-it-failure',key,{'task_id':str(task_id),'cause':cause,'note':note},
+            expected_version)
+        if prior is not None:return prior.response,prior.status_code
+        if member.role!=Membership.IT or task.kind not in ('ACCESS','EQUIPMENT'):
+            raise CommandFailure('WRONG_IT_TASK_KIND',422)
+        recompute(case)
+        task.refresh_from_db()
+        if task.execution_state!='IN_PROGRESS':
+            raise CommandFailure('TASK_NOT_IN_PROGRESS',409)
+        operation=ITOperation.objects.select_for_update().filter(task=task).first()
+        if operation is None or operation.status!='REQUESTED':
+            raise CommandFailure('IT_PENDING_REQUEST_REQUIRED',409)
+        last=ITSimulationFailure.objects.filter(operation=operation).order_by('-sequence').first()
+        sequence=last.sequence+1 if last else 1
+        if sequence>5:raise CommandFailure('SIMULATED_FAILURE_LIMIT',409)
+        failure=ITSimulationFailure.objects.create(operation=operation,
+            sequence=sequence,reported_by=actor,cause=cause,note=note)
+        case.version+=1
+        case.save(update_fields=['version'])
+        event=append_event(stream_key=f'case:{case.pk}',actor=actor,
+            event_type='IT_SIMULATION_FAILED',entity_id=task.pk,changes={
+                'operation_id':str(operation.pk),'failure_id':str(failure.pk),
+                'cause':cause,'sequence':sequence,'case_version':case.version,
+                'provider':'SYNTHETIC_ONLY','task_completion':'IN_PROGRESS'})
+        response={'command_id':str(uuid.uuid4()),'case_id':str(case.pk),
+            'case_version':case.version,'result':{
+                'task_id':str(task.pk),'operation_id':str(operation.pk),
+                'failure_id':str(failure.pk),'failure_sequence':sequence,
+                'state':'REQUESTED','provider':'SYNTHETIC_ONLY',
+                'retry_explicitly_available':True,'task_completion':'IN_PROGRESS'},
+            'affected_task_ids':[str(task.pk)],'event_ids':[str(event[0])]}
+        _receipt(actor,'m4-it-failure',key,digest,case,response,201)
+    return response,201

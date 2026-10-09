@@ -43,6 +43,7 @@ urlpatterns = [
     path('api/v1/cases/<uuid:case_id>/tasks/<uuid:task_id>/it-operation',it.operation_detail),
     path('api/v1/cases/<uuid:case_id>/tasks/<uuid:task_id>/it-operation/request',it.request_it),
     path('api/v1/cases/<uuid:case_id>/tasks/<uuid:task_id>/it-operation/simulate',it.simulate_it),
+    path('api/v1/cases/<uuid:case_id>/tasks/<uuid:task_id>/it-operation/simulated-failure',it.simulated_failure),
     path('api/v1/cases/<uuid:case_id>/tasks/<uuid:task_id>/it-operation/confirm',it.confirm_it),
     path('api/v1/cases/<uuid:case_id>/tasks/<uuid:task_id>/equipment-receipt',it.receipt),
     path('api/v1/cases/<uuid:case_id>/tasks/<uuid:task_id>/equipment-receipt/source',it.equipment_receipt_source),

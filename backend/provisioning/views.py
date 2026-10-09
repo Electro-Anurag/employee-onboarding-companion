@@ -10,7 +10,7 @@ from backend.onboarding.api_m2 import headers,command
 from backend.onboarding.services import CommandFailure,get_authorized_case
 from backend.onboarding.models import Task
 from backend.provisioning import commands
-from backend.provisioning.models import ITOperation,ITConfirmation
+from backend.provisioning.models import ITOperation,ITConfirmation,ITSimulationFailure
 
 @csrf_protect
 @require_POST
@@ -49,6 +49,10 @@ def operation_detail(request,case_id,task_id):
         return JsonResponse({'task_id':str(task.pk),'operation_id':str(operation.pk),
             'state':operation.status,'provider':'SYNTHETIC_ONLY',
             'simulation_digest':operation.simulation_digest or None,
+            'failures':[{'id':str(f.pk),'sequence':f.sequence,'cause':f.cause,
+                'note':f.note,'recorded_at':f.reported_at.isoformat()}
+                for f in ITSimulationFailure.objects.filter(operation=operation).order_by('sequence')],
+            'retry_explicitly_available':operation.status=='REQUESTED',
             'task_completion':'COMPLETED' if ITConfirmation.objects.filter(operation=operation).exists() else 'NOT_YET_SUPPORTED',
             'confirmation_id':str(operation.confirmation.pk) if ITConfirmation.objects.filter(operation=operation).exists() else None})
     except (PermissionDenied,CommandFailure):return error('NOT_FOUND',404)
@@ -100,3 +104,15 @@ def equipment_receipt_source(request,case_id,task_id):
                              'provider':'SYNTHETIC_ONLY','candidates':candidates})
     except (PermissionDenied,CommandFailure):return error('NOT_FOUND',404)
     except DatabaseError as exc:return transient_db_response(exc,preflight=True)
+
+@csrf_protect
+@require_POST
+def simulated_failure(request,case_id,task_id):
+    def execute():
+        data=json_payload(request,1024,{'cause','note'})
+        if set(data)!={'cause','note'}:raise InputError('MISSING_FIELD',422)
+        key,version=headers(request,case_id)
+        return commands.record_simulated_failure(actor=request.user,
+            case_id=case_id,task_id=task_id,cause=data['cause'],note=data['note'],
+            key=key,expected_version=version)
+    return command(execute)
