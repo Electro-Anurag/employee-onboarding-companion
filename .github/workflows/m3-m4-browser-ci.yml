@@ -59,11 +59,13 @@ jobs:
           umask 077
           export M2_BROWSER_CREDENTIAL_FILE="$RUNNER_TEMP/m2-synthetic-accounts.txt"
           export M4_BROWSER_CREDENTIAL_FILE="$RUNNER_TEMP/m4-synthetic-training-meetings.txt"
+          export M4_START_BROWSER_CREDENTIAL_FILE="$RUNNER_TEMP/m4-synthetic-start-regression.txt"
           uv run python manage.py seed_m2_demo --confirm-synthetic --include-second-hr > "$M2_BROWSER_CREDENTIAL_FILE"
           uv run python manage.py seed_m4_browser --confirm-synthetic > "$M4_BROWSER_CREDENTIAL_FILE"
+          uv run python manage.py seed_m4_start_browser --confirm-synthetic > "$M4_START_BROWSER_CREDENTIAL_FILE"
           uv run python manage.py runserver --nostatic --noreload 127.0.0.1:8000 > "$RUNNER_TEMP/m2-django-server.log" 2>&1 &
           server_pid=$!
-          trap 'kill "$server_pid" 2>/dev/null || true; rm -f "$M2_BROWSER_CREDENTIAL_FILE" "$M4_BROWSER_CREDENTIAL_FILE"' EXIT
+          trap 'kill "$server_pid" 2>/dev/null || true; rm -f "$M2_BROWSER_CREDENTIAL_FILE" "$M4_BROWSER_CREDENTIAL_FILE" "$M4_START_BROWSER_CREDENTIAL_FILE"' EXIT
           ready=0
           for attempt in $(seq 1 50); do
             if curl --fail --silent --output /dev/null http://127.0.0.1:8000/health/ready; then ready=1; break; fi
