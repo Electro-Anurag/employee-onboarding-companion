@@ -525,3 +525,58 @@ def test_m2_two_connection_start_task_conflict_is_atomic(world):
     assert OnboardingCase.objects.get(pk=case_id).version==3
     assert AuditEvent.objects.filter(event_type='TASK_STARTED').count()==1
     assert CommandReceipt.objects.filter(route='m2-task-start').count()==1
+
+
+@pytest.mark.django_db(transaction=True)
+def test_m2_template_idempotency_receipt_denied_after_editor_revocation(world):
+    org,people=world
+    hr_user,hr=people['HR']
+    client=Client(enforce_csrf_checks=True)
+    csrf=client.get('/api/v1/auth/csrf').json()['csrf_token']
+    login=client.post('/api/v1/auth/login',json.dumps({
+        'email':hr_user.email,'password':'VerifiedStrongPassword!2026'}),
+        content_type='application/json',HTTP_X_CSRFTOKEN=csrf)
+    assert login.status_code==200,login.content
+    csrf=client.get('/api/v1/auth/csrf').json()['csrf_token']
+    key=str(uuid.uuid4())
+    def issue():
+        return client.post('/api/v1/templates',json.dumps({'use_default':True}),
+            content_type='application/json',HTTP_X_CSRFTOKEN=csrf,
+            HTTP_IDEMPOTENCY_KEY=key)
+    first=issue()
+    assert first.status_code==201,first.content
+    assert issue().status_code==201
+    hr.can_manage_templates=False
+    hr.save(update_fields=['can_manage_templates'])
+    forbidden=issue()
+    assert forbidden.status_code==403,forbidden.content
+    assert forbidden.json()['error']['code']=='FORBIDDEN'
+    assert TemplateVersion.objects.count()==1
+    assert CommandReceipt.objects.filter(route='m2-template-create').count()==1
+
+@pytest.mark.django_db(transaction=True)
+def test_m2_template_idempotency_receipt_denied_after_org_transfer(world):
+    org,people=world
+    hr_user,hr=people['HR']
+    client=Client(enforce_csrf_checks=True)
+    csrf=client.get('/api/v1/auth/csrf').json()['csrf_token']
+    login=client.post('/api/v1/auth/login',json.dumps({
+        'email':hr_user.email,'password':'VerifiedStrongPassword!2026'}),
+        content_type='application/json',HTTP_X_CSRFTOKEN=csrf)
+    assert login.status_code==200,login.content
+    csrf=client.get('/api/v1/auth/csrf').json()['csrf_token']
+    key=str(uuid.uuid4())
+    def issue():
+        return client.post('/api/v1/templates',json.dumps({'use_default':True}),
+            content_type='application/json',HTTP_X_CSRFTOKEN=csrf,
+            HTTP_IDEMPOTENCY_KEY=key)
+    first=issue()
+    assert first.status_code==201,first.content
+    second_org=Organization.objects.create(name='New authorized organization')
+    Membership.objects.filter(pk=hr.pk).update(organization=second_org)
+    forbidden=issue()
+    assert forbidden.status_code==403,forbidden.content
+    assert forbidden.json()['error']['code']=='FORBIDDEN'
+    assert TemplateVersion.objects.filter(template__organization=org).count()==1
+    assert TemplateVersion.objects.filter(template__organization=second_org).count()==0
+    assert CommandReceipt.objects.filter(route='m2-template-create').count()==1
