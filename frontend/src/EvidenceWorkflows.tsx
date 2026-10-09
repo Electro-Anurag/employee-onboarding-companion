@@ -10,6 +10,7 @@ type DocumentRow={id:string;revision:number;filename:string;scan_status:string;
 type DocumentList={results:DocumentRow[];synthetic_only:boolean;malware_scanned:boolean};
 type ActivityOccurrence={id:string;revision:number;start:string;end:string;
   medium:'VIDEO'|'IN_PERSON';meeting_reference:string;reason:string;
+  cancellation:null|{id:string;reason:string;cancelled_at:string};
   attendance:null|{id:string;outcome:'ATTENDED'|'MISSED';note:string}};
 type ActivityHistory={results:ActivityOccurrence[];current_revision:number|null;task_state:string};
 type TrainingModule={module:{module_version:string;content_sha256:string;passing_score:number;
@@ -57,6 +58,7 @@ export default function EvidenceWorkflows({task,caseId,role,read,mutate,uploadDo
   const [activityReason,setActivityReason]=useState('');
   const [attendanceOutcome,setAttendanceOutcome]=useState<'ATTENDED'|'MISSED'>('ATTENDED');
   const [attendanceNote,setAttendanceNote]=useState('');
+  const [cancellationReason,setCancellationReason]=useState('');
   const base='/api/v1/cases/'+caseId+'/tasks/'+task.id;
   async function safeRun(fn:()=>Promise<void>){
     setBusy(true);setError('');
@@ -99,10 +101,12 @@ export default function EvidenceWorkflows({task,caseId,role,read,mutate,uploadDo
     const organizer=role===task.owner_role&&(role==='HR'||role==='MANAGER');
     const canSchedule=organizer&&(task.state==='READY'||task.state==='IN_PROGRESS')&&
       (!latest||latest.attendance?.outcome!=='ATTENDED');
+    const canCancel=(organizer||role==='HR')&&task.state==='IN_PROGRESS'&&
+      latest&&!latest.cancellation&&!latest.attendance&&Date.parse(latest.end)>Date.now();
     const slotValid=activityStart&&activityEnd&&
       Number.isFinite(Date.parse(activityStart))&&Number.isFinite(Date.parse(activityEnd))&&
       Date.parse(activityEnd)>Date.parse(activityStart);
-    const canRecord=organizer&&task.state==='IN_PROGRESS'&&latest&&!latest.attendance&&
+    const canRecord=organizer&&task.state==='IN_PROGRESS'&&latest&&!latest.attendance&&!latest.cancellation&&
       Date.parse(latest.end)<=Date.now();
     return <section className="subpanel" aria-label="Activity occurrence and attendance">
       <h5>Versioned meeting and attendance</h5>
@@ -114,7 +118,8 @@ export default function EvidenceWorkflows({task,caseId,role,read,mutate,uploadDo
       {activities&&activities.map(occ=><p className="meta" key={occ.id}>
         Revision {occ.revision}: {new Date(occ.start).toLocaleString()} — {new Date(occ.end).toLocaleString()},
         {' '}{occ.medium}: {occ.meeting_reference}.
-        {occ.attendance?' Attendance '+occ.attendance.outcome:' Attendance pending'}
+        {occ.cancellation?' Cancelled: '+occ.cancellation.reason:
+          occ.attendance?' Attendance '+occ.attendance.outcome:' Attendance pending'}
       </p>)}
       {canSchedule&&<div className="form">
         <label>Meeting start (local)
@@ -150,6 +155,20 @@ export default function EvidenceWorkflows({task,caseId,role,read,mutate,uploadDo
           await loadActivities();
           setActivityReason('');
         })}>{latest?'Record reschedule':'Schedule meeting occurrence'}</button>
+      </div>}
+      {canCancel&&latest&&<div className="form">
+        <label>Cancellation reason
+          <textarea required minLength={8} maxLength={300}
+            value={cancellationReason}
+            onChange={e=>setCancellationReason(e.target.value)}/>
+        </label>
+        <button disabled={busy||cancellationReason.trim().length<8}
+          onClick={()=>void safeRun(async()=>{
+            await mutate(base+'/activity-occurrences/'+latest.id+'/cancel',
+              {reason:cancellationReason});
+            await loadActivities();
+            setCancellationReason('');
+          })}>Cancel current occurrence (task remains incomplete)</button>
       </div>}
       {canRecord&&latest&&<div className="form">
         <label>Actual attendance outcome
