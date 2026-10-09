@@ -69,7 +69,7 @@ def test_real_form_revision_rejection_replacement_acceptance_and_replay(world):
     assert FormSubmission.objects.get(pk=first.pk).answers==answers
     assert Task.objects.get(pk=task.pk).execution_state=='COMPLETED'
     completion=Task.objects.get(pk=task.pk).completion
-    assert completion.evidence_type=='FORM' and completion.form_review_id==approved['result']['review_id']
+    assert completion.evidence_type=='FORM' and str(completion.form_review_id)==approved['result']['review_id']
     assert completion.manager_attestation_id is None
     assert Task.objects.get(case=case,key='equipment_setup').execution_state=='BLOCKED'
     assert AuditEvent.objects.filter(event_type='FORM_REVIEWED').count()==2
