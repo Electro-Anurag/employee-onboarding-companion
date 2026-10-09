@@ -41,3 +41,41 @@ def clamav_scan(payload):
             raise ScannerUnavailable('SCANNER_INDETERMINATE')
     except (OSError,TimeoutError) as exc:
         raise ScannerUnavailable('SCANNER_UNAVAILABLE') from exc
+
+def clamav_signature_provenance():
+    """Live clamd VERSION response and ≤48-hour signature database freshness.
+
+    Any missing/unparseable/outdated signature date prevents a CLEAN result.
+    This check is required on the real worker path (not deterministic test
+    doubles); a successful INSTREAM verdict alone is insufficient.
+    """
+    import re
+    from datetime import datetime,timezone as tz,timedelta
+    host=getattr(settings,'M3_CLAMAV_HOST','')
+    port=getattr(settings,'M3_CLAMAV_PORT',3310)
+    if not host:raise ScannerUnavailable('SCANNER_NOT_CONFIGURED')
+    try:
+        with socket.create_connection((host,port),timeout=2) as stream:
+            stream.settimeout(2)
+            stream.sendall(b'zVERSION\0')
+            result=bytearray()
+            while len(result)<256:
+                part=stream.recv(256-len(result))
+                if not part:break
+                result.extend(part)
+                if b'\0' in part or b'\n' in part:break
+    except OSError as exc:
+        raise ScannerUnavailable('SCANNER_VERSION_UNAVAILABLE') from exc
+    answer=bytes(result).rstrip(b'\r\n\0').decode('ascii','replace')
+    # Real clamd VERSION response: ClamAV X.Y.Z/DB_VERSION/Tue Oct 9 00:00:00 2026
+    parts=answer.split('/')
+    if len(parts)!=3 or not parts[0].startswith('ClamAV ') or not parts[1].isdigit():
+        raise ScannerUnavailable('INVALID_SCANNER_VERSION')
+    try:
+        stamp=datetime.strptime(parts[2],'%a %b %d %H:%M:%S %Y').replace(tzinfo=tz.utc)
+    except ValueError as exc:
+        raise ScannerUnavailable('INVALID_SIGNATURE_DATE') from exc
+    age=datetime.now(tz.utc)-stamp
+    if age<timedelta(minutes=-5) or age>timedelta(hours=48):
+        raise ScannerUnavailable('STALE_SCANNER_SIGNATURES')
+    return answer[:150]

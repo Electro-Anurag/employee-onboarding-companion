@@ -18,7 +18,7 @@ from backend.documents.real_models import (SecureUpload,StoredQuarantineObject,
     SecureScanAttempt,SecureCleanObject,SecureHRReview)
 from backend.documents import storage
 from backend.documents.pdf_validation import validate_pdf
-from backend.documents.scanner import clamav_scan,ScannerUnavailable
+from backend.documents.scanner import clamav_scan,ScannerUnavailable,clamav_signature_provenance
 
 SHA=re.compile(r'^[0-9a-f]{64}$')
 FILENAME=re.compile(r'^[a-zA-Z0-9][a-zA-Z0-9 _.()-]{0,115}\.pdf$')
@@ -170,6 +170,9 @@ def scan_one(upload_id,scanner=None):
                 raw=storage.read_exact(storage.buckets(storage.client())[0],
                     upload.object_key,stored.version_id,upload.sha256)
                 validate_pdf(raw)
+                scanner_info='TEST_SCANNER_OVERRIDE'
+                if scanner is None:
+                    scanner_info=clamav_signature_provenance()
                 verdict,detail=(scanner or clamav_scan)(raw)
                 if verdict not in ('CLEAN','MALWARE'):
                     verdict,detail='ERROR','SCANNER_INDETERMINATE'
@@ -179,7 +182,7 @@ def scan_one(upload_id,scanner=None):
                 verdict,detail='ERROR','SCANNER_UNEXPECTED_ERROR'
             previous=SecureScanAttempt.objects.create(upload=upload,number=number,
                 outcome=verdict,detail=str(detail)[:120],
-                scanner_version='CLAMAV_INSTREAM')
+                scanner_version=locals().get('scanner_info','SCANNER_UNAVAILABLE'))
         if verdict=='CLEAN':
             try:
                 obj_key,version=storage.promote(upload,stored.version_id)
