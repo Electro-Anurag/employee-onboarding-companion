@@ -512,3 +512,56 @@ def test_m3_bounded_parser_rejects_active_pdf_and_process_timeout():
         with pytest.raises(CommandFailure) as timed_out:
             validate_pdf(generated_pdf())
     assert timed_out.value.code=='PDF_PARSER_TIMEOUT'
+
+@pytest.mark.django_db(transaction=True)
+def test_m3_outline_actions_fail_closed_before_s3_and_valid_correction_completes(world,s3_doubles):
+    """S1: JS, Launch and remote outline actions may not reach quarantine."""
+    from pypdf.generic import DictionaryObject,NameObject,TextStringObject
+    org,people=world
+    made,_=create(world,published(world))
+    case=OnboardingCase.objects.get(pk=made['case_id'])
+    activate_case(actor=people['HR'][0],case_id=case.pk,key=uuid.uuid4(),expected_version=1)
+    task=Task.objects.get(case=case,key='identity_document')
+    for kind in ('/JavaScript','/Launch','/GoToR'):
+        writer=PdfWriter()
+        writer.add_blank_page(width=300,height=300)
+        outline=writer.add_outline_item('Synthetic audit bookmark',0)
+        action=DictionaryObject({NameObject('/S'):NameObject(kind)})
+        if kind=='/JavaScript':
+            action[NameObject('/JS')]=TextStringObject('app.alert("synthetic marker")')
+        else:
+            action[NameObject('/F')]=TextStringObject('synthetic-target.pdf')
+        outline.get_object()[NameObject('/A')]=action
+        stream=io.BytesIO()
+        writer.write(stream)
+        invalid_bytes=stream.getvalue()
+        with pytest.raises(CommandFailure) as blocked:
+            validate_pdf(invalid_bytes)
+        assert blocked.value.code=='INVALID_OR_UNSAFE_PDF'
+        if kind=='/JavaScript':
+            bad,_=prepare(actor=people['EMPLOYEE'][0],case_id=case.pk,task_id=task.pk,
+                sha256=hashlib.sha256(invalid_bytes).hexdigest(),size=len(invalid_bytes),
+                filename='outline_action.pdf',key=uuid.uuid4(),expected_version=2)
+            invalid_id=uuid.UUID(bad['result']['upload_id'])
+            with pytest.raises(CommandFailure) as denied:
+                receive(actor=people['EMPLOYEE'][0],case_id=case.pk,task_id=task.pk,
+                    upload_id=invalid_id,raw=invalid_bytes,key=uuid.uuid4(),expected_version=3)
+            assert denied.value.code=='INVALID_OR_UNSAFE_PDF'
+            assert not StoredQuarantineObject.objects.filter(upload_id=invalid_id).exists()
+            assert not SecureScanAttempt.objects.filter(upload_id=invalid_id).exists()
+            assert not TaskCompletion.objects.filter(task=task).exists()
+    good=generated_pdf()
+    corrected,_=prepare(actor=people['EMPLOYEE'][0],case_id=case.pk,task_id=task.pk,
+        sha256=hashlib.sha256(good).hexdigest(),size=len(good),
+        filename='safe_correction.pdf',key=uuid.uuid4(),expected_version=3)
+    assert corrected['result']['revision']==2
+    corrected_id=uuid.UUID(corrected['result']['upload_id'])
+    receive(actor=people['EMPLOYEE'][0],case_id=case.pk,task_id=task.pk,
+        upload_id=corrected_id,raw=good,key=corrected_id,expected_version=4)
+    assert scan_one(corrected_id,scanner=lambda _:('CLEAN','test-only scanner'))['state']=='AWAITING_HR_REVIEW'
+    accepted,_=review(actor=people['HR'][0],case_id=case.pk,task_id=task.pk,
+        upload_id=corrected_id,decision='ACCEPTED',
+        note='Reviewed safe replacement after rejected outline action',
+        key=uuid.uuid4(),expected_version=5)
+    assert accepted['result']['task_completion']=='COMPLETED'
+    assert SecureCleanObject.objects.filter(upload_id=invalid_id).count()==0
