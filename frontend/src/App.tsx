@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import './App.css';
 
 type Me = { display_name:string;role:'HR'|'IT'|'MANAGER'|'EMPLOYEE';user_id:string;capabilities?:{manage_templates:boolean;coordinate_ownership:boolean} };
@@ -15,6 +15,7 @@ type ApiError = {error?:{code?:string;message?:string}};
 
 export default function App(){
   const [me,setMe]=useState<Me|null>(null);
+  const identityEpoch=useRef(0);
   const [csrf,setCsrf]=useState('');
   const [email,setEmail]=useState('');
   const [password,setPassword]=useState('');
@@ -39,6 +40,16 @@ export default function App(){
   const [message,setMessage]=useState('Sign in to access assigned onboarding work.');
   const [busy,setBusy]=useState(false);
   const [tab,setTab]=useState<'cases'|'work'|'templates'>('cases');
+
+  function clearIdentityState(){
+    setMe(null);setCsrf('');setEmail('');setPassword('');
+    setCases([]);setWork([]);setTemplates([]);setOwners({});
+    setTemplate(null);setEditor('');setSelected(null);setDetail(null);
+    setEmployeeId('');setItId('');setManagerId('');setTemplateId('');
+    setJoiningDate('');setAttestTask(null);setPlan('');setBuddy('');
+    setStation(false);setNote('');setTab('cases');
+  }
+  function isCurrent(epoch:number){return epoch===identityEpoch.current;}
 
   async function request<T>(path:string,method='GET',body?:unknown,extra:Record<string,string>={}):Promise<T>{
     const headers:Record<string,string>={...extra};
@@ -69,21 +80,29 @@ export default function App(){
   })();},[]);
 
   async function refresh(identity:Me){
+    const epoch=identityEpoch.current;
     const nextCases=await request<{results:Case[]}>('/api/v1/cases');
+    if(!isCurrent(epoch))return;
     const nextWork=await request<{results:WorkspaceTask[]}>('/api/v1/workspaces/me');
+    if(!isCurrent(epoch))return;
     setCases(nextCases.results);
     setWork(nextWork.results);
     if(identity.role==='HR'){
       const t=await request<{results:Template[]}>('/api/v1/templates');
-      setTemplates(t.results);
+      if(!isCurrent(epoch))return;
       const entries=await Promise.all(['EMPLOYEE','IT','MANAGER'].map(async(role)=>{
         const v=await request<{results:Owner[]}>('/api/v1/owners?role='+role);
         return [role,v.results] as const;
       }));
+      if(!isCurrent(epoch))return;
+      setTemplates(t.results);
       setOwners(Object.fromEntries(entries));
     }
   }
-  useEffect(()=>{if(me)void refresh(me).catch(e=>setMessage('Unable to read workspace: '+String(e)));},[me]);
+  useEffect(()=>{if(me){
+    const epoch=identityEpoch.current;
+    void refresh(me).catch(e=>{if(isCurrent(epoch))setMessage('Unable to read workspace: '+String(e));});
+  }},[me]);
 
   async function perform(workflow:()=>Promise<void>){
     setBusy(true);
@@ -99,27 +118,36 @@ export default function App(){
       const m=await request<Me>('/api/v1/auth/me');
       const token=await fetch('/api/v1/auth/csrf',{credentials:'same-origin'});
       if(!token.ok)throw new Error('Could not refresh CSRF');
-      setCsrf((await token.json()).csrf_token);
-      setMe(m);setPassword('');
+      const newCsrf=(await token.json()).csrf_token;
+      identityEpoch.current+=1;
+      clearIdentityState();
+      setCsrf(newCsrf);
+      setMe(m);
     });
   }
   async function signOut(){
     await perform(async()=>{
       await request('/api/v1/auth/logout','POST',{});
-      setMe(null);setSelected(null);setDetail(null);setCases([]);setWork([]);setTemplates([]);
+      identityEpoch.current+=1;
+      clearIdentityState();
       const token=await fetch('/api/v1/auth/csrf',{credentials:'same-origin'});
       if(token.ok)setCsrf((await token.json()).csrf_token);
     });
   }
   async function selectCase(c:Case){
+    const epoch=identityEpoch.current;
     await perform(async()=>{
       const result=await request<TaskPayload>('/api/v1/cases/'+c.id+'/tasks');
+      if(!isCurrent(epoch))return;
       setSelected(c);setDetail(result);setTab('cases');setAttestTask(null);
     });
   }
   async function reloadCase(caseId:string,identity:Me){
+    const epoch=identityEpoch.current;
     await refresh(identity);
+    if(!isCurrent(epoch))return;
     const result=await request<TaskPayload>('/api/v1/cases/'+caseId+'/tasks');
+    if(!isCurrent(epoch))return;
     setDetail(result);setSelected(old=>old&&old.id===caseId?{...old,version:result.case_version,status:result.case_status}:old);
   }
   async function activate(){
@@ -159,15 +187,21 @@ export default function App(){
   }
   async function createDefault(){
     if(!me)return;
+    const epoch=identityEpoch.current;
     await perform(async()=>{
       const result=await request<Template>('/api/v1/templates','POST',{use_default:true});
+      if(!isCurrent(epoch))return;
       setTemplate(result);
-      await refresh(me);setTab('templates');
+      setEditor(JSON.stringify({tasks:result.tasks,dependencies:result.dependencies},null,2));
+      await refresh(me);
+      if(isCurrent(epoch))setTab('templates');
     });
   }
   async function showTemplate(item:Template){
+    const epoch=identityEpoch.current;
     await perform(async()=>{
       const result=await request<Template>('/api/v1/templates/'+item.id);
+      if(!isCurrent(epoch))return;
       setTemplate(result);
       setEditor(JSON.stringify({tasks:result.tasks,dependencies:result.dependencies},null,2));
     });
