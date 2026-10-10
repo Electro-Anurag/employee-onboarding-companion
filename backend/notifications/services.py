@@ -75,14 +75,15 @@ def reconcile_case(case_id,*,now=None):
             candidate=(_candidate(task,case,now)
                        if case.status in ACTIVE_CASES else None)
             active=list(ReminderIntent.objects.filter(case=case,task=task,
-                status='DELIVERED').select_related('notification'))
+                status='DELIVERED'))
             current_identities=set()
             if candidate:
                 person,rule,bucket=candidate
-                current_identities.add((str(person.pk),task.version,rule,bucket))
+                current_identities.add((str(person.pk),case.schedule_revision,
+                                        task.version,rule,bucket))
             for intent in active:
-                identity=(str(intent.recipient_id),intent.action_revision,
-                          intent.rule_code,intent.time_bucket)
+                identity=(str(intent.recipient_id),intent.schedule_revision,
+                          intent.action_revision,intent.rule_code,intent.time_bucket)
                 if (identity not in current_identities
                         or intent.due_at!=task.due_at):
                     intent.status='SUPERSEDED'
@@ -97,7 +98,7 @@ def reconcile_case(case_id,*,now=None):
                 continue
             person,rule,bucket=candidate
             reminder,created=ReminderIntent.objects.get_or_create(
-                subject_type='TASK',task=task,schedule_revision=0,
+                subject_type='TASK',task=task,schedule_revision=case.schedule_revision,
                 action_revision=task.version,recipient=person,
                 rule_code=rule,time_bucket=bucket,
                 defaults={'case':case,'due_at':task.due_at})
