@@ -13,6 +13,7 @@ class OnboardingCase(models.Model):
     STATUS_CHOICES=[(x,x) for x in ('CREATED','PRE_JOINING','ACTIVE','COMPLETED','CANCELLED')]
     status=models.CharField(max_length=16,default='CREATED',choices=STATUS_CHOICES)
     version=models.PositiveBigIntegerField(default=1)
+    schedule_revision=models.PositiveIntegerField(default=0)
     template_version=models.ForeignKey(TemplateVersion,on_delete=models.PROTECT,null=True)
     created_by=models.ForeignKey(User,on_delete=models.PROTECT,null=True,related_name='created_cases')
     activated_at=models.DateTimeField(null=True)
@@ -175,3 +176,24 @@ class CaseExceptionEvent(models.Model):
     class Meta:
         indexes=[models.Index(fields=['exception','created_at'],
             name='m5_exception_event_order')]
+
+class CaseDateChange(models.Model):
+    """Immutable HR-approved joined-date reschedule event, separate from task proof."""
+    id=models.UUIDField(primary_key=True,default=uuid.uuid4,editable=False)
+    case=models.ForeignKey(OnboardingCase,on_delete=models.PROTECT,related_name='date_changes')
+    revision=models.PositiveIntegerField()
+    prior_date=models.DateField()
+    joining_date=models.DateField()
+    preview_digest=models.CharField(max_length=64)
+    reason=models.CharField(max_length=240)
+    changed_by=models.ForeignKey(User,on_delete=models.PROTECT)
+    changes=models.JSONField(default=list)
+    preserved_task_ids=models.JSONField(default=list)
+    created_at=models.DateTimeField(default=timezone.now)
+    class Meta:
+        constraints=[
+            models.UniqueConstraint(fields=['case','revision'],name='m5_schedule_revision_unique'),
+            models.CheckConstraint(condition=models.Q(revision__gte=1),
+                name='m5_schedule_revision_positive')]
+        indexes=[models.Index(fields=['case','created_at'],
+            name='m5_schedule_change_order')]
