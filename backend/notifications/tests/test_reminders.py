@@ -1,5 +1,6 @@
 """M5 initial true PostgreSQL recipient/replay/reminder contract."""
 from datetime import timedelta
+import json
 import uuid
 import pytest
 from django.test import Client
@@ -11,6 +12,16 @@ from backend.onboarding.services import reassign_owner
 from backend.onboarding.tests.test_m2_workflow import world,published,create
 from backend.notifications.models import ReminderIntent,Notification
 from backend.notifications.services import reconcile_case,reconcile_batch
+
+
+def signed_in(user):
+    client=Client()
+    client.get('/api/v1/auth/csrf')
+    response=client.post('/api/v1/auth/login',
+        data=json.dumps({'email':user.email,'password':'VerifiedStrongPassword!2026'}),
+        content_type='application/json')
+    assert response.status_code==200,response.content
+    return client
 
 
 @pytest.mark.django_db(transaction=True)
@@ -41,8 +52,7 @@ def test_reminder_current_owner_duplicate_outage_and_resolution(world):
                                        status='SUPERSEDED').exists()
     assert reconcile_batch(now=later,limit=1)['processed']==1
 
-    client=Client()
-    client.force_login(actors['MANAGER'][0])
+    client=signed_in(actors['MANAGER'][0])
     resp=client.get('/api/v1/notifications')
     assert resp.status_code==200 and resp.json()['delivery']=='IN_APP_ONLY'
     current=[row for row in resp.json()['results'] if row['task_id']==str(task.pk)]
@@ -53,8 +63,7 @@ def test_reminder_current_owner_duplicate_outage_and_resolution(world):
     assert client.post('/api/v1/notifications/'+current[0]['id']+'/read',
                      data='{}',content_type='application/json').status_code==200
     assert Notification.objects.get(pk=current[0]['id']).read_at is not None
-    other=Client()
-    other.force_login(actors['IT'][0])
+    other=signed_in(actors['IT'][0])
     assert other.get('/api/v1/notifications')['Content-Type'].startswith('application/json')
     assert other.post('/api/v1/notifications/'+current[0]['id']+'/read',
         data='{}',content_type='application/json').status_code==404
@@ -79,7 +88,7 @@ def test_reminders_reassignment_revokes_old_owner_without_new_delivery(world):
     reassign_owner(actor=actors['HR'][0],case_id=case.pk,role='MANAGER',
         new_member_id=new_member.pk,reason='Synthetic on-call recovery',
         key=uuid.uuid4(),expected_version=case.version)
-    old=Client();old.force_login(actors['MANAGER'][0])
+    old=signed_in(actors['MANAGER'][0])
     assert old.get('/api/v1/notifications').json()['results']==[]
     assert old.post('/api/v1/notifications/'+str(old_note.pk)+'/read',
         data='{}',content_type='application/json').status_code==404
