@@ -4,18 +4,22 @@ const {test,expect}=require('@playwright/test');
 const file=process.env.M5_BROWSER_CREDENTIAL_FILE;
 if(!file)throw Error('M5 isolated browser fixture is required');
 const users={};
-let caseId,recoveryCaseId,recoveryManager;
+let caseId,recoveryCaseId,recoveryManager,handoffCaseId,handoffEmployee;
 for(const line of fs.readFileSync(file,'utf8').split(/\r?\n/)){
   const c=line.match(/^CASE\s+([\da-f-]{36})$/);
   const recovery=line.match(/^RECOVERY_CASE\s+([\da-f-]{36})$/);
   const replacement=line.match(/^RECOVERY_MANAGER\s+(\S+)\s+(\S+)$/);
   if(recovery)recoveryCaseId=recovery[1];
+  const handoffCase=line.match(/^HANDOFF_CASE\s+([\da-f-]{36})$/);
+  const handoffUser=line.match(/^HANDOFF_EMPLOYEE\s+(\S+)\s+(\S+)$/);
+  if(handoffCase)handoffCaseId=handoffCase[1];
+  if(handoffUser)handoffEmployee={email:handoffUser[1],password:handoffUser[2]};
   if(replacement)recoveryManager={email:replacement[1],password:replacement[2]};
   const u=line.match(/^(HR|EMPLOYEE|IT|MANAGER)\s+(\S+)\s+(\S+)$/);
   if(c)caseId=c[1];
   if(u)users[u[1]]={email:u[2],password:u[3]};
 }
-if(!caseId||!recoveryCaseId||!recoveryManager||!users.HR||!users.MANAGER)
+if(!caseId||!recoveryCaseId||!recoveryManager||!handoffCaseId||!handoffEmployee||!users.HR||!users.MANAGER)
   throw Error('Missing real M5 browser identities or recovery fixture');
 async function login(page,role){
   await page.goto('/');
@@ -206,4 +210,75 @@ test('M5 Chromium HR recovers unavailable owner through existing governed assign
     await expect(card(replacement,'M5 Manager Preparation')).toContainText('READY');
     await expect(card(replacement,'M5 Manager Preparation')).not.toContainText('COMPLETED');
   }finally{await Promise.allSettled([hrContext.close(),managerContext.close()]);}
+});
+
+
+test('M5 real worker: submitted form notifies HR, correction notifies employee with no private answer leak',async({browser})=>{
+  test.setTimeout(240000);
+  const employeeCtx=await browser.newContext();
+  const hrCtx=await browser.newContext();
+  const employee=await employeeCtx.newPage();
+  const hr=await hrCtx.newPage();
+  async function reviewNotice(page,summary){
+    await page.getByRole('button',{name:'In-app inbox'}).click();
+    const inbox=page.getByRole('region',{name:'In-app inbox'});
+    await expect.poll(async()=>{
+      await inbox.getByRole('button',{name:'Refresh inbox'}).click();
+      return await inbox.getByText(summary,{exact:true}).count();
+    },{timeout:98000,intervals:[2000]}).toBe(1);
+    return inbox;
+  }
+  try{
+    await employee.goto('/');
+    await employee.getByLabel('Email').fill(handoffEmployee.email);
+    await employee.getByLabel('Password').fill(handoffEmployee.password);
+    await employee.getByRole('button',{name:'Sign in'}).click();
+    await expect(employee.getByText('Role: EMPLOYEE')).toBeVisible();
+    await openCase(employee,'M5 Handoff Employee');
+    const form=card(employee,'M5 Personal Details');
+    await form.getByRole('button',{name:'Load form history'}).click();
+    await form.getByLabel('Preferred name').fill('M5 Synthetic Private Person');
+    await form.getByLabel('Contact email').fill('private-handoff@synthetic.invalid');
+    await form.getByRole('button',{name:'Submit immutable form revision'}).click();
+    await expect(form).toContainText('Pending HR review');
+
+    await login(hr,'HR');
+    const hrInbox=await reviewNotice(hr,'HR review required: M5 Personal Details');
+    await expect(hrInbox).not.toContainText('private-handoff@synthetic.invalid');
+    await expect(hrInbox).not.toContainText('M5 Synthetic Private Person');
+    await hrInbox.getByRole('button',{name:'Open assigned case'}).click();
+    await expect(card(hr,'M5 Personal Details')).toBeVisible();
+    const hrForm=card(hr,'M5 Personal Details');
+    await hrForm.getByRole('button',{name:'Load form history'}).click();
+    await hrForm.getByLabel('HR review note').fill('Please correct the synthetic contact details');
+    await hrForm.getByRole('button',{name:'Request correction'}).click();
+    await expect(hrForm).toContainText('CHANGES_REQUESTED');
+
+    // The old review message is denied on the current authorization/read path
+    // even if the control worker has not reconciled its durable status yet.
+    await hr.getByRole('button',{name:'In-app inbox'}).click();
+    await hr.getByRole('region',{name:'In-app inbox'})
+      .getByRole('button',{name:'Refresh inbox'}).click();
+    await expect(hr.getByRole('region',{name:'In-app inbox'}))
+      .not.toContainText('HR review required: M5 Personal Details');
+
+    const employeeInbox=await reviewNotice(employee,'Correction required: M5 Personal Details');
+    await employeeInbox.getByRole('button',{name:'Open assigned case'}).click();
+    const correctionForm=card(employee,'M5 Personal Details');
+    await correctionForm.getByRole('button',{name:'Load form history'}).click();
+    await expect(correctionForm).toContainText('CHANGES_REQUESTED');
+    await correctionForm.getByLabel('Preferred name').fill('M5 Corrected Synthetic Person');
+    await correctionForm.getByLabel('Contact email').fill('corrected-handoff@synthetic.invalid');
+    await correctionForm.getByRole('button',{name:'Submit immutable form revision'}).click();
+    await expect(correctionForm).toContainText('Revision 2');
+    // The old correction handoff must not linger for this employee.
+    await employee.getByRole('button',{name:'In-app inbox'}).click();
+    await employee.getByRole('region',{name:'In-app inbox'})
+      .getByRole('button',{name:'Refresh inbox'}).click();
+    await expect(employee.getByRole('region',{name:'In-app inbox'}))
+      .not.toContainText('Correction required: M5 Personal Details');
+    console.log('M5_REAL_FORM_HANDOFF_WORKER_BROWSER_PASS');
+  }finally{
+    await Promise.allSettled([employeeCtx.close(),hrCtx.close()]);
+  }
 });
