@@ -166,7 +166,7 @@ test('M5 Chromium HR recovers unavailable owner through existing governed assign
     await exceptions.getByRole('combobox',{name:'Exception task'})
       .selectOption({label:'M5 Manager Preparation'});
     await exceptions.getByLabel('Blocking condition').selectOption('OWNER_UNAVAILABLE');
-    await exceptions.getByLabel('Reason (8–240 characters}')
+    await exceptions.getByRole('textbox',{name:'Exception report reason'})
       .fill('Assigned synthetic manager unavailable; replacement required');
     await exceptions.getByRole('button',{name:'Open exception with current-state verification'}).click();
     await expect(exceptions).toContainText('OWNER_UNAVAILABLE');
