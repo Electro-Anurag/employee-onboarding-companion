@@ -17,7 +17,8 @@ type Guidance = {mode:'DETERMINISTIC_ONLY';ai_model_used:false;
   case_version:number;actionable:{task_id:string;task_title:string;action:string;due_at:string;owner_role:string}[];
   blockers:{task_title:string;reason_codes:string[];
     unmet_prerequisites:{task_title:string;state:string;owner_role:string}[]}[];
-  limitations:string[]};
+  open_exceptions:{id:string;task_title:string;cause:string;episode:number;
+    status:string;assignee_role:string|null}[];limitations:string[]};
 type ExceptionRecord = {id:string;task_id:string;task_title:string;cause:string;episode:number;
   status:'OPEN'|'ASSIGNED'|'RESOLVED'|'CLOSED';assignee_role:string|null;
   reason:string;blocking_now:boolean;events:{action:string;status:string;note:string;created_at:string}[]};
@@ -484,6 +485,12 @@ export default function App(){
                 {!guidance.actionable.length&&<p>Nothing currently actionable for this role.</p>}
                 {guidance.actionable.map(x=><p key={x.task_id+':'+x.action}>
                   {x.task_title} — {x.action} (due {new Date(x.due_at).toLocaleString()})
+                </p>)}
+                <h5>Open exception episodes</h5>
+                {!guidance.open_exceptions.length&&<p>No current exception episodes.</p>}
+                {guidance.open_exceptions.map(x=><p key={x.id}>
+                  {x.task_title} — {x.cause}, episode {x.episode}, {x.status}
+                  {x.assignee_role?' · '+x.assignee_role:''}
                 </p>)}
                 <h5>Evidence-based blockers</h5>
                 {!guidance.blockers.length&&<p>No current dependency or unavailable-owner blockers.</p>}
