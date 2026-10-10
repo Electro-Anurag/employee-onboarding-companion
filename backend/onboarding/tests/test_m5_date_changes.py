@@ -79,6 +79,20 @@ def test_date_change_preview_pure_commit_keeps_completed_evidence_and_rescopes_r
     assert equipment.available_at>equipment_earlier[0]
     assert equipment.due_at>equipment_earlier[1]
     assert TaskCompletion.objects.count()==1
+    # An approved historical decision does not license arbitrary further SQL
+    # edits to any snapshot, or re-dating the case without a *new* decision.
+    with pytest.raises(DatabaseError):
+        with transaction.atomic():
+            Task.objects.filter(pk=equipment.pk).update(
+                due_at=equipment.due_at+timedelta(days=1))
+    with pytest.raises(DatabaseError):
+        with transaction.atomic():
+            Task.objects.filter(pk=manager.pk).update(
+                due_at=manager.due_at+timedelta(days=1))
+    with pytest.raises(DatabaseError):
+        with transaction.atomic():
+            OnboardingCase.objects.filter(pk=case.pk).update(
+                joining_date=target+timedelta(days=1))
     assert not ReminderIntent.objects.filter(pk__in=old_schedule_ids,
         status='DELIVERED').exists()
     assert not Notification.objects.filter(case=case,status='ACTIVE').exists()
