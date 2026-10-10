@@ -12,6 +12,7 @@ from backend.documents import quarantine_views as quarantine
 from backend.documents import real_views as real_docs
 from backend.training import views as training
 from backend.activities import views as activities
+from backend.notifications import views as notifications
 
 urlpatterns = [
     path('', index),path('health/live', health_live),path('health/ready', health_ready),
@@ -68,5 +69,7 @@ urlpatterns = [
     path('api/v1/cases/<uuid:case_id>/tasks/<uuid:task_id>/activity-occurrences/schedule',activities.schedule),
     path('api/v1/cases/<uuid:case_id>/tasks/<uuid:task_id>/activity-occurrences/<uuid:occurrence_id>/attendance',activities.attendance),
     path('api/v1/cases/<uuid:case_id>/tasks/<uuid:task_id>/activity-occurrences/<uuid:occurrence_id>/cancel',activities.cancel),
+    path('api/v1/notifications',notifications.inbox),
+    path('api/v1/notifications/<uuid:notification_id>/read',notifications.mark_read),
     path('api/v1/workspaces/me',m2.workspaces_me),
 ]
