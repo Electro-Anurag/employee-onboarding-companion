@@ -14,6 +14,7 @@ from backend.training import views as training
 from backend.activities import views as activities
 from backend.notifications import views as notifications
 from backend.onboarding import exception_views
+from backend.onboarding import date_change_views
 from backend.ai import views as ai
 
 urlpatterns = [
@@ -72,6 +73,8 @@ urlpatterns = [
     path('api/v1/cases/<uuid:case_id>/tasks/<uuid:task_id>/activity-occurrences/<uuid:occurrence_id>/attendance',activities.attendance),
     path('api/v1/cases/<uuid:case_id>/tasks/<uuid:task_id>/activity-occurrences/<uuid:occurrence_id>/cancel',activities.cancel),
     path('api/v1/cases/<uuid:case_id>/companion/guidance',ai.guidance),
+    path('api/v1/cases/<uuid:case_id>/joining-date/preview',date_change_views.preview),
+    path('api/v1/cases/<uuid:case_id>/joining-date/commit',date_change_views.commit),
     path('api/v1/cases/<uuid:case_id>/exceptions',exception_views.list_exceptions),
     path('api/v1/cases/<uuid:case_id>/exceptions/open',exception_views.open_exception),
     path('api/v1/cases/<uuid:case_id>/exceptions/<uuid:exception_id>/<str:action>',exception_views.transition),
