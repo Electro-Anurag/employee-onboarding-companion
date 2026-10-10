@@ -112,6 +112,6 @@ def infer(context, question):
     except ProviderFailure:
         raise
     except (HTTPError, URLError, TimeoutError, OSError, UnicodeError,
-            ValueError, TypeError, KeyError) as exc:
+            ValueError, TypeError, AttributeError, KeyError) as exc:
         # Never expose the provider error body, credential, or unvalidated text.
         raise ProviderFailure("PROVIDER_TRANSPORT_OR_FORMAT_FAILURE") from exc
