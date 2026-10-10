@@ -1,5 +1,6 @@
 """M5 real PostgreSQL control-queue and >100-case recovery boundaries."""
 import uuid
+import json
 import pytest
 from django.db import transaction,connection
 from django.utils import timezone
@@ -20,7 +21,8 @@ def test_m5_continuation_enqueue_is_registered_and_atomic():
             cursor.execute('SELECT task_name,args FROM procrastinate_jobs WHERE id=%s',[job_id])
             row=cursor.fetchone()
         assert row[0]=='m5.reconcile_current_reminders'
-        assert row[1]['after']=='test-cursor'
+        args=json.loads(row[1]) if isinstance(row[1],str) else row[1]
+        assert args['after']=='test-cursor'
     with connection.cursor() as cursor:
         cursor.execute('SELECT task_name FROM procrastinate_jobs WHERE id=%s',[job_id])
         assert cursor.fetchone()==('m5.reconcile_current_reminders',)
