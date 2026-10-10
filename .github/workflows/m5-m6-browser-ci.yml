@@ -85,3 +85,43 @@ jobs:
           cd "$RUNNER_TEMP/m5-playwright"
           timeout -k 5s 220s ./node_modules/.bin/playwright test -c playwright.config.cjs m5-exceptions.spec.cjs
           echo M5_REAL_CHROMIUM_EXCEPTION_TYPED_RECOVERY_PASS
+      - name: Actual Procrastinate periodic worker creates one current-state overdue reminder
+        run: |
+          set -euo pipefail
+          export M5_CI_PERIODIC_PROBE=1
+          uv run python -m scripts.m5_periodic_qualification seed > "$RUNNER_TEMP/m5-periodic-case-id"
+          case_id="$(cat "$RUNNER_TEMP/m5-periodic-case-id")"
+          if uv run python -m scripts.m5_periodic_qualification check "$case_id" >/dev/null 2>&1; then
+            echo 'Probe already notified before worker start; refusing false periodic qualification'
+            exit 1
+          fi
+          setsid uv run python manage.py procrastinate worker --queues control > "$RUNNER_TEMP/m5-periodic-worker.log" 2>&1 &
+          worker_pid=$!
+          cleanup_periodic() {
+            set +e
+            kill -TERM -- "-$worker_pid" 2>/dev/null || true
+            sleep 1
+            kill -KILL -- "-$worker_pid" 2>/dev/null || true
+            wait "$worker_pid" 2>/dev/null || true
+          }
+          trap cleanup_periodic EXIT
+          periodic_ok=0
+          for attempt in $(seq 1 85); do
+            if uv run python -m scripts.m5_periodic_qualification check "$case_id" > "$RUNNER_TEMP/m5-periodic-result"; then
+              periodic_ok=1
+              break
+            fi
+            if ! kill -0 "$worker_pid" 2>/dev/null; then
+              echo 'Periodic worker unexpectedly exited'
+              tail -80 "$RUNNER_TEMP/m5-periodic-worker.log"
+              exit 1
+            fi
+            sleep 1
+          done
+          if [ "$periodic_ok" != 1 ]; then
+            echo 'No actual periodic reminder after bounded wall-clock window'
+            tail -80 "$RUNNER_TEMP/m5-periodic-worker.log"
+            exit 1
+          fi
+          cat "$RUNNER_TEMP/m5-periodic-result"
+          echo M5_REAL_PERIODIC_SCHEDULER_CATCH_UP_PASS
