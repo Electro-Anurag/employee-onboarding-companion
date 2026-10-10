@@ -75,6 +75,7 @@ def test_reminders_reassignment_revokes_old_owner_without_new_delivery(world):
     second=User.objects.create_user(email='alternate.manager@astervalelabs.test',
         password='VerifiedStrongPassword!2026',display_name='Replacement Manager')
     new_member=Membership.objects.create(user=second,organization=org,role='MANAGER')
+    case.refresh_from_db()
     reassign_owner(actor=actors['HR'][0],case_id=case.pk,role='MANAGER',
         new_member_id=new_member.pk,reason='Synthetic on-call recovery',
         key=uuid.uuid4(),expected_version=case.version)
