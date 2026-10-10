@@ -73,6 +73,7 @@ urlpatterns = [
     path('api/v1/cases/<uuid:case_id>/tasks/<uuid:task_id>/activity-occurrences/<uuid:occurrence_id>/attendance',activities.attendance),
     path('api/v1/cases/<uuid:case_id>/tasks/<uuid:task_id>/activity-occurrences/<uuid:occurrence_id>/cancel',activities.cancel),
     path('api/v1/cases/<uuid:case_id>/companion/guidance',ai.guidance),
+    path('api/v1/cases/<uuid:case_id>/companion/answer',ai.answer),
     path('api/v1/cases/<uuid:case_id>/joining-date/preview',date_change_views.preview),
     path('api/v1/cases/<uuid:case_id>/joining-date/commit',date_change_views.commit),
     path('api/v1/cases/<uuid:case_id>/exceptions',exception_views.list_exceptions),
