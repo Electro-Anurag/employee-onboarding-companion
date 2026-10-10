@@ -7,6 +7,7 @@ on:
       - 'backend/onboarding/date_change_views.py'
       - 'backend/onboarding/models.py'
       - 'backend/onboarding/migrations/0023_m5_case_joining_date_revisions.py'
+      - 'backend/onboarding/migrations/0024_m5_narrow_snapshot_schedule_exception.py'
       - 'backend/onboarding/tests/test_m5_date_changes.py'
       - 'backend/notifications/services.py'
       - '.github/workflows/m5-date-focused-ci.yml'
