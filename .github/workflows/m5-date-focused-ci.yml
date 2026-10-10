@@ -1,0 +1,53 @@
+name: M5 focused joining date PostgreSQL contract
+on:
+  push:
+    branches: ['feature/m5-m6-parallel-development']
+    paths:
+      - 'backend/onboarding/date_changes.py'
+      - 'backend/onboarding/date_change_views.py'
+      - 'backend/onboarding/models.py'
+      - 'backend/onboarding/migrations/0023_m5_case_joining_date_revisions.py'
+      - 'backend/onboarding/tests/test_m5_date_changes.py'
+      - 'backend/notifications/services.py'
+      - '.github/workflows/m5-date-focused-ci.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  date-change-postgres:
+    runs-on: ubuntu-latest
+    timeout-minutes: 9
+    services:
+      postgres:
+        image: postgres:17@sha256:2d2b8998d31037bf721cfdf764d76ba74171b4fab3431b7f72c27c56ddbdf9e3
+        env:
+          POSTGRES_USER: onboarding
+          POSTGRES_PASSWORD: ci-temporary-only
+          POSTGRES_DB: onboarding_m0
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 3s --health-timeout 3s --health-retries 15
+    env:
+      DJANGO_SECRET_KEY: ci-only-no-production-secret-not-used-outside-runner
+      DJANGO_DEBUG: '0'
+      DJANGO_ALLOWED_HOSTS: testserver,localhost,127.0.0.1
+      POSTGRES_HOST: localhost
+      POSTGRES_PORT: '5432'
+      POSTGRES_DB: onboarding_m0
+      POSTGRES_USER: onboarding
+      POSTGRES_PASSWORD: ci-temporary-only
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e
+        with:
+          python-version: '3.13'
+          version: '0.12.23'
+      - name: Locked project and migration parity
+        run: |
+          uv lock --check
+          uv sync --locked
+          uv run python manage.py makemigrations --check --dry-run
+          uv run python manage.py migrate --noinput
+      - name: Focused PostgreSQL date and reminder replay qualification
+        run: uv run pytest -q backend/onboarding/tests/test_m5_date_changes.py backend/notifications/tests/test_reminders.py
