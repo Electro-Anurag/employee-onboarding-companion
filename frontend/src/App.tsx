@@ -71,8 +71,10 @@ export default function App(){
   // Every identity transition invalidates all in-flight identity-bound reads.
   // The generation is checked immediately before committing any fetched data.
   const identityEpoch=useRef(0);
+  const datePreviewGeneration=useRef(0);
   function forgetProtectedIdentity(){
     identityEpoch.current+=1;
+    datePreviewGeneration.current+=1;
     setCases([]);setWork([]);setTemplates([]);setOwners({});
     setInbox([]);setInboxLoaded(false);
     setExceptions([]);setExceptionsLoaded(false);setExceptionTask('');
@@ -226,6 +228,7 @@ export default function App(){
       setSelected(c);setDetail(result);setTab('cases');setAttestTask(null);
       setExceptions([]);setExceptionsLoaded(false);setExceptionTask('');
       setGuidance(null);setDatePreview(null);
+      datePreviewGeneration.current+=1;
       setNewJoiningDate('');setDateChangeReason('');
     });
   }
@@ -240,6 +243,8 @@ export default function App(){
   }
   async function previewJoiningDate(){
     if(!selected||!detail||!newJoiningDate)return;
+    const generation=++datePreviewGeneration.current;
+    const identity=identityEpoch.current;
     await perform(async()=>{
       const target=newJoiningDate;
       setDatePreview(null);
@@ -247,7 +252,8 @@ export default function App(){
         '/api/v1/cases/'+detail.case_id+'/joining-date/preview?joining_date='+
           encodeURIComponent(target),'GET',undefined,
         {'If-Match':'"case:'+detail.case_id+':v'+detail.case_version+'"'});
-      if(target===newJoiningDate)setDatePreview(response);
+      if(datePreviewGeneration.current===generation&&identityEpoch.current===identity)
+        setDatePreview(response);
     });
   }
   async function commitJoiningDate(){
@@ -264,7 +270,10 @@ export default function App(){
         });
       setDatePreview(null);setDateChangeReason('');
       setGuidance(null);setExceptionsLoaded(false);setExceptions([]);
+      datePreviewGeneration.current+=1;
       await reloadCase(caseId,me);
+      setSelected(old=>old&&old.id===caseId?
+        {...old,joining_date:datePreview.new_joining_date}:old);
     });
   }
   async function loadGuidance(caseId:string){
@@ -496,6 +505,7 @@ export default function App(){
                 <label>Proposed joining date
                   <input aria-label="Proposed joining date" type="date"
                     value={newJoiningDate} onChange={e=>{
+                      datePreviewGeneration.current+=1;
                       setNewJoiningDate(e.target.value);setDatePreview(null);}}/>
                 </label>
                 <button disabled={busy||!newJoiningDate||newJoiningDate===selected.joining_date}
