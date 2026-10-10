@@ -7,7 +7,7 @@ permissions:
   contents: read
 jobs:
   exception-chromium:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, ARM64, eoc-mac-ci]
     timeout-minutes: 14
     services:
       postgres:

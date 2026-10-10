@@ -15,7 +15,7 @@ permissions:
   contents: read
 jobs:
   s3-and-clamd:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, ARM64, eoc-mac-ci]
     timeout-minutes: 40
     services:
       postgres:

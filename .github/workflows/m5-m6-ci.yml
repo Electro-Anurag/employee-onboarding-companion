@@ -7,7 +7,7 @@ permissions:
   contents: read
 jobs:
   m5-m6-postgresql:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, ARM64, eoc-mac-ci]
     timeout-minutes: 22
     services:
       postgres:
