@@ -100,7 +100,7 @@ def _transition(*,actor,case_id,exception_id,action,note,key,
         set_command_timeouts()
         case,member,prior,digest=_command_case(actor,case_id,route,key,payload,expected_version)
         if prior is not None:return prior.response,prior.status_code
-        exc=CaseException.objects.select_for_update().select_related(
+        exc=CaseException.objects.select_for_update(of=('self',)).select_related(
             'task','assignee').filter(case=case,pk=exception_id).first()
         if exc is None:raise CommandFailure('NOT_FOUND',404)
         if case.status not in LIVE_CASES:
