@@ -182,11 +182,22 @@ jobs:
           cp browser/playwright.config.cjs browser-live/*.spec.cjs "$RUNNER_TEMP/m3-live-playwright/"
           npm --prefix "$RUNNER_TEMP/m3-live-playwright" install --no-save --package-lock=false --ignore-scripts @playwright/test@1.64.0
           "$RUNNER_TEMP/m3-live-playwright/node_modules/.bin/playwright" install --with-deps chromium
-          uv run python -m scripts.m3_browser_server_supervisor > "$RUNNER_TEMP/m3-browser-server.log" 2>&1 &
+          # Each CI-only service owns its own session/process group.
+          # Cleanup terminates all descendants, including subprocess workers;
+          # no unbounded shell wait can consume the entire workflow deadline.
+          setsid uv run python -m scripts.m3_browser_server_supervisor > "$RUNNER_TEMP/m3-browser-server.log" 2>&1 &
           supervisor_pid=$!
-          uv run python manage.py procrastinate worker > "$RUNNER_TEMP/m3-browser-worker.log" 2>&1 &
+          setsid uv run python manage.py procrastinate worker > "$RUNNER_TEMP/m3-browser-worker.log" 2>&1 &
           worker_pid=$!
-          trap 'kill "$supervisor_pid" "$worker_pid" 2>/dev/null || true; wait "$supervisor_pid" "$worker_pid" 2>/dev/null || true; rm -f "$M3_LIVE_BROWSER_CREDENTIAL_FILE" "$M3_LIVE_BROWSER_VALID_PDF" "$M3_LIVE_BROWSER_INVALID_PDF"' EXIT
+          cleanup_live_browser() {
+            set +e
+            kill -TERM -- "-$supervisor_pid" "-$worker_pid" 2>/dev/null || true
+            sleep 2
+            kill -KILL -- "-$supervisor_pid" "-$worker_pid" 2>/dev/null || true
+            wait "$supervisor_pid" "$worker_pid" 2>/dev/null || true
+            rm -f "$M3_LIVE_BROWSER_CREDENTIAL_FILE" "$M3_LIVE_BROWSER_VALID_PDF" "$M3_LIVE_BROWSER_INVALID_PDF"
+          }
+          trap cleanup_live_browser EXIT
           ready=0
           for attempt in $(seq 1 60); do
             if curl --fail --silent --output /dev/null http://127.0.0.1:8000/health/ready; then
@@ -201,7 +212,7 @@ jobs:
             exit 1
           fi
           cd "$RUNNER_TEMP/m3-live-playwright"
-          ./node_modules/.bin/playwright test -c playwright.config.cjs m3-s3-restart.spec.cjs
+          timeout -k 5s 240s ./node_modules/.bin/playwright test -c playwright.config.cjs m3-s3-restart.spec.cjs
           cd "$GITHUB_WORKSPACE"
           uv run python -m scripts.m3_browser_durable_assertions
           echo M3_R2_COMPOSED_BROWSER_CRASH_RECOVERY_PASS
