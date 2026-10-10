@@ -13,6 +13,9 @@ from backend.accounts.models import Membership
 from backend.onboarding.models import OnboardingCase,Task
 from backend.onboarding.state_machine import current_assignments,preview_task_state
 from backend.notifications.models import ReminderIntent,Notification
+from backend.notifications.policy import (
+    BASE_POLICY_VERSION,ESCALATION_POLICY_VERSION,ESCALATION_RULE,
+    ESCALATION_DELAY,ESCALATION_RECIPIENT_ROLE)
 
 REMINDABLE_KINDS=frozenset({
     'MANAGER_PREPARATION','ACCESS','EQUIPMENT','ACTIVITY',
@@ -118,7 +121,8 @@ def current_handoff_candidate(task,case,now):
 
 def _summary_for(task,rule):
     # No employee answers, document names, reviewer messages or PHI/PII.
-    action=('HR review required' if rule.endswith('HR_REVIEW')
+    action=('Escalation to HR: 48 hours overdue' if rule==ESCALATION_RULE
+            else 'HR review required' if rule.endswith('HR_REVIEW')
             else 'Correction required' if rule.endswith('CORRECTION')
             else 'Overdue' if rule=='OVERDUE_DAILY' else 'Due soon')
     return (action+': '+task.title)[:200]
@@ -134,6 +138,24 @@ def _candidate(task,case,now):
     if task.due_at-timedelta(hours=24)<=now<task.due_at:
         return person,'DUE_SOON','due:'+task.due_at.isoformat()
     return None
+
+
+def escalation_candidate(task,case,now):
+    """One fixed-policy HR escalation while an actual task action is overdue.
+
+    A task-owner reminder remains independent; an escalation is a separate,
+    evidence-scoped, once-per-due-schedule-version in-app notification.
+    No blocked/completed/owner-unavailable task is represented as actionable.
+    """
+    if case.status not in ACTIVE_CASES or task.kind not in REMINDABLE_KINDS:
+        return None
+    if now<task.due_at+ESCALATION_DELAY:
+        return None
+    owner=current_recipient(task,case,now)
+    hr=_eligible_actor(case,ESCALATION_RECIPIENT_ROLE,now)
+    if owner is None or hr is None or owner.pk==hr.pk:
+        return None
+    return hr,ESCALATION_RULE,'due:'+task.due_at.isoformat(),ESCALATION_POLICY_VERSION
 
 
 def reconcile_case(case_id,*,now=None):
@@ -155,22 +177,30 @@ def reconcile_case(case_id,*,now=None):
         by_role={a.role:a for a in assignments}
         tasks=list(Task.objects.filter(case=case).order_by('key'))
         for task in tasks:
-            candidate=(current_handoff_candidate(task,case,now)
-                       if task.kind in ('FORM','DOCUMENT') else
-                       _candidate(task,case,now) if case.status in ACTIVE_CASES
-                       else None)
+            candidates=[]
+            if task.kind in ('FORM','DOCUMENT'):
+                handoff=current_handoff_candidate(task,case,now)
+                if handoff is not None:
+                    candidates.append((*handoff,BASE_POLICY_VERSION))
+            elif case.status in ACTIVE_CASES:
+                ordinary=_candidate(task,case,now)
+                if ordinary is not None:
+                    candidates.append((*ordinary,BASE_POLICY_VERSION))
+                escalation=escalation_candidate(task,case,now)
+                if escalation is not None:
+                    candidates.append(escalation)
             active=list(ReminderIntent.objects.filter(case=case,task=task,
                 status='DELIVERED'))
-            current_identities=set()
-            if candidate:
-                person,rule,bucket=candidate
-                current_identities.add((str(person.pk),case.schedule_revision,
-                                        task.version,rule,bucket))
+            identities={
+                (str(person.pk),case.schedule_revision,task.version,rule,
+                 bucket,policy_version)
+                for person,rule,bucket,policy_version in candidates
+            }
             for intent in active:
                 identity=(str(intent.recipient_id),intent.schedule_revision,
-                          intent.action_revision,intent.rule_code,intent.time_bucket)
-                if (identity not in current_identities
-                        or intent.due_at!=task.due_at):
+                          intent.action_revision,intent.rule_code,intent.time_bucket,
+                          intent.policy_version)
+                if (identity not in identities or intent.due_at!=task.due_at):
                     intent.status='SUPERSEDED'
                     intent.save(update_fields=['status'])
                     notice=Notification.objects.filter(intent=intent).first()
@@ -179,21 +209,21 @@ def reconcile_case(case_id,*,now=None):
                                        else 'SUPERSEDED')
                         notice.save(update_fields=['status'])
                     retired+=1
-            if not candidate:
-                continue
-            person,rule,bucket=candidate
-            reminder,created=ReminderIntent.objects.get_or_create(
-                subject_type='TASK',task=task,schedule_revision=case.schedule_revision,
-                action_revision=task.version,recipient=person,
-                rule_code=rule,time_bucket=bucket,
-                defaults={'case':case,'due_at':task.due_at})
-            if created:
-                Notification.objects.create(intent=reminder,case=case,task=task,
-                    recipient=person,summary=_summary_for(task,rule))
-                made+=1
-            elif reminder.status!='DELIVERED':
-                # An old revision/rule identity cannot be silently revived.
-                pass
+            for person,rule,bucket,policy_version in candidates:
+                reminder,created=ReminderIntent.objects.get_or_create(
+                    subject_type='TASK',task=task,
+                    schedule_revision=case.schedule_revision,
+                    action_revision=task.version,recipient=person,
+                    rule_code=rule,time_bucket=bucket,
+                    policy_version=policy_version,
+                    defaults={'case':case,'due_at':task.due_at})
+                if created:
+                    Notification.objects.create(intent=reminder,case=case,
+                        task=task,recipient=person,summary=_summary_for(task,rule))
+                    made+=1
+                elif reminder.status!='DELIVERED':
+                    # A retired identity must never silently revive.
+                    pass
     return {'created':made,'retired':retired}
 
 

@@ -8,7 +8,10 @@ from django.views.decorators.csrf import csrf_protect
 from backend.accounts.security import actor_context
 from backend.onboarding.services import get_authorized_case,CommandFailure
 from backend.notifications.models import Notification
-from backend.notifications.services import current_recipient,current_handoff_candidate,HANDOFF_RULES
+from backend.notifications.services import (current_recipient,current_handoff_candidate,
+    escalation_candidate,HANDOFF_RULES)
+from backend.notifications.policy import (BASE_POLICY_VERSION,
+    ESCALATION_POLICY_VERSION,ESCALATION_RULE)
 
 
 def _visible(user,notice,now):
@@ -30,10 +33,23 @@ def _visible(user,notice,now):
     if notice.task.due_at!=notice.intent.due_at:
         return False
     if notice.intent.rule_code in HANDOFF_RULES:
+        if notice.intent.policy_version!=BASE_POLICY_VERSION:
+            return False
         current=current_handoff_candidate(notice.task,case,now)
         return bool(current and current[0].pk==user.pk
             and current[1]==notice.intent.rule_code
             and current[2]==notice.intent.time_bucket)
+    if notice.intent.rule_code==ESCALATION_RULE:
+        if notice.intent.policy_version!=ESCALATION_POLICY_VERSION:
+            return False
+        current=escalation_candidate(notice.task,case,now)
+        return bool(current and current[0].pk==user.pk
+            and current[1]==notice.intent.rule_code
+            and current[2]==notice.intent.time_bucket
+            and current[3]==notice.intent.policy_version)
+    if (notice.intent.rule_code not in ('DUE_SOON','OVERDUE_DAILY')
+            or notice.intent.policy_version!=BASE_POLICY_VERSION):
+        return False
     person=current_recipient(notice.task,case,now)
     return person is not None and person.pk==user.pk
 
@@ -52,6 +68,7 @@ def inbox(request):
             results.append({'id':str(row.pk),'case_id':str(row.case_id),
                 'task_id':str(row.task_id),'summary':row.summary,
                 'rule_code':row.intent.rule_code,
+                'policy_version':row.intent.policy_version,
                 'created_at':row.created_at.isoformat(),
                 'read_at':row.read_at.isoformat() if row.read_at else None,
                 'status':'ACTIVE'})

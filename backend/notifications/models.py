@@ -13,6 +13,7 @@ class ReminderIntent(models.Model):
     subject_type = models.CharField(max_length=16, default='TASK')
     schedule_revision = models.PositiveBigIntegerField(default=0)
     action_revision = models.PositiveBigIntegerField()
+    policy_version = models.CharField(max_length=32, default='M5-REMIND-V1')
     rule_code = models.CharField(max_length=32)
     time_bucket = models.CharField(max_length=40)
     due_at = models.DateTimeField()
@@ -22,7 +23,7 @@ class ReminderIntent(models.Model):
     class Meta:
         constraints = [
             models.UniqueConstraint(fields=['subject_type','task','schedule_revision',
-                'action_revision','recipient','rule_code','time_bucket'],
+                'action_revision','recipient','rule_code','time_bucket','policy_version'],
                 name='m5_unique_task_reminder_identity'),
         ]
         indexes = [models.Index(fields=['case','status'],name='m5_reminder_case_status')]
