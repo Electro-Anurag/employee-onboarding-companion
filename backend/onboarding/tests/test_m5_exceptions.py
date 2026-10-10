@@ -206,3 +206,72 @@ def test_exception_http_csrf_stale_version_and_reviewed_records(world):
         HTTP_IF_MATCH=f'"case:{case.pk}:v{case.version}"')
     assert stale.status_code==409 and stale.json()['error']['code']=='STALE_VERSION'
     assert CaseExceptionEvent.objects.filter(exception_id=ex).count()==1
+
+
+@pytest.mark.django_db(transaction=True)
+def test_m5_unavailable_manager_recovery_reuses_governed_assignment_with_real_inbox_and_audit(world):
+    from backend.onboarding.state_machine import preview_task_state,current_assignments
+    from backend.notifications.models import Notification,ReminderIntent
+    from backend.notifications.services import reconcile_case
+    from backend.onboarding.models import TaskCompletion
+    org,actors=world
+    case=_active_case(world)
+    task=Task.objects.get(case=case,key='manager_preparation')
+    hr=actors['HR'][0]
+    old=actors['MANAGER'][1]
+    first_due=max(task.due_at+timedelta(hours=1),timezone.now()+timedelta(hours=1))
+    reconcile_case(case.pk,now=first_due)
+    old_notice=Notification.objects.get(task=task,recipient=actors['MANAGER'][0])
+    old.available=False
+    old.save(update_fields=['available'])
+    assert preview_task_state(task,case)[0]=='BLOCKED'
+    opened,_=open_exception(actor=hr,case_id=case.pk,task_id=task.pk,
+        cause='OWNER_UNAVAILABLE',note='Unavailable manager needs replacement',
+        key=uuid.uuid4(),expected_version=_version(case))
+    episode=uuid.UUID(opened['result']['id'])
+    replacement=User.objects.create_user(email='m5-owner-replacement@synthetic.invalid',
+        password='VerifiedStrongPassword!2026',display_name='M5 Replacement Manager')
+    replacement_member=Membership.objects.create(user=replacement,organization=org,
+        role='MANAGER',active=True,available=True)
+    http,csrf=_login(hr)
+    response=http.get(f'/api/v1/cases/{case.pk}/exceptions')
+    assert response.status_code==200
+    assert response.json()['results'][0]['task_owner_role']=='MANAGER'
+    route=f'/api/v1/cases/{case.pk}/assignments'
+    body={'role':'MANAGER','new_member_id':str(replacement_member.pk),
+          'reason':'HR approved available replacement for unavailable manager'}
+    key=uuid.uuid4()
+    match=f'"case:{case.pk}:v{_version(case)}"'
+    changed=http.post(route,data=json.dumps(body),content_type='application/json',
+        HTTP_X_CSRFTOKEN=csrf,HTTP_IF_MATCH=match,HTTP_IDEMPOTENCY_KEY=str(key))
+    assert changed.status_code==200,changed.content
+    replay=http.post(route,data=json.dumps(body),content_type='application/json',
+        HTTP_X_CSRFTOKEN=csrf,HTTP_IF_MATCH=match,HTTP_IDEMPOTENCY_KEY=str(key))
+    assert replay.status_code==200 and replay.json()==changed.json()
+    assert current_assignments(case,timezone.now())['MANAGER'].member_id==replacement_member.pk
+    task.refresh_from_db()
+    assert preview_task_state(task,case)[0]=='READY'
+    assert TaskCompletion.objects.filter(task=task).count()==0
+    # Stale manager notifications are not visible even *before* the
+    # worker's eventual persisted retirement.
+    old.available=True
+    old.save(update_fields=['available'])
+    old_client=_login(actors['MANAGER'][0])[0]
+    assert not any(x['id']==str(old_notice.pk) for x in old_client.get(
+        '/api/v1/notifications').json()['results'])
+    reconcile_case(case.pk,now=first_due)
+    assert Notification.objects.get(pk=old_notice.pk).status=='SUPERSEDED'
+    assert Notification.objects.filter(task=task,recipient=replacement,status='ACTIVE').count()==1
+    assert AuditEvent.objects.filter(event_type='OWNER_REASSIGNED',
+        entity_id=case.pk).count()==1
+    assign_exception(actor=hr,case_id=case.pk,exception_id=episode,
+        assignee_role='HR',note='HR verifies updated assignment',
+        key=uuid.uuid4(),expected_version=_version(case))
+    resolve_exception(actor=hr,case_id=case.pk,exception_id=episode,
+        note='Assignment predicate verified cleared',
+        key=uuid.uuid4(),expected_version=_version(case))
+    close_exception(actor=hr,case_id=case.pk,exception_id=episode,
+        note='New manager accepted verified assignment',
+        key=uuid.uuid4(),expected_version=_version(case))
+    assert CaseException.objects.get(pk=episode).status=='CLOSED'
+    assert TaskCompletion.objects.filter(task=task).count()==0
