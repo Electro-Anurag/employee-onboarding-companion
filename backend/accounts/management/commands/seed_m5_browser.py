@@ -61,6 +61,37 @@ class Command(BaseCommand):
                 key=uuid.uuid4(),expected_version=1)
             assert Task.objects.get(case_id=case_id,
                 key='m5_team_introduction').execution_state=='BLOCKED'
+            # Separate real HR-only owner recovery. It must not invalidate
+            # the existing Manager/HR prerequisite journey.
+            original_manager=User.objects.create_user(
+                email='unavailable.manager@synthetic.invalid',
+                password=secrets.token_urlsafe(20)+'Ab1!',
+                display_name='M5 Unavailable Manager')
+            original_member=Membership.objects.create(
+                user=original_manager,organization=org,role='MANAGER')
+            new_password=secrets.token_urlsafe(20)+'Ab1!'
+            new_manager=User.objects.create_user(
+                email='replacement.manager@synthetic.invalid',
+                password=new_password,display_name='M5 Available Replacement')
+            Membership.objects.create(user=new_manager,organization=org,role='MANAGER')
+            second_employee=User.objects.create_user(
+                email='recovery.employee@synthetic.invalid',
+                password=secrets.token_urlsafe(20)+'Ab1!',
+                display_name='M5 Recovery Employee')
+            second_root=Membership.objects.create(user=second_employee,
+                organization=org,role='EMPLOYEE')
+            recovery,_=create_case(actor=users['HR'],employee_id=second_root.pk,
+                template_version_id=uuid.UUID(published['version_id']),
+                joining_date=timezone.localdate()+timedelta(days=3),
+                owner_ids={'IT':members['IT'].pk,'MANAGER':original_member.pk},
+                key=uuid.uuid4())
+            recovery_id=uuid.UUID(recovery['case_id'])
+            activate_case(actor=users['HR'],case_id=recovery_id,
+                key=uuid.uuid4(),expected_version=1)
+            original_member.available=False
+            original_member.save(update_fields=['available'])
+        self.stdout.write('RECOVERY_CASE '+str(recovery_id))
+        self.stdout.write('RECOVERY_MANAGER '+new_manager.email+' '+new_password)
         self.stdout.write('CASE '+str(case_id))
         for role in roles:
             self.stdout.write(role+' '+users[role].email+' '+secrets_by_role[role])
