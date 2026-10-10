@@ -49,3 +49,24 @@ def reconcile_current_reminders(after: str = ''):
         from django.db import transaction
         with transaction.atomic():
             defer_atomic(reconcile_current_reminders,after=result['next_cursor'])
+
+
+@app.periodic(cron="* * * * *")
+@app.task(name="m5.reconcile_reminders_periodic",queue="control",
+          queueing_lock="m5_reconcile_periodic_singleton")
+def reconcile_reminders_periodic(timestamp: int):
+    """Worker-scheduled wake: current-state catch-up, no historical tick replay.
+
+    PostgreSQL-backed Procrastinate periodic identity prevents multiple workers
+    from deferring the same minute; the queue lock prevents overlap. A worker
+    must be running; this is NOT external email delivery or a hosted SLA.
+    """
+    from backend.notifications.services import reconcile_batch
+    from django.utils import timezone
+    # Deliberately use actual time rather than timestamp from a delayed tick.
+    result=reconcile_batch(now=timezone.now(),limit=100)
+    if result['next_cursor']:
+        from backend.jobs.atomic import defer_atomic
+        from django.db import transaction
+        with transaction.atomic():
+            defer_atomic(reconcile_current_reminders,after=result['next_cursor'])
