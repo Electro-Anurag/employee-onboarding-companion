@@ -36,6 +36,7 @@ def test_m6_authorized_context_validated_no_writes_or_invented_citations(world):
         validate_answer({**payload,'tool_call':'auto_accept_document'},context,
             actor=actors['MANAGER'][0],case_id=case.pk)
     # A workflow mutation invalidates the approved context at publication.
+    case.refresh_from_db()
     case.version+=1
     case.save(update_fields=['version'])
     with pytest.raises(UnsafeAIAnswer,match='STALE_OR_UNAUTHORIZED_CONTEXT'):
