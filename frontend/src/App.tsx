@@ -13,6 +13,11 @@ type Owner = {id:string;name:string};
 type TaskPayload = {case_id:string;case_version:number;case_status:string;progress:Progress;tasks:Task[]};
 type WorkspaceTask = Task & {case_id:string;employee_name:string};
 type ApiError = {error?:{code?:string;message?:string}};
+type DatePreview = {case_id:string;case_version:number;schedule_revision:number;
+  old_joining_date:string;new_joining_date:string;preview_digest:string;
+  change_count:number;preserved_count:number;preserved_task_ids:string[];
+  warnings:string[];changes:{task_id:string;title:string;old_available_at:string;
+    old_due_at:string;new_available_at:string;new_due_at:string}[]};
 type Guidance = {mode:'DETERMINISTIC_ONLY';ai_model_used:false;
   case_version:number;actionable:{task_id:string;task_title:string;action:string;due_at:string;owner_role:string}[];
   blockers:{task_title:string;reason_codes:string[];
@@ -43,6 +48,9 @@ export default function App(){
   const [managerId,setManagerId]=useState('');
   const [templateId,setTemplateId]=useState('');
   const [joiningDate,setJoiningDate]=useState('');
+  const [newJoiningDate,setNewJoiningDate]=useState('');
+  const [dateChangeReason,setDateChangeReason]=useState('');
+  const [datePreview,setDatePreview]=useState<DatePreview|null>(null);
   const [attestTask,setAttestTask]=useState<string|null>(null);
   const [plan,setPlan]=useState('');
   const [buddy,setBuddy]=useState('');
@@ -71,6 +79,7 @@ export default function App(){
     setGuidance(null);setExceptionNote('');setExceptionAssignees({});
     setTemplate(null);setEditor('');setSelected(null);setDetail(null);
     setEmployeeId('');setItId('');setManagerId('');setTemplateId('');setJoiningDate('');
+    setNewJoiningDate('');setDateChangeReason('');setDatePreview(null);
     setAttestTask(null);setPlan('');setBuddy('');setStation(false);setNote('');
     setTab('cases');
   }
@@ -216,7 +225,8 @@ export default function App(){
       if(identityEpoch.current!==generation)return;
       setSelected(c);setDetail(result);setTab('cases');setAttestTask(null);
       setExceptions([]);setExceptionsLoaded(false);setExceptionTask('');
-      setGuidance(null);
+      setGuidance(null);setDatePreview(null);
+      setNewJoiningDate('');setDateChangeReason('');
     });
   }
   async function reloadCase(caseId:string,identity:Me){
@@ -227,6 +237,35 @@ export default function App(){
     if(identityEpoch.current!==generation)return;
     setDetail(result);
     setSelected(old=>old&&old.id===caseId?{...old,version:result.case_version,status:result.case_status}:old);
+  }
+  async function previewJoiningDate(){
+    if(!selected||!detail||!newJoiningDate)return;
+    await perform(async()=>{
+      const target=newJoiningDate;
+      setDatePreview(null);
+      const response=await request<DatePreview>(
+        '/api/v1/cases/'+detail.case_id+'/joining-date/preview?joining_date='+
+          encodeURIComponent(target),'GET',undefined,
+        {'If-Match':'"case:'+detail.case_id+':v'+detail.case_version+'"'});
+      if(target===newJoiningDate)setDatePreview(response);
+    });
+  }
+  async function commitJoiningDate(){
+    if(!selected||!detail||!datePreview||!me)return;
+    if(datePreview.new_joining_date!==newJoiningDate||
+      datePreview.case_version!==detail.case_version)return;
+    const caseId=detail.case_id;
+    await perform(async()=>{
+      await request('/api/v1/cases/'+caseId+'/joining-date/commit','POST',{
+        joining_date:datePreview.new_joining_date,
+        preview_digest:datePreview.preview_digest,
+        reason:dateChangeReason},{
+          'If-Match':'"case:'+caseId+':v'+datePreview.case_version+'"'
+        });
+      setDatePreview(null);setDateChangeReason('');
+      setGuidance(null);setExceptionsLoaded(false);setExceptions([]);
+      await reloadCase(caseId,me);
+    });
   }
   async function loadGuidance(caseId:string){
     const generation=identityEpoch.current;
@@ -449,6 +488,37 @@ export default function App(){
               <p>{detail.progress.mandatory_completed}/{detail.progress.mandatory_total} mandatory tasks completed ({detail.progress.percent}%)</p></div>
             {detail.case_status==='CREATED'&&me.role==='HR'&&<button disabled={busy} onClick={()=>void activate()}>Activate case</button>}
             {detail.case_status==='PRE_JOINING'&&me.role==='HR'&&<button disabled={busy} onClick={()=>void beginDayOne()}>Begin Day 1 (joining date required)</button>}
+            {detail.case_status==='PRE_JOINING'&&me.role==='HR'&&
+              <section className="subpanel" aria-label="Joining date reschedule">
+                <h4>Change joining date — preview before approval</h4>
+                <p className="meta">Current joining date: {selected.joining_date}. Untouched tasks are
+                  rescheduled from the published template; started and completed evidence stays historical.</p>
+                <label>Proposed joining date
+                  <input aria-label="Proposed joining date" type="date"
+                    value={newJoiningDate} onChange={e=>{
+                      setNewJoiningDate(e.target.value);setDatePreview(null);}}/>
+                </label>
+                <button disabled={busy||!newJoiningDate||newJoiningDate===selected.joining_date}
+                  onClick={()=>void previewJoiningDate()}>Preview date change impact</button>
+                {datePreview&&<>
+                  <h5>Review actual schedule changes</h5>
+                  <p>{datePreview.change_count} untouched task(s) move;
+                    {datePreview.preserved_count} started/completed task(s) stay unchanged.</p>
+                  {datePreview.changes.map(x=><p key={x.task_id} className="meta">
+                    {x.title}: due {new Date(x.old_due_at).toLocaleString()}
+                    {' → '}{new Date(x.new_due_at).toLocaleString()}
+                  </p>)}
+                  {datePreview.warnings.map((x,i)=><p className="meta" key={i}>{x}</p>)}
+                  <label>HR confirmation reason (8–240 characters)
+                    <textarea aria-label="Joining date change reason" minLength={8} maxLength={240}
+                      required value={dateChangeReason}
+                      onChange={e=>setDateChangeReason(e.target.value)}/>
+                  </label>
+                  <button disabled={busy||dateChangeReason.trim().length<8||
+                    datePreview.case_version!==detail.case_version}
+                    onClick={()=>void commitJoiningDate()}>Approve and commit previewed date change</button>
+                </>}
+              </section>}}
             {detail.tasks.length===0&&<p>Tasks will be instantiated only after successful activation.</p>}
             <div className="task-list">{detail.tasks.map(t=><article key={t.id} className="task">
               <div><h4>{t.title}</h4><span className="meta">{t.kind} · {t.owner_role} · {t.state}</span>
