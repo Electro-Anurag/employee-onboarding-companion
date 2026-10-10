@@ -90,6 +90,36 @@ class Command(BaseCommand):
                 key=uuid.uuid4(),expected_version=1)
             original_member.available=False
             original_member.save(update_fields=['available'])
+
+            # Independent HR↔employee review handoff case. It has no effect
+            # on the two established manager/exception scenarios.
+            handoff_password=secrets.token_urlsafe(20)+'Ab1!'
+            handoff_employee=User.objects.create_user(
+                email='handoff.employee@synthetic.invalid',
+                password=handoff_password,display_name='M5 Handoff Employee')
+            handoff_member=Membership.objects.create(user=handoff_employee,
+                organization=org,role='EMPLOYEE')
+            handoff_tasks=[dict(key='personal_details',kind='FORM',
+                owner_role='EMPLOYEE',title='M5 Personal Details',
+                required=True,available_offset_days=-10,due_offset_days=5,
+                evidence_spec={'type':'FORM',
+                               'fields':['preferred_name','contact_email']})]
+            handoff_draft=create_template(actor=users['HR'],key='m5_review_handoff',
+                name='M5 Real Form Handoff',tasks=handoff_tasks,edges=[])
+            handoff_published=publish_template(actor=users['HR'],
+                template_id=uuid.UUID(handoff_draft['id']),revision=1)
+            handoff_case,_=create_case(actor=users['HR'],employee_id=handoff_member.pk,
+                template_version_id=uuid.UUID(handoff_published['version_id']),
+                joining_date=timezone.localdate()+timedelta(days=3),
+                owner_ids={'IT':members['IT'].pk,'MANAGER':members['MANAGER'].pk},
+                key=uuid.uuid4())
+            handoff_case_id=uuid.UUID(handoff_case['case_id'])
+            activate_case(actor=users['HR'],case_id=handoff_case_id,
+                key=uuid.uuid4(),expected_version=1)
+            assert Task.objects.get(case_id=handoff_case_id,
+                key='personal_details').execution_state=='READY'
+        self.stdout.write('HANDOFF_CASE '+str(handoff_case_id))
+        self.stdout.write('HANDOFF_EMPLOYEE '+handoff_employee.email+' '+handoff_password)
         self.stdout.write('RECOVERY_CASE '+str(recovery_id))
         self.stdout.write('RECOVERY_MANAGER '+new_manager.email+' '+new_password)
         self.stdout.write('CASE '+str(case_id))
