@@ -21,7 +21,7 @@ def test_reminder_current_owner_duplicate_outage_and_resolution(world):
     activate_case(actor=actors['HR'][0],case_id=case.pk,
                   key=uuid.uuid4(),expected_version=1)
     task=Task.objects.get(case=case,key='manager_preparation')
-    now=task.due_at+timedelta(hours=1)
+    now=max(task.due_at+timedelta(hours=1),timezone.now()+timedelta(hours=1))
     first=reconcile_case(case.pk,now=now)
     assert first['created']>=1
     note=Notification.objects.get(task=task,recipient=actors['MANAGER'][0])
@@ -69,7 +69,7 @@ def test_reminders_reassignment_revokes_old_owner_without_new_delivery(world):
     activate_case(actor=actors['HR'][0],case_id=case.pk,
                   key=uuid.uuid4(),expected_version=1)
     task=Task.objects.get(case=case,key='manager_preparation')
-    future=task.due_at+timedelta(hours=1)
+    future=max(task.due_at+timedelta(hours=1),timezone.now()+timedelta(hours=1))
     reconcile_case(case.pk,now=future)
     old_note=Notification.objects.get(task=task,recipient=actors['MANAGER'][0])
     second=User.objects.create_user(email='alternate.manager@astervalelabs.test',
