@@ -40,7 +40,7 @@ assert AuditEvent.objects.filter(event_type='DOCUMENT_UPLOAD_INTENT_SUPERSEDED',
 assert AuditEvent.objects.filter(event_type='DOCUMENT_QUARANTINED',
     entity_id=task.pk).count()==1
 assert AuditEvent.objects.filter(event_type='TASK_COMPLETED',entity_id=task.pk).exists()
-assert CommandReceipt.objects.filter(case_id=cid,command_type='m3-secure-receive').count()==1
+assert CommandReceipt.objects.filter(case_id=cid,route='m3-secure-receive').count()==1
 with connection.cursor() as cur:
     cur.execute("SELECT status FROM procrastinate_jobs WHERE task_name=%s AND args->>'upload_id'=%s",
         ['m3.secure_document_scan',str(last.pk)])
