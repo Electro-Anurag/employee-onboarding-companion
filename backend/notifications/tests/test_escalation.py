@@ -105,8 +105,16 @@ def test_escalation_revoked_on_hr_reassignment_before_reconcile(naturally_overdu
     reconcile_case(case.pk,now=timezone.now())
     assert ReminderIntent.objects.get(pk=intent.pk).status=='SUPERSEDED'
     current=signed_in(replacement)
-    assert len([x for x in inbox(current)
-                if x['rule_code']==ESCALATION_RULE])==1
+    # The historical case has multiple overdue tasks, each with its own valid
+    # HR escalation. Assert exactly one for the task under test, rather than
+    # incorrectly requiring a one-item inbox for the entire case.
+    task_escalations=[x for x in inbox(current)
+                      if x['rule_code']==ESCALATION_RULE
+                      and x['task_id']==str(task.pk)]
+    assert len(task_escalations)==1
+    assert ReminderIntent.objects.filter(task=task,recipient=replacement,
+        rule_code=ESCALATION_RULE,status='DELIVERED').count()==1
+    assert task_escalations[0]['id']!=str(intent.notification.pk)
 
 
 @pytest.mark.django_db(transaction=True)
