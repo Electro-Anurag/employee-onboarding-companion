@@ -16,4 +16,5 @@ COPY backend/ backend/
 COPY manage.py ./
 COPY --from=ui /app/backend/static/ backend/static/
 ENV PATH="/app/.venv/bin:$PATH"
-CMD ["gunicorn", "backend.config.wsgi:application", "--bind", "0.0.0.0:8000"]
+# Default runtime command; Render uses the same script explicitly.
+CMD ["/bin/sh", "/app/backend/start_web.sh"]
