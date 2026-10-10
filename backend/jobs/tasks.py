@@ -37,3 +37,15 @@ def scan_secure_document(upload_id: str):
             and result.get('state')=='AWAITING_HR_REVIEW'):
         os._exit(77)
     require_completed_scan_result(result)
+
+
+@app.task(name="m5.reconcile_current_reminders",queue="control")
+def reconcile_current_reminders(after: str = ''):
+    """Repeatable bounded control job. Not a promise of periodic scheduling."""
+    from backend.notifications.services import reconcile_batch
+    result=reconcile_batch(after=after or None,limit=100)
+    if result['next_cursor']:
+        from backend.jobs.atomic import defer_atomic
+        from django.db import transaction
+        with transaction.atomic():
+            defer_atomic(reconcile_current_reminders,after=result['next_cursor'])
