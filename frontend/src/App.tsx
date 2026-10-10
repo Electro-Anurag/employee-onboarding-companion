@@ -13,6 +13,8 @@ type Owner = {id:string;name:string};
 type TaskPayload = {case_id:string;case_version:number;case_status:string;progress:Progress;tasks:Task[]};
 type WorkspaceTask = Task & {case_id:string;employee_name:string};
 type ApiError = {error?:{code?:string;message?:string}};
+type InboxRow = {id:string;case_id:string;task_id:string;summary:string;
+  rule_code:string;created_at:string;read_at:string|null;status:string};
 
 export default function App(){
   const [me,setMe]=useState<Me|null>(null);
@@ -39,13 +41,16 @@ export default function App(){
   const [note,setNote]=useState('');
   const [message,setMessage]=useState('Sign in to access assigned onboarding work.');
   const [busy,setBusy]=useState(false);
-  const [tab,setTab]=useState<'cases'|'work'|'templates'>('cases');
+  const [tab,setTab]=useState<'cases'|'work'|'templates'|'inbox'>('cases');
+  const [inbox,setInbox]=useState<InboxRow[]>([]);
+  const [inboxLoaded,setInboxLoaded]=useState(false);
   // Every identity transition invalidates all in-flight identity-bound reads.
   // The generation is checked immediately before committing any fetched data.
   const identityEpoch=useRef(0);
   function forgetProtectedIdentity(){
     identityEpoch.current+=1;
     setCases([]);setWork([]);setTemplates([]);setOwners({});
+    setInbox([]);setInboxLoaded(false);
     setTemplate(null);setEditor('');setSelected(null);setDetail(null);
     setEmployeeId('');setItId('');setManagerId('');setTemplateId('');setJoiningDate('');
     setAttestTask(null);setPlan('');setBuddy('');setStation(false);setNote('');
@@ -124,6 +129,27 @@ export default function App(){
         setMessage('Unable to read workspace: '+String(e));
     });
   },[me]);
+
+  async function loadInbox(){
+    const generation=identityEpoch.current;
+    const result=await request<{results:InboxRow[];delivery:string}>('/api/v1/notifications');
+    if(identityEpoch.current!==generation)return;
+    setInbox(result.results);setInboxLoaded(true);
+  }
+  useEffect(()=>{
+    if(tab!=='inbox'||!me)return;
+    const generation=identityEpoch.current;
+    void loadInbox().catch(e=>{
+      if(identityEpoch.current===generation)
+        setMessage('Inbox unavailable: '+(e instanceof Error?e.message:String(e)));
+    });
+  },[tab,me]);
+  async function markInboxRead(id:string){
+    await perform(async()=>{
+      await request('/api/v1/notifications/'+id+'/read','POST',{});
+      await loadInbox();
+    });
+  }
 
   async function perform(workflow:()=>Promise<void>){
     const generation=identityEpoch.current;
@@ -360,6 +386,7 @@ export default function App(){
         <nav aria-label="Workspace">
           <button className={tab==='cases'?'selected':'quiet'} onClick={()=>setTab('cases')}>Cases ({cases.length})</button>
           <button className={tab==='work'?'selected':'quiet'} onClick={()=>setTab('work')}>My work ({work.length})</button>
+          <button className={tab==='inbox'?'selected':'quiet'} onClick={()=>setTab('inbox')}>In-app inbox</button>
           {me.role==='HR'&&<button className={tab==='templates'?'selected':'quiet'} onClick={()=>setTab('templates')}>Templates ({templates.length})</button>}
         </nav>
         <button className="quiet" disabled={busy} onClick={()=>void perform(async()=>{await refresh(me);if(selected)await reloadCase(selected.id,me);})}>Refresh</button>
@@ -409,6 +436,27 @@ export default function App(){
               {!!t.blocked_reason_codes.length&&<p className="block">{t.blocked_reason_codes.join(', ')}</p>}</div>
             <button disabled={busy} onClick={()=>{const c=cases.find(x=>x.id===t.case_id);if(c)void selectCase(c);}}>Open case</button>
           </article>)}</div>}
+        </section>}
+        {tab==='inbox'&&<section className="panel" aria-label="In-app inbox">
+          <div className="heading"><h2>Reminders and handoffs</h2>
+            <button className="quiet" disabled={busy} onClick={()=>void perform(loadInbox)}>Refresh inbox</button>
+          </div>
+          <p className="meta">Persisted in-app reminders only. There is no email or calendar delivery.
+            Reminders are reconciled against current assignments and task state.</p>
+          {!inboxLoaded&&<p>Loading authorized reminders…</p>}
+          {inboxLoaded&&!inbox.length&&<p>No current reminders assigned to you.</p>}
+          <div className="task-list">{inbox.map(item=><article className="task" key={item.id}>
+            <div><strong>{item.summary}</strong>
+              <p className="meta">{item.rule_code} · {new Date(item.created_at).toLocaleString()}
+                {item.read_at?' · Read':' · Unread'}</p></div>
+            <div className="task-actions">
+              {!item.read_at&&<button disabled={busy}
+                onClick={()=>void markInboxRead(item.id)}>Mark read</button>}
+              <button disabled={busy||!cases.some(c=>c.id===item.case_id)}
+                onClick={()=>{const c=cases.find(c=>c.id===item.case_id);
+                  if(c)void selectCase(c);}}>Open assigned case</button>
+            </div>
+          </article>)}</div>
         </section>}
         {tab==='templates'&&me.role==='HR'&&<section className="panel"><h2>Versioned templates</h2>
           {me.capabilities?.manage_templates&&<button disabled={busy} onClick={()=>void createDefault()}>Create default synthetic 17-task template</button>}
