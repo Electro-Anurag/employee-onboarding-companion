@@ -50,7 +50,10 @@ jobs:
       - name: Install pinned standalone Playwright/Chromium acceptance runner
         run: |
           mkdir -p "$RUNNER_TEMP/m2-playwright"
-          cp browser/*.cjs "$RUNNER_TEMP/m2-playwright/"
+          # Scope the legacy M2/M3/M4 runner to its own fixtures. The new
+          # M5 spec requires separate synthetic accounts, qualified in
+          # m5-m6-browser-ci.yml; never import it in this unrelated suite.
+          cp browser/playwright.config.cjs browser/acceptance.spec.cjs browser/m4-*.spec.cjs "$RUNNER_TEMP/m2-playwright/"
           npm --prefix "$RUNNER_TEMP/m2-playwright" install --no-save --package-lock=false --ignore-scripts @playwright/test@1.64.0
           "$RUNNER_TEMP/m2-playwright/node_modules/.bin/playwright" install --with-deps chromium
       - name: Real four-role browser acceptance against Django/PostgreSQL
