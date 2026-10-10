@@ -1,0 +1,217 @@
+name: M3 real browser S3 web-process crash recovery
+on:
+  push:
+    branches: ['feature/m3-m4-integrated-workflows']
+    paths:
+      - 'backend/documents/**'
+      - 'backend/accounts/management/commands/seed_m3_live_browser.py'
+      - 'browser-live/**'
+      - 'scripts/m3_browser_*.py'
+      - 'frontend/**'
+      - 'backend/onboarding/migrations/0017_secure_s3_document_completion.py'
+      - 'backend/onboarding/migrations/0018_restore_activity_cancellation_authority.py'
+      - 'backend/activities/**'
+      - 'pyproject.toml'
+      - 'uv.lock'
+      - '.github/workflows/m3-live-browser-recovery.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  s3-and-clamd:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    services:
+      postgres:
+        image: postgres:17@sha256:2d2b8998d31037bf721cfdf764d76ba74171b4fab3431b7f72c27c56ddbdf9e3
+        env:
+          POSTGRES_DB: onboarding_m0
+          POSTGRES_USER: onboarding
+          POSTGRES_PASSWORD: ci-temporary-only
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 3s --health-timeout 3s --health-retries 20
+    env:
+      DJANGO_SECRET_KEY: ci-temporary-strong-secret
+      DJANGO_DEBUG: '1'
+      DJANGO_ALLOWED_HOSTS: localhost,127.0.0.1,testserver
+      POSTGRES_HOST: localhost
+      POSTGRES_PORT: '5432'
+      POSTGRES_DB: onboarding_m0
+      POSTGRES_USER: onboarding
+      POSTGRES_PASSWORD: ci-temporary-only
+      M3_REAL_DOCUMENT_ENABLED: '1'
+      M3_S3_QUARANTINE_BUCKET: ci-m3-private-quarantine
+      M3_S3_CLEAN_BUCKET: ci-m3-private-clean
+      M3_S3_ENDPOINT_URL: http://127.0.0.1:9000
+      M3_S3_ALLOW_LOCAL_TEST_ENDPOINT: '1'
+      M3_S3_REGION: us-east-1
+      M3_CLAMAV_HOST: 127.0.0.1
+      M3_CLAMAV_PORT: '3310'
+      AWS_ACCESS_KEY_ID: ci-minio-only
+      AWS_SECRET_ACCESS_KEY: ci-minio-temporary-password
+      M3_LIVE_S3_CLAMAV: '1'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e
+        with:
+          python-version: '3.13'
+          version: '0.12.23'
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+      - name: Build same-origin real React application for Chromium
+        run: |
+          cd frontend
+          npm ci
+          npm run build
+      - name: Install locked application and migration schema
+        run: |
+          uv lock --check
+          uv sync --locked
+          uv run python manage.py migrate --noinput
+      - name: Start isolated S3-compatible store and actual ClamAV
+        run: |
+          set -euo pipefail
+          docker run --detach --name m3-minio --rm \
+            -e MINIO_ROOT_USER=ci-minio-only \
+            -e MINIO_ROOT_PASSWORD=ci-minio-temporary-password \
+            -p 127.0.0.1:9000:9000 \
+            chainguard/minio:latest server /data
+          docker run --detach --name m3-clamd --rm \
+            -p 127.0.0.1:3310:3310 clamav/clamav:1.4
+      - name: Wait for S3, enable immutable versions, and require fresh actual clamd
+        run: |
+          uv run python - <<'PY'
+          import os
+          import time
+          os.environ.setdefault('DJANGO_SETTINGS_MODULE','backend.config.settings')
+          import django
+          django.setup()
+          from backend.documents import storage
+          from backend.documents.scanner import clamav_signature_provenance,ScannerUnavailable
+          s3=storage.client()
+          buckets=[storage.settings.M3_S3_QUARANTINE_BUCKET,storage.settings.M3_S3_CLEAN_BUCKET]
+          for i in range(150):
+              try:
+                  s3.list_buckets()
+                  break
+              except Exception:
+                  time.sleep(2)
+          else:
+              raise RuntimeError('S3 store unavailable')
+          for bucket in buckets:
+              s3.create_bucket(Bucket=bucket)
+              s3.put_bucket_versioning(Bucket=bucket,VersioningConfiguration={'Status':'Enabled'})
+          storage.buckets(s3)
+          # Emit bounded failure codes, not raw document bytes or secrets.
+          # This is an actual ClamAV readiness gate, never a mocked success.
+          last_reason='NOT_ATTEMPTED'
+          reload_requested=False
+          for i in range(60):
+              try:
+                  info=clamav_signature_provenance()
+                  print('CLAMAV_FRESH_REAL_SIGNATURES: '+info)
+                  break
+              except ScannerUnavailable as exc:
+                  reason=str(exc)
+              except Exception as exc:
+                  reason='UNEXPECTED_'+type(exc).__name__
+              if reason!=last_reason or i%10==0:
+                  print(f'CLAMAV_READINESS_CHECK: attempt={i+1} reason={reason}',flush=True)
+              if reason=='STALE_SCANNER_SIGNATURES' and not reload_requested:
+                  # CI-only local daemon reload. FreshClam updates the mounted
+                  # database on disk but its default socket notification fails;
+                  # clamd may still have the stale startup database in memory.
+                  # This does not bypass or weaken the 48-hour freshness gate.
+                  import socket
+                  try:
+                      with socket.create_connection(('127.0.0.1',3310),timeout=2) as channel:
+                          channel.settimeout(2)
+                          channel.sendall(b'zRELOAD'+bytes([0]))
+                          reply=channel.recv(128).rstrip(bytes([0,10,13]))
+                          if reply!=b'RELOADING':
+                              raise RuntimeError('ClamAV reload refused: '+repr(reply[:80]))
+                      print('CLAMAV_REAL_SIGNATURE_RELOAD_REQUESTED',flush=True)
+                      reload_requested=True
+                  except OSError as exc:
+                      print('CLAMAV_RELOAD_CONNECT_FAILED: '+type(exc).__name__,flush=True)
+              if reason=='STALE_SCANNER_SIGNATURES' and last_reason!=reason:
+                  # Diagnostic: clamd VERSION contains only public engine/db metadata.
+                  import socket
+                  try:
+                      with socket.create_connection(('127.0.0.1',3310),timeout=2) as channel:
+                          channel.settimeout(2)
+                          channel.sendall(b'zVERSION\\0'.replace(b'\\0',bytes([0])))
+                          version=channel.recv(180).split(bytes([0]))[0]
+                          print('CLAMAV_VERSION_DIAGNOSTIC: '+repr(version[:150]),flush=True)
+                  except OSError as exc:
+                      print('CLAMAV_VERSION_PROBE_FAILED: '+type(exc).__name__,flush=True)
+              last_reason=reason
+              time.sleep(2)
+          else:
+              raise RuntimeError('Actual ClamAV daemon with recent definitions unavailable: '+last_reason)
+          PY
+      - name: Live S3 and ClamAV malware, clean promotion and HR review
+        run: uv run pytest -q backend/documents/tests/test_s3_live.py
+      - name: Actual Chromium S3 web hard-exit, reload recovery and independently reviewed completion
+        run: |
+          set -euo pipefail
+          umask 077
+          export M3_LIVE_BROWSER_CREDENTIAL_FILE="$RUNNER_TEMP/m3-real-browser-creds.txt"
+          export M3_LIVE_BROWSER_VALID_PDF="$RUNNER_TEMP/m3-synthetic-valid.pdf"
+          export M3_LIVE_BROWSER_INVALID_PDF="$RUNNER_TEMP/m3-synthetic-invalid.pdf"
+          export M3_CI_CRASH_MARKER="$RUNNER_TEMP/m3-web-exit79-marker"
+          uv run python manage.py seed_m3_live_browser --confirm-synthetic > "$M3_LIVE_BROWSER_CREDENTIAL_FILE"
+          uv run python - <<'PY'
+          import os,io
+          from pypdf import PdfWriter
+          writer=PdfWriter()
+          writer.add_blank_page(width=320,height=360)
+          raw=io.BytesIO()
+          writer.write(raw)
+          valid=raw.getvalue()
+          assert valid.startswith(b'%PDF-') and valid.rstrip().endswith(b'%%EOF') and len(valid)>40
+          with open(os.environ['M3_LIVE_BROWSER_VALID_PDF'],'wb') as f:
+              f.write(valid)
+          with open(os.environ['M3_LIVE_BROWSER_INVALID_PDF'],'wb') as f:
+              f.write(b'%PDF-1.4 '+b'synthetic intentionally corrupt structure '*3+b'%%EOF')
+          PY
+          mkdir -p "$RUNNER_TEMP/m3-live-playwright"
+          cp browser/playwright.config.cjs browser-live/*.spec.cjs "$RUNNER_TEMP/m3-live-playwright/"
+          npm --prefix "$RUNNER_TEMP/m3-live-playwright" install --no-save --package-lock=false --ignore-scripts @playwright/test@1.64.0
+          "$RUNNER_TEMP/m3-live-playwright/node_modules/.bin/playwright" install --with-deps chromium
+          uv run python -m scripts.m3_browser_server_supervisor > "$RUNNER_TEMP/m3-browser-server.log" 2>&1 &
+          supervisor_pid=$!
+          uv run python manage.py procrastinate worker > "$RUNNER_TEMP/m3-browser-worker.log" 2>&1 &
+          worker_pid=$!
+          trap 'kill "$supervisor_pid" "$worker_pid" 2>/dev/null || true; wait "$supervisor_pid" "$worker_pid" 2>/dev/null || true; rm -f "$M3_LIVE_BROWSER_CREDENTIAL_FILE" "$M3_LIVE_BROWSER_VALID_PDF" "$M3_LIVE_BROWSER_INVALID_PDF"' EXIT
+          ready=0
+          for attempt in $(seq 1 60); do
+            if curl --fail --silent --output /dev/null http://127.0.0.1:8000/health/ready; then
+              ready=1
+              break
+            fi
+            sleep 1
+          done
+          if [ "$ready" != 1 ]; then
+            echo 'CI real S3 browser server failed to start'
+            tail -60 "$RUNNER_TEMP/m3-browser-server.log"
+            exit 1
+          fi
+          cd "$RUNNER_TEMP/m3-live-playwright"
+          ./node_modules/.bin/playwright test -c playwright.config.cjs m3-s3-restart.spec.cjs
+          cd "$GITHUB_WORKSPACE"
+          uv run python -m scripts.m3_browser_durable_assertions
+          echo M3_R2_COMPOSED_BROWSER_CRASH_RECOVERY_PASS
+      - name: Report scanner container status on any failure
+        if: failure()
+        run: |
+          docker ps -a
+          docker logs --tail 60 m3-clamd || true
+          docker logs --tail 30 m3-minio || true
+      - name: Stop isolated test services
+        if: always()
+        run: |
+          docker rm --force m3-clamd m3-minio || true
