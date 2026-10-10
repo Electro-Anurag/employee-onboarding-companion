@@ -131,7 +131,7 @@ class TaskCompletion(models.Model):
 
 
 EXCEPTION_CAUSES=('PREREQUISITE_BLOCKED','OWNER_UNAVAILABLE','TASK_OVERDUE')
-EXCEPTION_STATES=('OPEN','ASSIGNED','RESOLVED','CLOSED')
+EXCEPTION_STATES=('OPEN','ASSIGNED','RESOLVED','CLOSED','SUPERSEDED')
 class CaseException(models.Model):
     """Each recurring blocker has its own durable, non-bypass episode."""
     id=models.UUIDField(primary_key=True,default=uuid.uuid4,editable=False)
@@ -167,7 +167,7 @@ class CaseExceptionEvent(models.Model):
     id=models.UUIDField(primary_key=True,default=uuid.uuid4,editable=False)
     exception=models.ForeignKey(CaseException,on_delete=models.PROTECT,related_name='events')
     actor=models.ForeignKey(User,on_delete=models.PROTECT)
-    action=models.CharField(max_length=12,choices=[(x,x) for x in ('OPEN','ASSIGN','RESOLVE','CLOSE')])
+    action=models.CharField(max_length=12,choices=[(x,x) for x in ('OPEN','ASSIGN','RESOLVE','CLOSE','SUPERSEDE')])
     previous_status=models.CharField(max_length=12,blank=True)
     status=models.CharField(max_length=12)
     note=models.CharField(max_length=240)
