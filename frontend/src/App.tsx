@@ -631,7 +631,7 @@ export default function App(){
                     {me.role==='HR'&&x.cause==='OWNER_UNAVAILABLE'&&x.blocking_now&&
                       (x.status==='OPEN'||x.status==='ASSIGNED')&&
                       (x.task_owner_role==='IT'||x.task_owner_role==='MANAGER')&&
-                      <div className="form" aria-label={'Recover '+x.task_title+' owner'}>
+                      <div className="form" role="group" aria-label={'Recover '+x.task_title+' owner'}>
                         <strong>Recover unavailable {x.task_owner_role} owner</strong>
                         <label>Available replacement
                           <select aria-label={'Replacement owner for '+x.task_title}
