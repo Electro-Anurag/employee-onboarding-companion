@@ -24,7 +24,8 @@ type Guidance = {mode:'DETERMINISTIC_ONLY';ai_model_used:false;
     unmet_prerequisites:{task_title:string;state:string;owner_role:string}[]}[];
   open_exceptions:{id:string;task_title:string;cause:string;episode:number;
     status:string;assignee_role:string|null}[];limitations:string[]};
-type ExceptionRecord = {id:string;task_id:string;task_title:string;cause:string;episode:number;
+type ExceptionRecord = {id:string;task_id:string;task_title:string;task_owner_role:string;
+  cause:string;episode:number;
   status:'OPEN'|'ASSIGNED'|'RESOLVED'|'CLOSED'|'SUPERSEDED';assignee_role:string|null;
   reason:string;blocking_now:boolean;events:{action:string;status:string;note:string;created_at:string}[]};
 type InboxRow = {id:string;case_id:string;task_id:string;summary:string;
@@ -68,6 +69,8 @@ export default function App(){
   const [exceptionCause,setExceptionCause]=useState('PREREQUISITE_BLOCKED');
   const [exceptionNote,setExceptionNote]=useState('');
   const [exceptionAssignees,setExceptionAssignees]=useState<Record<string,string>>({});
+  const [recoveryOwner,setRecoveryOwner]=useState<Record<string,string>>({});
+  const [recoveryReason,setRecoveryReason]=useState('');
   // Every identity transition invalidates all in-flight identity-bound reads.
   // The generation is checked immediately before committing any fetched data.
   const identityEpoch=useRef(0);
@@ -79,6 +82,7 @@ export default function App(){
     setInbox([]);setInboxLoaded(false);
     setExceptions([]);setExceptionsLoaded(false);setExceptionTask('');
     setGuidance(null);setExceptionNote('');setExceptionAssignees({});
+    setRecoveryOwner({});setRecoveryReason('');
     setTemplate(null);setEditor('');setSelected(null);setDetail(null);
     setEmployeeId('');setItId('');setManagerId('');setTemplateId('');setJoiningDate('');
     setNewJoiningDate('');setDateChangeReason('');setDatePreview(null);
@@ -230,6 +234,7 @@ export default function App(){
       setGuidance(null);setDatePreview(null);
       datePreviewGeneration.current+=1;
       setNewJoiningDate('');setDateChangeReason('');
+      setRecoveryOwner({});setRecoveryReason('');
     });
   }
   async function reloadCase(caseId:string,identity:Me){
@@ -298,6 +303,22 @@ export default function App(){
       setGuidance(null);
       await loadExceptions(caseId);
       setExceptionNote('');
+    });
+  }
+  async function recoverUnavailableOwner(episode:ExceptionRecord){
+    if(!me||!detail||me.role!=='HR'||episode.cause!=='OWNER_UNAVAILABLE')return;
+    if(episode.task_owner_role!=='IT'&&episode.task_owner_role!=='MANAGER')return;
+    const target=recoveryOwner[episode.id];
+    if(!target||recoveryReason.trim().length<8)return;
+    const caseId=detail.case_id;
+    await perform(async()=>{
+      await request('/api/v1/cases/'+caseId+'/assignments','POST',{
+        role:episode.task_owner_role,new_member_id:target,reason:recoveryReason.trim()
+      },{'If-Match':'"case:'+caseId+':v'+detail.case_version+'"'});
+      await reloadCase(caseId,me);
+      setGuidance(null);setRecoveryReason('');setRecoveryOwner({});
+      await loadExceptions(caseId);
+      setMessage('Recovery owner reassigned; resolve exception only after confirming underlying blocker cleared.');
     });
   }
   async function activate(){
@@ -607,6 +628,27 @@ export default function App(){
                     </details>
                   </div>
                   <div className="task-actions">
+                    {me.role==='HR'&&x.cause==='OWNER_UNAVAILABLE'&&x.blocking_now&&
+                      (x.status==='OPEN'||x.status==='ASSIGNED')&&
+                      (x.task_owner_role==='IT'||x.task_owner_role==='MANAGER')&&
+                      <div className="form" aria-label={'Recover '+x.task_title+' owner'}>
+                        <strong>Recover unavailable {x.task_owner_role} owner</strong>
+                        <label>Available replacement
+                          <select aria-label={'Replacement owner for '+x.task_title}
+                            value={recoveryOwner[x.id]||''}
+                            onChange={e=>setRecoveryOwner(p=>({...p,[x.id]:e.target.value}))}>
+                            <option value="">Select an available case owner</option>
+                            {(owners[x.task_owner_role]||[]).map(o=><option key={o.id}
+                              value={o.id}>{o.name}</option>)}
+                          </select>
+                        </label>
+                        <label>Reason for ownership recovery
+                          <textarea aria-label="Owner recovery reason" minLength={8} maxLength={240}
+                            value={recoveryReason} onChange={e=>setRecoveryReason(e.target.value)}/>
+                        </label>
+                        <button disabled={busy||!recoveryOwner[x.id]||recoveryReason.trim().length<8}
+                          onClick={()=>void recoverUnavailableOwner(x)}>Reassign current task owner</button>
+                      </div>}
                     {me.role==='HR'&&(x.status==='OPEN'||x.status==='ASSIGNED')&&<>
                       <label>Assign owner
                         <select value={exceptionAssignees[x.id]||'HR'}
