@@ -47,9 +47,10 @@ def test_closeout_refuses_missing_evidence_then_completes_exactly_once(world):
     assert case.status == 'ACTIVE'
     t = Task.objects.get(case=case, key='manager_preparation')
     assert t.execution_state == 'READY'
-    with pytest.raises(CommandFailure, match='CLOSEOUT_MANDATORY_INCOMPLETE'):
+    with pytest.raises(CommandFailure) as blocked:
         closeout_case(actor=users['HR'][0], case_id=case.pk,
                       key=uuid.uuid4(), expected_version=2)
+    assert blocked.value.code == 'CLOSEOUT_MANDATORY_INCOMPLETE'
     with pytest.raises(CommandFailure):
         closeout_case(actor=users['EMPLOYEE'][0], case_id=case.pk,
                       key=uuid.uuid4(), expected_version=2)
