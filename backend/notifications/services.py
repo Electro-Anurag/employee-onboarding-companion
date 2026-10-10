@@ -1,8 +1,8 @@
 """M5 bounded current-state reconciliation, never blind clock-tick replay.
 
-Initial supported action kinds are owned typed tasks, not document/form review
-handoffs. Unsupported handoffs must not receive incorrectly addressed alerts.
-No external email/calendar sending is performed.
+Review handoffs require the current immutable form submission or exact
+document revision. No private answers, filenames or document bytes leave
+the evidence domain; no email or calendar delivery is claimed.
 """
 import uuid
 from datetime import timedelta
@@ -41,6 +41,89 @@ def current_recipient(task,case,now):
     return member.user
 
 
+HANDOFF_RULES=frozenset({
+    'FORM_HR_REVIEW','FORM_CORRECTION',
+    'DOCUMENT_HR_REVIEW','DOCUMENT_CORRECTION'
+})
+
+
+def _eligible_actor(case,role,now):
+    """Resolve a *current* available role, never a historical task owner."""
+    if role==Membership.EMPLOYEE:
+        member=case.employee
+    else:
+        assignment=current_assignments(case,now).get(role)
+        member=assignment.member if assignment is not None else None
+    if (member is None or member.organization_id!=case.organization_id
+            or member.role!=role or not member.active or not member.available
+            or not member.user.is_active):
+        return None
+    return member.user
+
+
+def current_handoff_candidate(task,case,now):
+    """Exact current workflow handoff or None; never guess pending review.
+
+    Return recipient, rule, immutable source-revision UUID. The UUID fits the
+    existing <=40-character reminder bucket and cannot expose form answers,
+    PDF names, uploaded bytes, or reviewer notes.
+    """
+    if case.status not in ACTIVE_CASES or task.kind not in ('FORM','DOCUMENT'):
+        return None
+    if task.execution_state in ('COMPLETED','CANCELLED'):
+        return None
+    state,_=preview_task_state(task,case,now)
+    if state!='IN_PROGRESS':
+        return None
+    if task.kind=='FORM':
+        from backend.forms.models import FormSubmission,FormReview
+        latest=FormSubmission.objects.filter(task=task).order_by('-revision').first()
+        if latest is None:
+            return None
+        decision=FormReview.objects.filter(submission=latest).values_list(
+            'decision',flat=True).first()
+        if decision=='ACCEPTED':
+            return None
+        role=Membership.EMPLOYEE if decision=='CHANGES_REQUESTED' else Membership.HR
+        rule='FORM_CORRECTION' if decision=='CHANGES_REQUESTED' else 'FORM_HR_REVIEW'
+        source_id=latest.pk
+    else:
+        from backend.documents.real_models import SecureUpload,SecureCleanObject,SecureHRReview
+        from backend.documents.models import DocumentRevision,DocumentReview
+        upload=SecureUpload.objects.filter(task=task).order_by('-revision').first()
+        if upload is not None:
+            # A quarantined/unscanned PDF MUST NEVER trigger HR review.
+            clean=SecureCleanObject.objects.filter(upload=upload,
+                scan__outcome='CLEAN').first()
+            if clean is None:
+                return None
+            decision=SecureHRReview.objects.filter(clean=clean).values_list(
+                'decision',flat=True).first()
+            source_id=upload.pk
+        else:
+            latest=DocumentRevision.objects.filter(task=task).order_by('-revision').first()
+            if latest is None or latest.scan_status!='VALIDATED_SYNTHETIC':
+                return None
+            decision=DocumentReview.objects.filter(revision=latest).values_list(
+                'decision',flat=True).first()
+            source_id=latest.pk
+        if decision=='ACCEPTED':
+            return None
+        correction=decision in ('REJECTED','NEEDS_CLARIFICATION')
+        role=Membership.EMPLOYEE if correction else Membership.HR
+        rule='DOCUMENT_CORRECTION' if correction else 'DOCUMENT_HR_REVIEW'
+    person=_eligible_actor(case,role,now)
+    return (person,rule,str(source_id)) if person is not None else None
+
+
+def _summary_for(task,rule):
+    # No employee answers, document names, reviewer messages or PHI/PII.
+    action=('HR review required' if rule.endswith('HR_REVIEW')
+            else 'Correction required' if rule.endswith('CORRECTION')
+            else 'Overdue' if rule=='OVERDUE_DAILY' else 'Due soon')
+    return (action+': '+task.title)[:200]
+
+
 def _candidate(task,case,now):
     person=current_recipient(task,case,now)
     if not person:
@@ -72,8 +155,10 @@ def reconcile_case(case_id,*,now=None):
         by_role={a.role:a for a in assignments}
         tasks=list(Task.objects.filter(case=case).order_by('key'))
         for task in tasks:
-            candidate=(_candidate(task,case,now)
-                       if case.status in ACTIVE_CASES else None)
+            candidate=(current_handoff_candidate(task,case,now)
+                       if task.kind in ('FORM','DOCUMENT') else
+                       _candidate(task,case,now) if case.status in ACTIVE_CASES
+                       else None)
             active=list(ReminderIntent.objects.filter(case=case,task=task,
                 status='DELIVERED'))
             current_identities=set()
@@ -104,8 +189,7 @@ def reconcile_case(case_id,*,now=None):
                 defaults={'case':case,'due_at':task.due_at})
             if created:
                 Notification.objects.create(intent=reminder,case=case,task=task,
-                    recipient=person,
-                    summary=('Overdue: ' if rule=='OVERDUE_DAILY' else 'Due soon: ')+task.title)
+                    recipient=person,summary=_summary_for(task,rule))
                 made+=1
             elif reminder.status!='DELIVERED':
                 # An old revision/rule identity cannot be silently revived.
