@@ -691,7 +691,7 @@ export default function App(){
                   </select>
                 </label>
                 <label>Reason (8–240 characters)
-                  <textarea minLength={8} maxLength={240} required value={exceptionNote}
+                  <textarea aria-label="Exception report reason" minLength={8} maxLength={240} required value={exceptionNote}
                     onChange={e=>setExceptionNote(e.target.value)}/>
                 </label>
                 <button type="submit" disabled={busy||!exceptionTask||exceptionNote.trim().length<8}>
