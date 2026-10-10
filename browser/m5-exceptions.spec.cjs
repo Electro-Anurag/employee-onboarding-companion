@@ -114,16 +114,16 @@ test('M5 Chromium HR previews joining date, commits and preserves existing manag
     const preservedBefore=await card(hr,'M5 Manager Preparation').innerText();
     const introBefore=await card(hr,'M5 Team Introduction').innerText();
     const target=new Date(Date.now()+9*86400*1000).toISOString().slice(0,10);
-    await datePanel.getByRole('textbox',{name:'Proposed joining date'}).fill(target);
+    await datePanel.getByLabel('Proposed joining date').fill(target);
     await datePanel.getByRole('button',{name:'Preview date change impact'}).click();
     await expect(datePanel).toContainText('1 untouched task(s) move');
     await expect(datePanel).toContainText('1 started/completed task(s) stay unchanged');
-    await datePanel.getByRole('textbox',{name:'Joining date change reason'}).fill(
+    await datePanel.getByLabel('Joining date change reason').fill(
       'HR confirmed synthetic updated joining date with employee');
     await datePanel.getByRole('button',{name:'Approve and commit previewed date change'}).click();
     await expect(datePanel).toContainText('Current joining date: '+target);
     await expect(card(hr,'M5 Manager Preparation')).toContainText('COMPLETED');
-    await expect(card(hr,'M5 Team Introduction')).toContainText('READY');
+    await expect(card(hr,'M5 Team Introduction')).toContainText('NOT_STARTED');
     const introAfter=await card(hr,'M5 Team Introduction').innerText();
     expect(introAfter).not.toBe(introBefore);
     expect(await card(hr,'M5 Manager Preparation').innerText()).toBe(preservedBefore);
@@ -133,6 +133,6 @@ test('M5 Chromium HR previews joining date, commits and preserves existing manag
     await expect(hr.getByRole('region',{name:'Joining date reschedule'}))
       .toContainText('Current joining date: '+target);
     await expect(card(hr,'M5 Manager Preparation')).toContainText('COMPLETED');
-    await expect(card(hr,'M5 Team Introduction')).toContainText('READY');
+    await expect(card(hr,'M5 Team Introduction')).toContainText('NOT_STARTED');
   }finally{await context.close();}
 });
