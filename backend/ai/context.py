@@ -6,7 +6,7 @@ until provider use is explicitly approved.
 """
 import hashlib
 import json
-from backend.onboarding.models import Task,TaskDependency
+from backend.onboarding.models import Task,TaskDependency,CaseException
 from backend.onboarding.services import get_authorized_case
 from backend.onboarding.state_machine import summary_task
 
@@ -15,7 +15,7 @@ def authorized_context(actor,case_id):
     member,case=get_authorized_case(actor,case_id)
     if case.status not in ('PRE_JOINING','ACTIVE'):
         return {'case_id':str(case.pk),'case_version':case.version,
-            'status':case.status,'tasks':[],'blockers':[],'eligible_actions':[],
+            'status':case.status,'tasks':[],'blockers':[],'open_exceptions':[],'eligible_actions':[],
             'sources':[],'context_digest':''}
     tasks=list(Task.objects.filter(case=case).order_by('key')[:61])
     if len(tasks)>60:
@@ -47,8 +47,20 @@ def authorized_context(actor,case_id):
         for action in task['allowed_actions']:
             actions.append({'id':'ACTION:'+task['id']+':'+action,
                 'task_id':task['id'],'type':action})
+    episodes=[]
+    for ex in CaseException.objects.filter(case=case,status__in=['OPEN','ASSIGNED','RESOLVED']).order_by('opened_at','id')[:61]:
+        # Exception notes are user-origin text and may contain personal data.
+        # Send only current structured, explicitly authorized provenance.
+        episodes.append({'id':'EXCEPTION:'+str(ex.pk),
+            'task_id':str(ex.task_id),'cause':ex.cause,
+            'status':ex.status,'episode':ex.episode,
+            'assignee_role':ex.assignee.role if ex.assignee_id else None})
+        source_ids.append('EXCEPTION:'+str(ex.pk))
+    if len(episodes)>60:
+        raise ValueError('CASE_EXCEPTION_LIMIT_EXCEEDED')
     ctx={'case_id':str(case.pk),'case_version':case.version,
          'status':case.status,'tasks':item_rows,'blockers':blockers[:60],
+         'open_exceptions':episodes,
          'eligible_actions':actions,'sources':source_ids}
     canonical=json.dumps(ctx,sort_keys=True,separators=(',',':'))
     ctx['context_digest']=hashlib.sha256(canonical.encode()).hexdigest()
