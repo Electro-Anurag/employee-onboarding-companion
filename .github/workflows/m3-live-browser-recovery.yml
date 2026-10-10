@@ -184,7 +184,7 @@ jobs:
           mkdir -p "$RUNNER_TEMP/m3-live-playwright"
           cp browser/playwright.config.cjs browser-live/*.spec.cjs "$RUNNER_TEMP/m3-live-playwright/"
           npm --prefix "$RUNNER_TEMP/m3-live-playwright" install --no-save --package-lock=false --ignore-scripts @playwright/test@1.64.0
-          "$RUNNER_TEMP/m3-live-playwright/node_modules/.bin/playwright" install --with-deps chromium
+          "$RUNNER_TEMP/m3-live-playwright/node_modules/.bin/playwright" install chromium
           # Each CI-only service owns its own session/process group.
           # Cleanup terminates all descendants, including subprocess workers;
           # no unbounded shell wait can consume the entire workflow deadline.
