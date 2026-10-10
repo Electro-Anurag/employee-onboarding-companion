@@ -61,8 +61,15 @@ jobs:
           uv run python manage.py seed_m5_browser --confirm-synthetic > "$M5_BROWSER_CREDENTIAL_FILE"
           setsid uv run python manage.py runserver --nostatic --noreload 127.0.0.1:8000 > "$RUNNER_TEMP/m5-web.log" 2>&1 &
           server_pid=$!
+          # M5 handoff browser journey requires an actual periodic worker,
+          # not ORM-created or mocked inbox rows.
+          setsid uv run python manage.py procrastinate worker --queues control > "$RUNNER_TEMP/m5-browser-worker.log" 2>&1 &
+          browser_worker_pid=$!
           cleanup() {
             set +e
+            kill -TERM -- "-$browser_worker_pid" 2>/dev/null || true
+            kill -KILL -- "-$browser_worker_pid" 2>/dev/null || true
+            wait "$browser_worker_pid" 2>/dev/null || true
             kill -TERM -- "-$server_pid" 2>/dev/null || true
             sleep 1
             kill -KILL -- "-$server_pid" 2>/dev/null || true
