@@ -72,16 +72,29 @@ def open_exception(*,actor,case_id,task_id,cause,note,key,expected_version):
         if not predicate_active(task,case,cause):
             raise CommandFailure('EXCEPTION_PREDICATE_NOT_ACTIVE',409)
         episodes=CaseException.objects.filter(case=case,task=task,cause=cause)
-        if episodes.exclude(status='CLOSED').exists():
+        existing=episodes.exclude(status__in=['CLOSED','SUPERSEDED']).first()
+        if existing is not None and existing.status!='RESOLVED':
             raise CommandFailure('EXCEPTION_ALREADY_ACTIVE',409)
+        # A RESOLVED episode can recur before HR closes it. Never falsely
+        # label that episode HR-verified CLOSED. Supersede with audit history
+        # and create a new episode in the same serialized case transaction.
         last=episodes.order_by('-episode').first()
         number=(last.episode+1 if last else 1)
+        if existing is not None:
+            existing.status='SUPERSEDED'
+            existing.save(update_fields=['status'])
         exc=CaseException.objects.create(case=case,task=task,cause=cause,
             episode=number,status='OPEN',reason=note,opened_by=actor)
         case.version+=1
         case.save(update_fields=['version'])
+        events=[]
+        if existing is not None:
+            previous_event,previous_audit=_record(case,existing,actor,
+                'SUPERSEDE','RESOLVED',note)
+            events.extend([previous_event,previous_audit])
         event_id,audit_id=_record(case,exc,actor,'OPEN','',note)
-        response,code=_response(case,exc,[event_id,audit_id],201)
+        events.extend([event_id,audit_id])
+        response,code=_response(case,exc,events,201)
         _receipt(actor,'m5-exception-open',key,digest,case,response,code)
     return response,code
 
