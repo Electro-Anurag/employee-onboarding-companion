@@ -77,15 +77,18 @@ jobs:
           uv run python manage.py makemigrations --check --dry-run
       - name: Migrate queue and domain schema
         run: uv run python manage.py migrate --noinput
-      - name: Populated manager-provenance 0018-to-0019 upgrade and mismatch rejection
+      - name: Populated manager provenance 0018-to-0020 and earlier-installed 0019 upgrade
         env:
           PGPASSWORD: ci-temporary-only
         run: |
           set -euo pipefail
-          psql -v ON_ERROR_STOP=1 -h localhost -U onboarding -d onboarding_m0 -c 'CREATE DATABASE ci_m4_upgrade_matching'
-          psql -v ON_ERROR_STOP=1 -h localhost -U onboarding -d onboarding_m0 -c 'CREATE DATABASE ci_m4_upgrade_mismatched'
-          POSTGRES_DB=ci_m4_upgrade_matching M4_MANAGER_UPGRADE_SCENARIO=matching uv run python -m scripts.m4_manager_upgrade_qualification
-          POSTGRES_DB=ci_m4_upgrade_mismatched M4_MANAGER_UPGRADE_SCENARIO=mismatched uv run python -m scripts.m4_manager_upgrade_qualification
+          for scenario in matching mismatched legacy_matching legacy_mismatched; do
+            psql -v ON_ERROR_STOP=1 -h localhost -U onboarding -d onboarding_m0 \
+              -c "CREATE DATABASE ci_m4_upgrade_${scenario}"
+            POSTGRES_DB="ci_m4_upgrade_${scenario}" \
+              M4_MANAGER_UPGRADE_SCENARIO="$scenario" \
+              uv run python -m scripts.m4_manager_upgrade_qualification
+          done
       - name: M0/M1 regressions and M2 PostgreSQL workflow tests
         run: |
           uv run python manage.py procrastinate healthchecks
