@@ -13,6 +13,11 @@ type Owner = {id:string;name:string};
 type TaskPayload = {case_id:string;case_version:number;case_status:string;progress:Progress;tasks:Task[]};
 type WorkspaceTask = Task & {case_id:string;employee_name:string};
 type ApiError = {error?:{code?:string;message?:string}};
+type Guidance = {mode:'DETERMINISTIC_ONLY';ai_model_used:false;
+  case_version:number;actionable:{task_id:string;task_title:string;action:string;due_at:string;owner_role:string}[];
+  blockers:{task_title:string;reason_codes:string[];
+    unmet_prerequisites:{task_title:string;state:string;owner_role:string}[]}[];
+  limitations:string[]};
 type ExceptionRecord = {id:string;task_id:string;task_title:string;cause:string;episode:number;
   status:'OPEN'|'ASSIGNED'|'RESOLVED'|'CLOSED';assignee_role:string|null;
   reason:string;blocking_now:boolean;events:{action:string;status:string;note:string;created_at:string}[]};
@@ -49,6 +54,7 @@ export default function App(){
   const [inboxLoaded,setInboxLoaded]=useState(false);
   const [exceptions,setExceptions]=useState<ExceptionRecord[]>([]);
   const [exceptionsLoaded,setExceptionsLoaded]=useState(false);
+  const [guidance,setGuidance]=useState<Guidance|null>(null);
   const [exceptionTask,setExceptionTask]=useState('');
   const [exceptionCause,setExceptionCause]=useState('PREREQUISITE_BLOCKED');
   const [exceptionNote,setExceptionNote]=useState('');
@@ -61,7 +67,7 @@ export default function App(){
     setCases([]);setWork([]);setTemplates([]);setOwners({});
     setInbox([]);setInboxLoaded(false);
     setExceptions([]);setExceptionsLoaded(false);setExceptionTask('');
-    setExceptionNote('');setExceptionAssignees({});
+    setGuidance(null);setExceptionNote('');setExceptionAssignees({});
     setTemplate(null);setEditor('');setSelected(null);setDetail(null);
     setEmployeeId('');setItId('');setManagerId('');setTemplateId('');setJoiningDate('');
     setAttestTask(null);setPlan('');setBuddy('');setStation(false);setNote('');
@@ -209,6 +215,7 @@ export default function App(){
       if(identityEpoch.current!==generation)return;
       setSelected(c);setDetail(result);setTab('cases');setAttestTask(null);
       setExceptions([]);setExceptionsLoaded(false);setExceptionTask('');
+      setGuidance(null);
     });
   }
   async function reloadCase(caseId:string,identity:Me){
@@ -219,6 +226,12 @@ export default function App(){
     if(identityEpoch.current!==generation)return;
     setDetail(result);
     setSelected(old=>old&&old.id===caseId?{...old,version:result.case_version,status:result.case_status}:old);
+  }
+  async function loadGuidance(caseId:string){
+    const generation=identityEpoch.current;
+    const result=await request<Guidance>('/api/v1/cases/'+caseId+'/companion/guidance');
+    if(identityEpoch.current!==generation)return;
+    setGuidance(result);
   }
   async function loadExceptions(caseId:string){
     const generation=identityEpoch.current;
@@ -456,6 +469,33 @@ export default function App(){
                 <button disabled={busy||!station} type="submit">Submit recorded evidence</button>
               </form>}
             </article>)}</div>
+            <section className="subpanel" aria-label="Case companion guidance">
+              <div className="heading"><h4>Current blocker and next-action guidance</h4>
+                <button className="quiet" disabled={busy}
+                  onClick={()=>void perform(()=>loadGuidance(detail.case_id))}>
+                  Analyze current case
+                </button>
+              </div>
+              <p className="meta">Deterministic current-state guidance; no AI model call, external
+                provider, autonomous approval or message sending.</p>
+              {guidance&&<>
+                <p className="meta">Evaluated case v{guidance.case_version}</p>
+                <h5>Your eligible next actions</h5>
+                {!guidance.actionable.length&&<p>Nothing currently actionable for this role.</p>}
+                {guidance.actionable.map(x=><p key={x.task_id+':'+x.action}>
+                  {x.task_title} — {x.action} (due {new Date(x.due_at).toLocaleString()})
+                </p>)}
+                <h5>Evidence-based blockers</h5>
+                {!guidance.blockers.length&&<p>No current dependency or unavailable-owner blockers.</p>}
+                {guidance.blockers.map((x,i)=><div key={i}>
+                  <strong>{x.task_title}</strong>
+                  <p className="meta">{x.reason_codes.join(', ')}</p>
+                  {x.unmet_prerequisites.map((p,j)=><p key={j} className="meta">
+                    Waiting on {p.task_title} ({p.owner_role} · {p.state})
+                  </p>)}
+                </div>)}
+              </>}
+            </section>
             <section className="subpanel" aria-label="Case exceptions">
               <div className="heading"><h4>Exception recovery</h4>
                 <button className="quiet" disabled={busy}
