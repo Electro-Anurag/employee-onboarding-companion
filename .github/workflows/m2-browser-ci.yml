@@ -52,7 +52,7 @@ jobs:
           mkdir -p "$RUNNER_TEMP/m2-playwright"
           cp browser/*.cjs "$RUNNER_TEMP/m2-playwright/"
           npm --prefix "$RUNNER_TEMP/m2-playwright" install --no-save --package-lock=false --ignore-scripts @playwright/test@1.64.0
-          "$RUNNER_TEMP/m2-playwright/node_modules/.bin/playwright" install --with-deps chromium
+          "$RUNNER_TEMP/m2-playwright/node_modules/.bin/playwright" install chromium
       - name: Real four-role browser acceptance against Django/PostgreSQL
         run: |
           set -euo pipefail
