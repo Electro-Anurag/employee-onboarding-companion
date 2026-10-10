@@ -9,6 +9,9 @@ import json
 from backend.onboarding.models import Task,TaskDependency,CaseException
 from backend.onboarding.services import get_authorized_case
 from backend.onboarding.state_machine import summary_task
+from backend.accounts.models import Membership
+from backend.onboarding.services import CommandFailure
+from backend.policies.commands import validated_policy
 
 
 def authorized_context(actor,case_id):
@@ -16,7 +19,7 @@ def authorized_context(actor,case_id):
     if case.status not in ('PRE_JOINING','ACTIVE'):
         return {'case_id':str(case.pk),'case_version':case.version,
             'status':case.status,'tasks':[],'blockers':[],'open_exceptions':[],'eligible_actions':[],
-            'sources':[],'context_digest':''}
+            'sources':[],'policies':[],'context_digest':''}
     tasks=list(Task.objects.filter(case=case).order_by('key')[:61])
     if len(tasks)>60:
         raise ValueError('CASE_TASK_LIMIT_EXCEEDED')
@@ -58,10 +61,27 @@ def authorized_context(actor,case_id):
         source_ids.append('EXCEPTION:'+str(ex.pk))
     if len(episodes)>60:
         raise ValueError('CASE_EXCEPTION_LIMIT_EXCEEDED')
+    # A model may cite *only* exact case-assigned, hash-verified synthetic
+    # policy text. Never include an upload, private employee form or reviewer note.
+    # IT/Manager are not authorized to read employee policy contents.
+    policies=[]
+    if member.role in (Membership.HR, Membership.EMPLOYEE):
+        for task in tasks:
+            if task.kind!='POLICY_ACK':
+                continue
+            try:
+                policy=validated_policy(task)
+            except CommandFailure:
+                continue
+            source='POLICY:'+str(task.pk)+':'+policy['content_sha256'][:12]
+            policies.append({'source_id':source,'version':policy['version'],
+                             'text':policy['text']})
+            source_ids.append(source)
     ctx={'case_id':str(case.pk),'case_version':case.version,
          'status':case.status,'tasks':item_rows,'blockers':blockers[:60],
          'open_exceptions':episodes,
-         'eligible_actions':actions,'sources':source_ids}
+         'eligible_actions':actions,'sources':source_ids,
+         'policies':policies}
     canonical=json.dumps(ctx,sort_keys=True,separators=(',',':'))
     ctx['context_digest']=hashlib.sha256(canonical.encode()).hexdigest()
     return ctx
