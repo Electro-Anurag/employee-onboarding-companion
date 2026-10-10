@@ -1,7 +1,7 @@
 name: M3-M4 real workflow browser acceptance
 on:
   push:
-    branches: ['feature/m3-m4-integrated-workflows']
+    branches: ['feature/m3-m4-integrated-workflows', 'feature/m5-m6-parallel-development']
   workflow_dispatch:
 permissions:
   contents: read
