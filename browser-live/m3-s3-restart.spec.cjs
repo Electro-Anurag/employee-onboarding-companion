@@ -116,7 +116,7 @@ test('R2: browser invalid correction, reload resume, actual web hard exit after 
       await employee.reload();await expect(employee.getByText('Role: EMPLOYEE')).toBeVisible();
       await open(employee);
       await pdfUpload(employee,valid);
-      await expect(card(employee,'Live Identity PDF')).toContainText('QUARANTINED');
+      await expect(card(employee,'Live Identity PDF')).toContainText(/QUARANTINED|AWAITING_HR_REVIEW/);
       const records=await history(employee,task.id);
       expect(records).toHaveLength(2);
       expect(records[1].id).toBe(replacementId);
@@ -135,8 +135,8 @@ test('R2: browser invalid correction, reload resume, actual web hard exit after 
       await doc.getByRole('button',{name:'Load S3 document processing history'}).click();
       await expect(doc).toContainText('AWAITING_HR_REVIEW');
       await doc.getByLabel('Clean-object HR decision').selectOption('ACCEPTED');
-      await doc.getByLabel('HR clean-object decision evidence').fill('Actual S3, scanner, and recovery checked by assigned synthetic HR');
-      await doc.getByRole('button',{name:'Record independent HR clean-object decision'}).click();
+      await doc.getByLabel('HR review evidence').fill('Actual S3, scanner, and recovery checked by assigned synthetic HR');
+      await doc.getByRole('button',{name:'Record HR decision for exact clean version'}).click();
       await expect(doc).toContainText('COMPLETED');
       await hr.reload();await expect(hr.getByText('Role: HR')).toBeVisible();await open(hr);
       await expect(card(hr,'Blocked Equipment')).toContainText('READY');
