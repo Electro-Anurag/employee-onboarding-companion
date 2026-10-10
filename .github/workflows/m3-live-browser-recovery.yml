@@ -1,7 +1,7 @@
 name: M3 real browser S3 web-process crash recovery
 on:
   push:
-    branches: ['feature/m3-m4-integrated-workflows']
+    branches: ['feature/m3-m4-integrated-workflows', 'feature/m5-m6-parallel-development']
     paths:
       - 'backend/documents/**'
       - 'backend/accounts/management/commands/seed_m3_live_browser.py'
@@ -14,6 +14,9 @@ on:
       - 'pyproject.toml'
       - 'uv.lock'
       - '.github/workflows/m3-live-browser-recovery.yml'
+      - 'backend/onboarding/migrations/0023_m5_case_joining_date_revisions.py'
+      - 'backend/onboarding/migrations/0024_m5_narrow_snapshot_schedule_exception.py'
+      - 'backend/onboarding/migrations/0025_m5_case_date_commit_invariant.py'
   workflow_dispatch:
 permissions:
   contents: read
