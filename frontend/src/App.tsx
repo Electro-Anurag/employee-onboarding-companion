@@ -13,6 +13,9 @@ type Owner = {id:string;name:string};
 type TaskPayload = {case_id:string;case_version:number;case_status:string;progress:Progress;tasks:Task[]};
 type WorkspaceTask = Task & {case_id:string;employee_name:string};
 type ApiError = {error?:{code?:string;message?:string}};
+type ExceptionRecord = {id:string;task_id:string;task_title:string;cause:string;episode:number;
+  status:'OPEN'|'ASSIGNED'|'RESOLVED'|'CLOSED';assignee_role:string|null;
+  reason:string;blocking_now:boolean;events:{action:string;status:string;note:string;created_at:string}[]};
 type InboxRow = {id:string;case_id:string;task_id:string;summary:string;
   rule_code:string;created_at:string;read_at:string|null;status:string};
 
@@ -44,6 +47,12 @@ export default function App(){
   const [tab,setTab]=useState<'cases'|'work'|'templates'|'inbox'>('cases');
   const [inbox,setInbox]=useState<InboxRow[]>([]);
   const [inboxLoaded,setInboxLoaded]=useState(false);
+  const [exceptions,setExceptions]=useState<ExceptionRecord[]>([]);
+  const [exceptionsLoaded,setExceptionsLoaded]=useState(false);
+  const [exceptionTask,setExceptionTask]=useState('');
+  const [exceptionCause,setExceptionCause]=useState('PREREQUISITE_BLOCKED');
+  const [exceptionNote,setExceptionNote]=useState('');
+  const [exceptionAssignees,setExceptionAssignees]=useState<Record<string,string>>({});
   // Every identity transition invalidates all in-flight identity-bound reads.
   // The generation is checked immediately before committing any fetched data.
   const identityEpoch=useRef(0);
@@ -51,6 +60,8 @@ export default function App(){
     identityEpoch.current+=1;
     setCases([]);setWork([]);setTemplates([]);setOwners({});
     setInbox([]);setInboxLoaded(false);
+    setExceptions([]);setExceptionsLoaded(false);setExceptionTask('');
+    setExceptionNote('');setExceptionAssignees({});
     setTemplate(null);setEditor('');setSelected(null);setDetail(null);
     setEmployeeId('');setItId('');setManagerId('');setTemplateId('');setJoiningDate('');
     setAttestTask(null);setPlan('');setBuddy('');setStation(false);setNote('');
@@ -197,6 +208,7 @@ export default function App(){
       const result=await request<TaskPayload>('/api/v1/cases/'+c.id+'/tasks');
       if(identityEpoch.current!==generation)return;
       setSelected(c);setDetail(result);setTab('cases');setAttestTask(null);
+      setExceptions([]);setExceptionsLoaded(false);setExceptionTask('');
     });
   }
   async function reloadCase(caseId:string,identity:Me){
@@ -207,6 +219,23 @@ export default function App(){
     if(identityEpoch.current!==generation)return;
     setDetail(result);
     setSelected(old=>old&&old.id===caseId?{...old,version:result.case_version,status:result.case_status}:old);
+  }
+  async function loadExceptions(caseId:string){
+    const generation=identityEpoch.current;
+    const result=await request<{results:ExceptionRecord[]}>(
+      '/api/v1/cases/'+caseId+'/exceptions');
+    if(identityEpoch.current!==generation)return;
+    setExceptions(result.results);setExceptionsLoaded(true);
+  }
+  async function exceptionCommand(caseId:string,route:string,body:unknown){
+    if(!detail||!me)return;
+    await perform(async()=>{
+      await request('/api/v1/cases/'+caseId+'/exceptions'+route,'POST',body,
+        {'If-Match':'"case:'+caseId+':v'+detail.case_version+'"'});
+      await reloadCase(caseId,me);
+      await loadExceptions(caseId);
+      setExceptionNote('');
+    });
   }
   async function activate(){
     if(!selected||!detail||!me)return;
@@ -427,6 +456,79 @@ export default function App(){
                 <button disabled={busy||!station} type="submit">Submit recorded evidence</button>
               </form>}
             </article>)}</div>
+            <section className="subpanel" aria-label="Case exceptions">
+              <div className="heading"><h4>Exception recovery</h4>
+                <button className="quiet" disabled={busy}
+                  onClick={()=>void perform(()=>loadExceptions(detail.case_id))}>Load current exceptions</button>
+              </div>
+              <p className="meta">Resolution requires a real correction to the underlying task.
+                Exception status never unlocks a dependency or approves evidence.</p>
+              {!exceptionsLoaded&&<p>Load exceptions to inspect current blockers and episodes.</p>}
+              {exceptionsLoaded&&!exceptions.length&&<p>No exceptions recorded for this case.</p>}
+              {exceptionsLoaded&&<div className="task-list">{exceptions.map(x=>
+                <article key={x.id} className="task">
+                  <div><strong>{x.task_title}</strong>
+                    <p className="meta">{x.cause} · Episode {x.episode} · {x.status}
+                      {x.assignee_role?' · '+x.assignee_role:''}</p>
+                    <p>{x.reason}</p>
+                    <p className="meta">{x.blocking_now?'Underlying blocker remains active':'Underlying condition cleared'}</p>
+                    <details><summary>Audited exception history ({x.events.length} transitions)</summary>
+                      {x.events.map((event,i)=><p key={i} className="meta">{event.action}
+                        {' · '}{new Date(event.created_at).toLocaleString()}
+                        {' — '}{event.note}</p>)}
+                    </details>
+                  </div>
+                  <div className="task-actions">
+                    {me.role==='HR'&&(x.status==='OPEN'||x.status==='ASSIGNED')&&<>
+                      <label>Assign owner
+                        <select value={exceptionAssignees[x.id]||'HR'}
+                          onChange={e=>setExceptionAssignees(old=>({...old,[x.id]:e.target.value}))}>
+                          <option value="HR">HR</option><option value="IT">IT</option>
+                          <option value="MANAGER">Manager</option>
+                        </select>
+                      </label>
+                      <button disabled={busy} onClick={()=>void exceptionCommand(
+                        detail.case_id,'/'+x.id+'/assign',{assignee_role:exceptionAssignees[x.id]||'HR',
+                          note:exceptionNote.trim()||'Assign exception to current role owner'})}>Assign</button>
+                    </>}
+                    {x.status==='ASSIGNED'&&(me.role==='HR'||me.role===x.assignee_role)&&
+                      <button disabled={busy||x.blocking_now} title={x.blocking_now?'Clear actual task blocker first':''}
+                        onClick={()=>void exceptionCommand(detail.case_id,'/'+x.id+'/resolve',{
+                          note:exceptionNote.trim()||'Underlying task condition verified as cleared'})}>Resolve after correction</button>}
+                    {x.status==='RESOLVED'&&me.role==='HR'&&
+                      <button disabled={busy||x.blocking_now}
+                        onClick={()=>void exceptionCommand(detail.case_id,'/'+x.id+'/close',{
+                          note:exceptionNote.trim()||'HR verified current predicate and closure'})}>Close verified exception</button>}
+                  </div>
+                </article>)}</div>}
+              <form className="form" onSubmit={e=>{
+                e.preventDefault();
+                void exceptionCommand(detail.case_id,'/open',{
+                  task_id:exceptionTask,cause:exceptionCause,note:exceptionNote});
+              }}>
+                <h5>Report a real task blocker</h5>
+                <label>Task
+                  <select required value={exceptionTask} onChange={e=>setExceptionTask(e.target.value)}>
+                    <option value="">Select a task</option>
+                    {detail.tasks.map(t=><option key={t.id} value={t.id}>{t.title}</option>)}
+                  </select>
+                </label>
+                <label>Blocking condition
+                  <select value={exceptionCause} onChange={e=>setExceptionCause(e.target.value)}>
+                    <option value="PREREQUISITE_BLOCKED">Required predecessor incomplete</option>
+                    <option value="OWNER_UNAVAILABLE">Assigned owner unavailable</option>
+                    <option value="TASK_OVERDUE">Task overdue</option>
+                  </select>
+                </label>
+                <label>Reason (8–240 characters)
+                  <textarea minLength={8} maxLength={240} required value={exceptionNote}
+                    onChange={e=>setExceptionNote(e.target.value)}/>
+                </label>
+                <button type="submit" disabled={busy||!exceptionTask||exceptionNote.trim().length<8}>
+                  Open exception with current-state verification
+                </button>
+              </form>
+            </section>
             <p className="meta">Separate real S3 processing requires explicitly configured private buckets and a scanner; do not upload genuine employee data to the demo. Training completion requires server grading; meetings use versioned scheduling and organizer-recorded attendance. External calendar notifications remain unimplemented.</p>
           </section>}
         </section>}
