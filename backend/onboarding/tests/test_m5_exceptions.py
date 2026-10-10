@@ -144,16 +144,37 @@ def test_exception_owner_unavailable_reopens_new_episode_and_denies_other_tenant
     resolve_exception(actor=hr,case_id=case.pk,exception_id=ex_id,
         note='Owner became available again',key=uuid.uuid4(),
         expected_version=_version(case))
-    close_exception(actor=hr,case_id=case.pk,exception_id=ex_id,
-        note='Availability verified against owner',key=uuid.uuid4(),
-        expected_version=_version(case))
+    # A blocker reappearing before HR closes a resolved episode must not
+    # become an unresolvable RESOLVED row or a falsely verified CLOSED row.
     manager_member.available=False
     manager_member.save(update_fields=['available'])
     second,_=open_exception(actor=hr,case_id=case.pk,task_id=task.pk,
-        cause='OWNER_UNAVAILABLE',note='New unavailability occurrence',
+        cause='OWNER_UNAVAILABLE',note='Recurred before HR verification',
         key=uuid.uuid4(),expected_version=_version(case))
     assert second['result']['episode']==2
-    assert CaseException.objects.filter(case=case,task=task,cause='OWNER_UNAVAILABLE').count()==2
+    prior=CaseException.objects.get(pk=ex_id)
+    assert prior.status=='SUPERSEDED' and prior.closed_at is None
+    assert prior.events.filter(action='SUPERSEDE').count()==1
+    second_id=uuid.UUID(second['result']['id'])
+    assign_exception(actor=hr,case_id=case.pk,exception_id=second_id,
+        assignee_role='HR',note='HR handles the second episode',
+        key=uuid.uuid4(),expected_version=_version(case))
+    manager_member.available=True
+    manager_member.save(update_fields=['available'])
+    resolve_exception(actor=hr,case_id=case.pk,exception_id=second_id,
+        note='Second incident repaired',key=uuid.uuid4(),
+        expected_version=_version(case))
+    close_exception(actor=hr,case_id=case.pk,exception_id=second_id,
+        note='New owner availability verified by HR',
+        key=uuid.uuid4(),expected_version=_version(case))
+    manager_member.available=False
+    manager_member.save(update_fields=['available'])
+    third,_=open_exception(actor=hr,case_id=case.pk,task_id=task.pk,
+        cause='OWNER_UNAVAILABLE',note='Third occurrence after verified closure',
+        key=uuid.uuid4(),expected_version=_version(case))
+    assert third['result']['episode']==3
+    assert CaseException.objects.filter(case=case,task=task,
+        cause='OWNER_UNAVAILABLE').count()==3
 
 
 @pytest.mark.django_db(transaction=True)
