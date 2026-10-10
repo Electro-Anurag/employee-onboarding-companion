@@ -20,7 +20,7 @@ type Guidance = {mode:'DETERMINISTIC_ONLY';ai_model_used:false;
   open_exceptions:{id:string;task_title:string;cause:string;episode:number;
     status:string;assignee_role:string|null}[];limitations:string[]};
 type ExceptionRecord = {id:string;task_id:string;task_title:string;cause:string;episode:number;
-  status:'OPEN'|'ASSIGNED'|'RESOLVED'|'CLOSED';assignee_role:string|null;
+  status:'OPEN'|'ASSIGNED'|'RESOLVED'|'CLOSED'|'SUPERSEDED';assignee_role:string|null;
   reason:string;blocking_now:boolean;events:{action:string;status:string;note:string;created_at:string}[]};
 type InboxRow = {id:string;case_id:string;task_id:string;summary:string;
   rule_code:string;created_at:string;read_at:string|null;status:string};
@@ -247,6 +247,7 @@ export default function App(){
       await request('/api/v1/cases/'+caseId+'/exceptions'+route,'POST',body,
         {'If-Match':'"case:'+caseId+':v'+detail.case_version+'"'});
       await reloadCase(caseId,me);
+      setGuidance(null);
       await loadExceptions(caseId);
       setExceptionNote('');
     });
