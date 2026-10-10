@@ -1,6 +1,7 @@
 """M0 settings. PostgreSQL is required; SQLite is intentionally unsupported."""
 import os
 from pathlib import Path
+from urllib.parse import unquote, urlsplit
 from django.core.exceptions import ImproperlyConfigured
 
 BASE_DIR = Path(__file__).resolve().parents[2]
@@ -9,6 +10,10 @@ if not SECRET_KEY or SECRET_KEY == "REPLACE_ME_FOR_LOCAL_ONLY":
     raise ImproperlyConfigured("Set a non-placeholder DJANGO_SECRET_KEY")
 DEBUG = os.environ.get("DJANGO_DEBUG") == "1"
 ALLOWED_HOSTS = [x.strip() for x in os.environ.get("DJANGO_ALLOWED_HOSTS", "localhost,127.0.0.1").split(",") if x.strip()]
+# The platform supplies its assigned hostname. Never allow a wildcard host.
+RENDER_EXTERNAL_HOSTNAME = os.environ.get("RENDER_EXTERNAL_HOSTNAME", "").strip()
+if RENDER_EXTERNAL_HOSTNAME:
+    ALLOWED_HOSTS.append(RENDER_EXTERNAL_HOSTNAME)
 INSTALLED_APPS = [
     "django.contrib.auth", "django.contrib.contenttypes", "django.contrib.sessions", "django.contrib.staticfiles",
     "procrastinate.contrib.django", "backend.jobs.apps.JobsConfig", "backend.foundation.apps.FoundationConfig",
@@ -37,6 +42,20 @@ DATABASES = {"default": {
     "CONN_MAX_AGE": 0,
     "OPTIONS": {"connect_timeout": 5},
 }}
+# Managed PostgreSQL providers supply an internal connection URL. Local CI
+# continues to use the existing POSTGRES_* variables without any change.
+DATABASE_URL = os.environ.get("DATABASE_URL", "")
+if DATABASE_URL:
+    parsed = urlsplit(DATABASE_URL)
+    if parsed.scheme not in ("postgres", "postgresql") or not parsed.hostname or not parsed.path.lstrip("/"):
+        raise ImproperlyConfigured("DATABASE_URL must be a PostgreSQL connection URL")
+    DATABASES["default"].update({
+        "NAME": unquote(parsed.path.lstrip("/")),
+        "USER": unquote(parsed.username or ""),
+        "PASSWORD": unquote(parsed.password or ""),
+        "HOST": parsed.hostname,
+        "PORT": parsed.port or 5432,
+    })
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 STATIC_URL = "/static/"
 STATIC_ROOT = BASE_DIR / "backend" / "static"
@@ -47,6 +66,11 @@ SECURE_CONTENT_TYPE_NOSNIFF = True
 SESSION_COOKIE_HTTPONLY = True
 SESSION_COOKIE_SECURE = not DEBUG
 CSRF_COOKIE_SECURE = not DEBUG
+# Only trust the edge proxy's scheme header on Render itself. Otherwise
+# Django can reject HTTPS same-origin POSTs or loop on HTTPS redirects.
+if os.environ.get('RENDER') == 'true':
+    SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+    SECURE_SSL_REDIRECT = not DEBUG
 
 AUTH_USER_MODEL = 'accounts.User'
 PASSWORD_HASHERS = ['django.contrib.auth.hashers.Argon2PasswordHasher']
