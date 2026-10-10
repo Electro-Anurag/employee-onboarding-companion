@@ -59,6 +59,10 @@ test('R6: real Chromium overdue cancel-reschedule genuinely elapses, attendance 
       name:'Cancel current occurrence (task remains incomplete)'}).click();
     await expect(activity).toContainText('Cancelled:');
     await expect(activity).not.toContainText('COMPLETED');
+    await manager.reload();
+    await expect(manager.getByText('Role: MANAGER')).toBeVisible();
+    await open(manager);
+    await expect(card(manager,'Followup After Overdue')).toContainText('PREREQUISITE_INCOMPLETE');
 
     // Real user-facing scheduling requires at least 60 seconds advance notice;
     // datetime-local controls support minute precision. Elapse the replacement
@@ -78,6 +82,9 @@ test('R6: real Chromium overdue cancel-reschedule genuinely elapses, attendance 
     await expect(activity).toContainText('Revision 2:');
     await expect(activity).toContainText('Synthetic real-time overdue replacement');
     await expect(activity.getByRole('button',{name:'Record organizer attendance'})).toHaveCount(0);
+    await manager.reload();
+    await expect(manager.getByText('Role: MANAGER')).toBeVisible();
+    await open(manager);
     await expect(card(manager,'Followup After Overdue')).toContainText('PREREQUISITE_INCOMPLETE');
 
     const remaining=replacementEnd-Date.now()+1500;
