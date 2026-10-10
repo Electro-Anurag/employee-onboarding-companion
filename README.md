@@ -1,45 +1,101 @@
 # Employee Onboarding Companion
 
-**Project stage:** M0 qualified; M1 independently approved; **M2 Astra STOP R1–R9 remediation is developer CI-qualified (9 October 2026), independent focused M2 re-review pending.** No M3 or deployment authorization.
+**Status (10 October 2026): submission-oriented development candidate. Not yet hosted, not production-qualified, and not approved as a complete submission.**
 
-Private personal GitHub repository. Governing scope: PRD v1.1 (28 functional requirements), Business Journey v1.0 (four roles, ten exception journeys, five hosted acceptance journeys), and Technical Architecture & Engineering Handoff v1.0. Neither M3–M10 implementation nor public deployment has been authorized.
+Repository: private personal GitHub repo `Electro-Anurag/employee-onboarding-companion`.
+Development branch: `feature/m5-m6-parallel-development`.
+The owner's PRD v1.1 (28 requirements), Business Journey v1.0 (four roles,
+ten exception journeys, mandatory hosted J01–J05), revised 8 October brief
+and architecture handoff remain authoritative. All demonstration information
+must be synthetic, anonymized or public. Never upload actual employee identity
+documents to the demo.
 
-## Milestones
+## Capabilities implemented in source
 
-- **M0:** Django 5.2, PostgreSQL 17, Procrastinate 3.10, transactional queue/DB effect/audit and hard-kill worker recovery — qualified.
-- **M1:** Email identity, single active membership, four-role authorization, CSRF/session, invitations/reset, assignment controls, append-only auditable changes, idempotent transaction boundaries — independently reviewed GO.
-- **M2:** Versioned synthetic templates and published immutable DAGs; HR case creation and activation; 17-task synthetic snapshot; AND prerequisite evaluation, blocked/ready/in-progress tasks, timezone-local schedules, typed manager-preparation attestation, HR Day 1 transition, role-scoped workspaces and case timeline — **99/99 PostgreSQL-backed Python tests, 2/2 frontend tests and CI build passed**. This is not all 17 tasks completeable yet.
-- **Future work:** M3 evidence files/forms/policies; M4 IT/training integrations; M5 reminders and exception recovery; M6 AI; M7 dashboards/closeout; M8 hosting/operations; M9 hosted journeys/benchmarks; M10 final demonstration.
+- **M0–M2:** Django 5.2/PostgreSQL, React/TypeScript, role-scoped identity
+  and session security, immutable published templates, case snapshots,
+  dependency-based state, typed task evidence, command idempotency and
+  append-only audit.
+- **M3:** employee forms, policy acknowledgement, document version/review
+  and correction handoffs. Separate secure S3 quarantine/scanning source
+  exists but is **not enabled** on the proposed hosted demo.
+- **M4:** persisted simulated IT provisioning, equipment receipt, manager
+  activities, scheduled meetings and training completion evidence.
+- **M5:** in-app reminders, exception episodes and recovery, approved
+  joining-date changes, owner reassignment, HR handoffs and version-bound
+  48-hour escalation. The latest escalation fixture corrections require
+  exact-HEAD PostgreSQL and browser requalification.
+- **M6 candidate:** deterministic current-state guidance is not model AI.
+  An additional explicit, read-only, opt-in model-question path now uses
+  case-authorized sources, exact citation validation, provider output bounds,
+  per-user attempt quotas and sanitized audit. **No real provider request
+  has been qualified**; without owner-configured API authorization it gives
+  an explicitly labelled deterministic fallback.
+- **M7 closeout candidate:** HR closeout command checks all applicable
+  mandatory task completions with typed evidence and refuses unclosed
+  exceptions. It uses the governed transaction/audit/idempotency mechanism.
+  **New tests and hosted behavior remain unqualified.**
 
-**Latest focused Astra STOP closure candidate (9 Oct 2026):** R3 stale startup identity and protected-response regression, R5 irreversible case activation migration, and R2 caller-revocation/organization-transfer tests now qualify at `d471b9f9c6d0225afb637e1afdb319e1c0356c7b`. [Focused remediation evidence](docs/qualification/m2-astra-focused-closure-20261009.md): 99/99 PostgreSQL-backed tests, 2/2 React tests, and 2/2 real Chromium scenarios on the same SHA. **Independent Astra GO still pending.**
+These are source descriptions, not claims of deployed feature availability.
 
-For exact source SHA, 11/12 passed gates, browser CI results, limitations and 12-item engineering checklist see [M2 qualification and tracker](docs/qualification/m2-20261009.md).
+## Deployment and submission
 
-## Local synthetic demonstration
+The checked-in `render.yaml` is a **manual**, not automatically deployed,
+Blueprint proposal for Django/React Docker web, PostgreSQL and a background
+Procrastinate worker. HTTPS hostname, credentials and PostgreSQL are provided
+by the platform after an authorized deployment. The worker needs a paid
+instance; owner approval is required. The PostgreSQL `free` tier expires
+after 30 days and the free web tier sleeps on inactivity. Neither is an
+acceptable production reliability guarantee.
 
-Requires Python 3.13, Node.js 22, uv 0.12.23, PostgreSQL 17 and optional Docker. Use local-only credentials and synthetic accounts. Set a non-placeholder `DJANGO_SECRET_KEY`, local `POSTGRES_*` settings and `DJANGO_DEBUG=1`. Never use this DEBUG-only bootstrap on a hosted system.
+- [Deployment, synthetic account provisioning and J01–J05 acceptance runbook](docs/submission/hosting-and-acceptance.md)
+- [Technical architecture and evidence boundaries](docs/submission/technical-design.md)
+- [Prior independent M1 review](docs/qualification/m1-third-review-remediation-20261008.md)
+- [Earlier M2 focused re-review packet](docs/qualification/m2-astra-remediation-20261009.md)
+
+**Unverified final deliverables:** reachable HTTPS URL; exact deployed SHA;
+live four-role sign-in; real model inference; successful hosted J01–J05;
+video of real hosted interactions; reviewable submission package and
+deployment qualification. Independent SOURCE GO is not production GO.
+
+### Local-only synthetic development
+
+Use PostgreSQL 17, Python 3.13, Node.js 22, uv and private test secrets.
+Set `DJANGO_SECRET_KEY`, local `POSTGRES_*` and `DJANGO_DEBUG=1`.
+The local seeds must never run in public DEBUG mode.
 
 ```sh
-uv lock --check && uv sync --locked
-(cd frontend && npm ci && npm run test && npm run build)
+uv sync --frozen
+(cd frontend && npm ci && npm test && npm run build)
 uv run python manage.py migrate --noinput
 uv run pytest -q
 uv run python manage.py seed_m2_demo --confirm-synthetic
 uv run python manage.py runserver --nostatic
 ```
 
-The bootstrap prints fresh credentials for HR, Employee, IT and Manager on the owner's terminal; store them privately. It fails if `DEBUG` is off, explicit confirmation is missing or demo identities already exist.
+The separate `seed_hosted_synthetic` command is not part of deployment
+startup, requires production mode plus two explicit gates, uses four
+separately configured private role passwords and prints no credentials.
+See the hosting runbook for the exact, safe one-time procedure.
 
-**Manual workflow:** Sign in as synthetic HR -> create default 17-task template -> publish -> create and activate case -> inspect authorized case tasks -> sign in as Manager -> complete Manager Preparation with typed evidence -> inspect changed task eligibility. The HR Day 1 action is date-gated. Document, IT/access and training completions are intentionally disabled until evidence-specific features exist.
+### Self-hosted CI
 
-## Qualification and security boundary
+All existing GitHub Actions workflows are required to run on
+`[self-hosted, linux, ARM64, eoc-mac-ci]` via the owner's Mac-hosted
+Ubuntu ARM64 runner. Do not fall back to `ubuntu-latest` or assume that
+an old passing SHA covers the current branch.
 
-- M2 regression CI: https://github.com/Electro-Anurag/employee-onboarding-companion/actions/runs/37909701209\n- M2 Chromium browser CI: https://github.com/Electro-Anurag/employee-onboarding-companion/actions/runs/37909701207
-- Full source tested: `e2e7bad089f26cf73375e6403ded760d9f9591f5`; original main untouched.
-- Real Chromium testing on a loopback Django/PostgreSQL server passed; it does **not** establish hosted browser acceptance, production least-privilege grants, operational resiliency, or independent M2 review.
-- External AI services, cloud hosting, S3, email, and real employee data are not connected or used.
-- M0 and M1 review evidence: [M0](docs/qualification/m0-20261008.md), [M1](docs/qualification/m1-20261008.md), [M1 independent remediation](docs/qualification/m1-third-review-remediation-20261008.md).
+An **older** complete M5 Chromium run passed, an older M3–M4 Chromium
+run passed, and an older M5–M6 PostgreSQL regression reported
+**165 passed, 2 skipped, 2 setup errors** before the historical-date
+fixture was corrected. The previous focused M5 escalation run reported
+11 passed and 2 fixture errors before that same correction. These
+are historical diagnostics; **fresh exact-HEAD acceptance remains open**.
 
-No paid service, external production account or public web deployment is required for current M2 local/CI use.
+## Architectural principle
 
-**Astra M2 correction evidence:** [R1–R9 remediation handoff](docs/qualification/m2-astra-remediation-20261009.md). M2 independent GO remains open; the original 11/12 engineering-gate count must not be interpreted as a security review GO.
+Human owners alone may authorize workflow mutations. Models receive
+only case-authorized synthetic context and have no permission to execute
+approvals, issue IT access, upload files or change case state. Case
+authorization, evidence requirements, audit and idempotency remain
+server-side. No external identity or HR integration is implied.
