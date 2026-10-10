@@ -39,6 +39,7 @@ urlpatterns = [
     path('api/v1/templates/<uuid:template_id>/next-draft',tmpl.clone),
     path('api/v1/cases/<uuid:case_id>/activate',m2.activate),
     path('api/v1/cases/<uuid:case_id>/day-one',m2.day_one),
+    path('api/v1/cases/<uuid:case_id>/closeout',m2.closeout),
     path('api/v1/cases/<uuid:case_id>/timeline',m2.case_timeline),
     path('api/v1/cases/<uuid:case_id>/tasks',m2.tasks),
     path('api/v1/cases/<uuid:case_id>/tasks/<uuid:task_id>',m2.task_detail),
