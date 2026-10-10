@@ -135,6 +135,17 @@ def receive(*,actor,case_id,task_id,upload_id,raw,key,expected_version):
     existing=StoredQuarantineObject.objects.filter(upload=upload).first()
     if existing:raise CommandFailure('CONTENT_ALREADY_RECEIVED',409)
     version=storage.put_quarantine(upload,raw)
+    # CI-only web hard-kill at the exact real S3 PUT / DB-finalize boundary.
+    # The switch is ineffective on AWS and any non-loopback endpoint; it is
+    # never sourced from HTTP input. No delay/mock or database success exists.
+    import os
+    from urllib.parse import urlsplit
+    endpoint=urlsplit(getattr(storage.settings,'M3_S3_ENDPOINT_URL',''))
+    if (os.environ.get('M3_CI_CRASH_AFTER_PUT')=='1'
+            and getattr(storage.settings,'M3_S3_ALLOW_LOCAL_TEST_ENDPOINT',False)
+            and endpoint.hostname in ('127.0.0.1','localhost')
+            and endpoint.port==9000):
+        os._exit(79)
     with transaction.atomic():
         set_command_timeouts()
         case,member,task,prior,digest=_task_command(actor,case_id,task_id,
