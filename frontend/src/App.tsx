@@ -360,6 +360,16 @@ export default function App(){
       await reloadCase(selected.id,me);
     });
   }
+  async function closeout(){
+    if(!selected||!detail||!me||me.role!=='HR'||
+       detail.case_status!=='ACTIVE'||detail.progress.mandatory_remaining!==0)return;
+    await perform(async()=>{
+      await request('/api/v1/cases/'+selected.id+'/closeout','POST',{},
+        {'If-Match':'"case:'+selected.id+':v'+detail.case_version+'"'});
+      setGuidance(null);setAiAnswer(null);
+      await reloadCase(selected.id,me);
+    });
+  }
   async function start(task:Task){
     if(!detail||!me)return;
     await perform(async()=>{
@@ -541,6 +551,13 @@ export default function App(){
               <p>{detail.progress.mandatory_completed}/{detail.progress.mandatory_total} mandatory tasks completed ({detail.progress.percent}%)</p></div>
             {detail.case_status==='CREATED'&&me.role==='HR'&&<button disabled={busy} onClick={()=>void activate()}>Activate case</button>}
             {detail.case_status==='PRE_JOINING'&&me.role==='HR'&&<button disabled={busy} onClick={()=>void beginDayOne()}>Begin Day 1 (joining date required)</button>}
+            {detail.case_status==='ACTIVE'&&me.role==='HR'&&
+              <div className="subpanel">
+                <p className="meta">HR closeout checks typed evidence for every applicable mandatory
+                  task and refuses any unclosed exception. No automatic waiver is available.</p>
+                <button disabled={busy||detail.progress.mandatory_remaining!==0}
+                  onClick={()=>void closeout()}>Confirm final onboarding closeout</button>
+              </div>}
             {detail.case_status==='PRE_JOINING'&&me.role==='HR'&&
               <section className="subpanel" aria-label="Joining date reschedule">
                 <h4>Change joining date — preview before approval</h4>
