@@ -1,0 +1,43 @@
+# Evaluation-only no-payment Blueprint: NOT full-product hosted acceptance.
+# Preserve render.yaml (full architecture with paid background worker) unchanged.
+# No external AI/provider billing, no secure S3 document intake.
+# Free web spins down; free PostgreSQL expires after 30 days; no backups.
+databases:
+  - name: eoc-companion-postgres
+    databaseName: eoccompanion
+    user: eoccompanion
+    region: singapore
+    plan: free
+    ipAllowList: []
+
+services:
+  - type: web
+    name: eoc-companion-web
+    runtime: docker
+    plan: free
+    region: singapore
+    branch: feature/m5-m6-parallel-development
+    autoDeployTrigger: off
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /health/ready
+    dockerCommand: >-
+      /bin/sh -c 'python manage.py migrate --noinput &&
+      exec gunicorn backend.config.wsgi:application
+      --bind 0.0.0.0:${PORT:-10000}
+      --workers 2 --access-logfile - --error-logfile -'
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: eoc-companion-postgres
+          property: connectionString
+      - key: DJANGO_SECRET_KEY
+        generateValue: true
+      - key: DJANGO_DEBUG
+        value: "0"
+      - key: M3_REAL_DOCUMENT_ENABLED
+        value: "0"
+      - key: M3_QUARANTINE_INTAKE_ENABLED
+        value: "0"
+      - key: EOC_AI_PROVIDER
+        value: "DISABLED"
