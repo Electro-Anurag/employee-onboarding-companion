@@ -23,9 +23,15 @@ def _secure_document_scan_queue_contract(upload_id: str):
     raise RuntimeError("Enqueue-only scan task must never execute in a worker")
 
 
+@_enqueue_app.task(name="m5.reconcile_current_reminders",queue="control")
+def _m5_reconcile_queue_contract(after: str = ''):
+    raise RuntimeError("Enqueue-only M5 task definition must never run in a worker")
+
+
 _ALLOWED = {
     "m0.foundation_process": _foundation_queue_contract,
     "m3.secure_document_scan": _secure_document_scan_queue_contract,
+    "m5.reconcile_current_reminders": _m5_reconcile_queue_contract,
 }
 
 
