@@ -43,3 +43,39 @@ def test_m6_authorized_context_validated_no_writes_or_invented_citations(world):
         validate_answer(payload,context,actor=actors['MANAGER'][0],case_id=case.pk)
     with pytest.raises(CommandFailure):
         authorized_context(actors['IT'][0],uuid.uuid4())
+
+
+@pytest.mark.django_db(transaction=True)
+def test_m6_current_guidance_uses_real_prerequisites_and_denies_unassigned_user(world):
+    from backend.ai.guidance import current_guidance
+    from backend.accounts.models import User,Membership
+    from backend.onboarding.models import Task,TaskCompletion
+    from django.test import Client
+    _,actors=world
+    made,_=create(world,published(world))
+    case=OnboardingCase.objects.get(pk=made['case_id'])
+    activate_case(actor=actors['HR'][0],case_id=case.pk,
+        key=uuid.uuid4(),expected_version=1)
+    before=TaskCompletion.objects.count()
+    data=current_guidance(actors['MANAGER'][0],case.pk)
+    assert data['mode']=='DETERMINISTIC_ONLY' and data['ai_model_used'] is False
+    assert data['case_version']==2
+    assert any(x['task_title']=='Manager Preparation' for x in data['actionable'])
+    intro=next(x for x in data['blockers'] if x['task_title']=='Team Introduction')
+    assert any(p['task_title']=='Manager Preparation'
+               for p in intro['unmet_prerequisites'])
+    assert TaskCompletion.objects.count()==before
+    outsider=User.objects.create_user(email='noncase@example.test',
+        password='VerifiedStrongPassword!2026',display_name='Not assigned')
+    Membership.objects.create(user=outsider,organization=case.organization,role='IT')
+    with pytest.raises(CommandFailure):
+        current_guidance(outsider,case.pk)
+    c=Client()
+    c.post('/api/v1/auth/login',
+        data=__import__('json').dumps({'email':actors['MANAGER'][0].email,
+             'password':'VerifiedStrongPassword!2026'}),
+        content_type='application/json')
+    response=c.get(f'/api/v1/cases/{case.pk}/companion/guidance')
+    assert response.status_code==200,response.content
+    assert response.json()['mode']=='DETERMINISTIC_ONLY'
+    assert TaskCompletion.objects.count()==before
