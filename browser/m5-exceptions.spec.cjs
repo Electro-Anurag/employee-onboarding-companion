@@ -100,3 +100,39 @@ test('M5 full Chromium exception opens, refuses bypass, typed manager evidence, 
     await Promise.allSettled([managerContext.close(),hrContext.close()]);
   }
 });
+
+
+test('M5 Chromium HR previews joining date, commits and preserves existing manager evidence',async({browser})=>{
+  test.setTimeout(120000);
+  const context=await browser.newContext();
+  const hr=await context.newPage();
+  try{
+    await login(hr,'HR');await openCase(hr);
+    const casePanel=hr.getByRole('region',{name:'Case tasks'});
+    const datePanel=casePanel.getByRole('region',{name:'Joining date reschedule'});
+    await expect(card(hr,'M5 Manager Preparation')).toContainText('COMPLETED');
+    const preservedBefore=await card(hr,'M5 Manager Preparation').innerText();
+    const introBefore=await card(hr,'M5 Team Introduction').innerText();
+    const target=new Date(Date.now()+9*86400*1000).toISOString().slice(0,10);
+    await datePanel.getByRole('textbox',{name:'Proposed joining date'}).fill(target);
+    await datePanel.getByRole('button',{name:'Preview date change impact'}).click();
+    await expect(datePanel).toContainText('1 untouched task(s) move');
+    await expect(datePanel).toContainText('1 started/completed task(s) stay unchanged');
+    await datePanel.getByRole('textbox',{name:'Joining date change reason'}).fill(
+      'HR confirmed synthetic updated joining date with employee');
+    await datePanel.getByRole('button',{name:'Approve and commit previewed date change'}).click();
+    await expect(datePanel).toContainText('Current joining date: '+target);
+    await expect(card(hr,'M5 Manager Preparation')).toContainText('COMPLETED');
+    await expect(card(hr,'M5 Team Introduction')).toContainText('READY');
+    const introAfter=await card(hr,'M5 Team Introduction').innerText();
+    expect(introAfter).not.toBe(introBefore);
+    expect(await card(hr,'M5 Manager Preparation').innerText()).toBe(preservedBefore);
+    await hr.reload();
+    await expect(hr.getByText('Role: HR')).toBeVisible();
+    await openCase(hr);
+    await expect(hr.getByRole('region',{name:'Joining date reschedule'}))
+      .toContainText('Current joining date: '+target);
+    await expect(card(hr,'M5 Manager Preparation')).toContainText('COMPLETED');
+    await expect(card(hr,'M5 Team Introduction')).toContainText('READY');
+  }finally{await context.close();}
+});
