@@ -4,14 +4,19 @@ const {test,expect}=require('@playwright/test');
 const file=process.env.M5_BROWSER_CREDENTIAL_FILE;
 if(!file)throw Error('M5 isolated browser fixture is required');
 const users={};
-let caseId;
+let caseId,recoveryCaseId,recoveryManager;
 for(const line of fs.readFileSync(file,'utf8').split(/\r?\n/)){
   const c=line.match(/^CASE\s+([\da-f-]{36})$/);
+  const recovery=line.match(/^RECOVERY_CASE\s+([\da-f-]{36})$/);
+  const replacement=line.match(/^RECOVERY_MANAGER\s+(\S+)\s+(\S+)$/);
+  if(recovery)recoveryCaseId=recovery[1];
+  if(replacement)recoveryManager={email:replacement[1],password:replacement[2]};
   const u=line.match(/^(HR|EMPLOYEE|IT|MANAGER)\s+(\S+)\s+(\S+)$/);
   if(c)caseId=c[1];
   if(u)users[u[1]]={email:u[2],password:u[3]};
 }
-if(!caseId||!users.HR||!users.MANAGER)throw Error('Missing real M5 browser identities');
+if(!caseId||!recoveryCaseId||!recoveryManager||!users.HR||!users.MANAGER)
+  throw Error('Missing real M5 browser identities or recovery fixture');
 async function login(page,role){
   await page.goto('/');
   await page.getByLabel('Email').fill(users[role].email);
@@ -19,9 +24,10 @@ async function login(page,role){
   await page.getByRole('button',{name:'Sign in'}).click();
   await expect(page.getByText('Role: '+role)).toBeVisible();
 }
-async function openCase(page){
+async function openCase(page,employee='M5 Synthetic Employee'){
   await page.getByRole('button',{name:/^Cases \(/}).click();
-  await page.locator('.case-list').first().getByRole('button').first().click();
+  await page.locator('.case-list').first().getByRole('button')
+    .filter({hasText:employee}).click();
   await expect(page.getByRole('region',{name:'Case tasks'})).toBeVisible();
 }
 const panel=page=>page.getByRole('region',{name:'Case exceptions'});
@@ -142,4 +148,62 @@ test('M5 Chromium HR previews joining date, commits and preserves existing manag
     await expect(card(hr,'M5 Manager Preparation')).toContainText('COMPLETED');
     await expect(card(hr,'M5 Team Introduction')).toContainText('NOT_STARTED');
   }finally{await context.close();}
+});
+
+
+test('M5 Chromium HR recovers unavailable owner through existing governed assignment; verified new manager sees work',async({browser})=>{
+  test.setTimeout(160000);
+  const hrContext=await browser.newContext();
+  const managerContext=await browser.newContext();
+  const hr=await hrContext.newPage(),replacement=await managerContext.newPage();
+  try{
+    await login(hr,'HR');
+    await openCase(hr,'M5 Recovery Employee');
+    const exceptions=panel(hr);
+    const managerTask=card(hr,'M5 Manager Preparation');
+    await expect(managerTask).toContainText('OWNER_UNAVAILABLE');
+    await exceptions.getByRole('button',{name:'Load current exceptions'}).click();
+    await exceptions.getByRole('combobox',{name:'Exception task'})
+      .selectOption({label:'M5 Manager Preparation'});
+    await exceptions.getByLabel('Blocking condition').selectOption('OWNER_UNAVAILABLE');
+    await exceptions.getByLabel('Reason (8–240 characters}')
+      .fill('Assigned synthetic manager unavailable; replacement required');
+    await exceptions.getByRole('button',{name:'Open exception with current-state verification'}).click();
+    await expect(exceptions).toContainText('OWNER_UNAVAILABLE');
+    await expect(exceptions).toContainText('Underlying blocker remains active');
+    const recoveryPanel=exceptions.getByRole('group',{name:'Recover M5 Manager Preparation owner'});
+    // Role-scoped available candidate comes from the actual authorized owner API.
+    await recoveryPanel.getByRole('combobox',{name:'Replacement owner for M5 Manager Preparation'})
+      .selectOption({label:'M5 Available Replacement'});
+    await recoveryPanel.getByLabel('Owner recovery reason')
+      .fill('HR assigned available manager after verifying original manager unavailability');
+    const [write]=await Promise.all([
+      hr.waitForResponse(response=>response.url().endsWith(
+        '/api/v1/cases/'+recoveryCaseId+'/assignments')&&response.request().method()==='POST'),
+      recoveryPanel.getByRole('button',{name:'Reassign current task owner'}).click(),
+    ]);
+    expect(write.status()).toBe(200);
+    await expect(exceptions).toContainText('Underlying condition cleared');
+    await expect(card(hr,'M5 Manager Preparation')).toContainText('READY');
+    await exceptions.getByLabel('Assign owner').selectOption('HR');
+    await exceptions.getByRole('button',{name:'Assign',exact:true}).click();
+    await exceptions.getByRole('button',{name:'Resolve after correction'}).click();
+    await exceptions.getByRole('button',{name:'Close verified exception'}).click();
+    await expect(exceptions).toContainText('CLOSED');
+    await expect(exceptions).toContainText('Audited exception history (4 transitions)');
+    await hr.reload();
+    await expect(hr.getByText('Role: HR')).toBeVisible();
+    await openCase(hr,'M5 Recovery Employee');
+    await panel(hr).getByRole('button',{name:'Load current exceptions'}).click();
+    await expect(panel(hr)).toContainText('CLOSED');
+
+    await replacement.goto('/');
+    await replacement.getByLabel('Email').fill(recoveryManager.email);
+    await replacement.getByLabel('Password').fill(recoveryManager.password);
+    await replacement.getByRole('button',{name:'Sign in'}).click();
+    await expect(replacement.getByText('Role: MANAGER')).toBeVisible();
+    await openCase(replacement,'M5 Recovery Employee');
+    await expect(card(replacement,'M5 Manager Preparation')).toContainText('READY');
+    await expect(card(replacement,'M5 Manager Preparation')).not.toContainText('COMPLETED');
+  }finally{await Promise.allSettled([hrContext.close(),managerContext.close()]);}
 });
