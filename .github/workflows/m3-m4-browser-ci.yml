@@ -106,7 +106,7 @@ jobs:
           uv run python manage.py shell -c "from backend.accounts.models import LoginThrottle; LoginThrottle.objects.all().delete()"
           # Never write modified application code to GitHub; restore after probe.
           cp frontend/src/App.tsx "$RUNNER_TEMP/m2-original-App.tsx"
-          python - <<'PY'
+          uv run python - <<'PY'
           from pathlib import Path
           p=Path('frontend/src/App.tsx')
           lines=p.read_text().splitlines(keepends=True)
