@@ -38,6 +38,8 @@ services:
         value: "0"
       - key: M3_QUARANTINE_INTAKE_ENABLED
         value: "0"
+      - key: EOC_AI_PROVIDER
+        value: "DISABLED"
 
   - type: worker
     name: eoc-companion-control-worker
@@ -64,4 +66,6 @@ services:
       - key: M3_REAL_DOCUMENT_ENABLED
         value: "0"
       - key: M3_QUARANTINE_INTAKE_ENABLED
+        value: "0"
+      - key: EOC_HOSTED_DEMO_BOOTSTRAP
         value: "0"
