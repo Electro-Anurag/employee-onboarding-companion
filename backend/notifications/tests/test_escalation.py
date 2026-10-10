@@ -97,7 +97,10 @@ def test_escalation_revoked_on_hr_reassignment_before_reconcile(naturally_overdu
         new_member_id=member.pk,reason='Escalation owner changed for coverage',
         key=uuid.uuid4(),expected_version=case.version)
     assert not any(x['rule_code']==ESCALATION_RULE for x in inbox(old))
-    reconcile_case(case.pk,now=now)
+    # Reassignment is effective from its own transaction timestamp, which
+    # is later than the `now` captured before the command. Reconcile against
+    # the current assignment, never a time at which it did not yet exist.
+    reconcile_case(case.pk,now=timezone.now())
     assert ReminderIntent.objects.get(pk=intent.pk).status=='SUPERSEDED'
     current=signed_in(replacement)
     assert len([x for x in inbox(current)
