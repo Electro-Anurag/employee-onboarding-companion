@@ -38,7 +38,9 @@ def naturally_overdue_manager_case(world):
     activate_case(actor=actors['HR'][0],case_id=case.pk,
                   key=uuid.uuid4(),expected_version=1)
     case.refresh_from_db()
-    assert case.status=='PRE_JOINING'
+    # Joining date is deliberately 14 days in the past, so activation moves
+    # the case to ACTIVE (not PRE_JOINING); escalation supports both states.
+    assert case.status=='ACTIVE'
     task=Task.objects.get(case=case,key='manager_preparation')
     assert timezone.now()>=task.due_at+ESCALATION_DELAY
     return case,task,actors
