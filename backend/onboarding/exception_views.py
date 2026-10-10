@@ -24,7 +24,8 @@ def list_exceptions(request,case_id):
                 'note':evt.note,'created_at':evt.created_at.isoformat()}
                 for evt in row.events.all()]
             results.append({'id':str(row.pk),'task_id':str(row.task_id),
-                'task_title':row.task.title,'cause':row.cause,'episode':row.episode,
+                'task_title':row.task.title,'task_owner_role':row.task.owner_role,
+                'cause':row.cause,'episode':row.episode,
                 'status':row.status,'assignee_role':row.assignee.role if row.assignee_id else None,
                 'reason':row.reason,'blocking_now':domain.predicate_active(
                     row.task,case,row.cause),
