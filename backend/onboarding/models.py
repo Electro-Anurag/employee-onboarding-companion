@@ -128,3 +128,50 @@ class TaskCompletion(models.Model):
                 policy_ack__isnull=True,document_review__isnull=True,training_attempt__isnull=True,
                 activity_attendance__isnull=True,secure_review__isnull=False)),
             name='m3_real_document_completion_evidence_exclusive')]
+
+
+EXCEPTION_CAUSES=('PREREQUISITE_BLOCKED','OWNER_UNAVAILABLE','TASK_OVERDUE')
+EXCEPTION_STATES=('OPEN','ASSIGNED','RESOLVED','CLOSED')
+class CaseException(models.Model):
+    """Each recurring blocker has its own durable, non-bypass episode."""
+    id=models.UUIDField(primary_key=True,default=uuid.uuid4,editable=False)
+    case=models.ForeignKey(OnboardingCase,on_delete=models.PROTECT,related_name='exceptions')
+    task=models.ForeignKey(Task,on_delete=models.PROTECT,related_name='exceptions')
+    cause=models.CharField(max_length=32,choices=[(x,x) for x in EXCEPTION_CAUSES])
+    episode=models.PositiveIntegerField()
+    status=models.CharField(max_length=12,choices=[(x,x) for x in EXCEPTION_STATES],default='OPEN')
+    assignee=models.ForeignKey(Membership,on_delete=models.PROTECT,null=True,related_name='assigned_exceptions')
+    reason=models.CharField(max_length=240)
+    opened_by=models.ForeignKey(User,on_delete=models.PROTECT,related_name='opened_exceptions')
+    opened_at=models.DateTimeField(default=timezone.now)
+    resolved_at=models.DateTimeField(null=True)
+    closed_at=models.DateTimeField(null=True)
+    class Meta:
+        constraints=[
+            models.UniqueConstraint(fields=['case','task','cause','episode'],
+                name='m5_exception_unique_episode'),
+            models.UniqueConstraint(fields=['task','cause'],
+                condition=models.Q(status__in=['OPEN','ASSIGNED','RESOLVED']),
+                name='m5_exception_one_active_episode'),
+            models.CheckConstraint(condition=models.Q(cause__in=EXCEPTION_CAUSES),
+                name='m5_exception_valid_cause'),
+            models.CheckConstraint(condition=models.Q(status__in=EXCEPTION_STATES),
+                name='m5_exception_valid_status'),
+            models.CheckConstraint(condition=models.Q(episode__gte=1),
+                name='m5_exception_positive_episode'),
+        ]
+        indexes=[models.Index(fields=['case','status'],name='m5_exception_case_status')]
+
+class CaseExceptionEvent(models.Model):
+    """Append-only history; DB migration rejects direct UPDATE and DELETE."""
+    id=models.UUIDField(primary_key=True,default=uuid.uuid4,editable=False)
+    exception=models.ForeignKey(CaseException,on_delete=models.PROTECT,related_name='events')
+    actor=models.ForeignKey(User,on_delete=models.PROTECT)
+    action=models.CharField(max_length=12,choices=[(x,x) for x in ('OPEN','ASSIGN','RESOLVE','CLOSE')])
+    previous_status=models.CharField(max_length=12,blank=True)
+    status=models.CharField(max_length=12)
+    note=models.CharField(max_length=240)
+    created_at=models.DateTimeField(default=timezone.now)
+    class Meta:
+        indexes=[models.Index(fields=['exception','created_at'],
+            name='m5_exception_event_order')]
