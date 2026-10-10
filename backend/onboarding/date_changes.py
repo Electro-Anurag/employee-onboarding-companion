@@ -119,10 +119,22 @@ def commit_change(*,actor,case_id,new_date,preview_digest,reason,key,expected_ve
             return prior.response,prior.status_code
         # Same transaction and row lock as other case commands. A simultaneous
         # task completion/ownership edit changes the digest or case version.
-        case.organization=case.organization  # load authoritative organization timezone
         plan,tasks=_plan(case,new_date)
         if plan['preview_digest']!=preview_digest:
             raise CommandFailure('STALE_DATE_CHANGE_PREVIEW',409)
+        # The forward-only M5 DB guard checks this write-once decision and
+        # the precise prior/new task timestamps before permitting any task
+        # schedule update. All changes are in one atomic transaction.
+        old_date=case.joining_date
+        case.joining_date=new_date
+        case.schedule_revision+=1
+        current_revision=case.schedule_revision
+        case.version+=1
+        case.save(update_fields=['joining_date','schedule_revision','version'])
+        decision=CaseDateChange.objects.create(case=case,revision=current_revision,
+            prior_date=old_date,joining_date=new_date,preview_digest=preview_digest,
+            reason=reason,changed_by=actor,changes=plan['changes'],
+            preserved_task_ids=plan['preserved_task_ids'])
         new_by_id={uuid.UUID(x['task_id']):x for x in plan['changes']}
         for task in tasks:
             candidate=new_by_id.get(task.pk)
@@ -134,23 +146,13 @@ def commit_change(*,actor,case_id,new_date,preview_digest,reason,key,expected_ve
                 candidate['new_due_at'])
             task.version+=1
             task.save(update_fields=['available_at','due_at','version'])
-        old_date=case.joining_date
-        case.joining_date=new_date
-        case.schedule_revision+=1
-        current_revision=case.schedule_revision
         changed_states=recompute(case)
-        case.version+=1
-        case.save(update_fields=['joining_date','schedule_revision','version'])
         # Old notifications MUST lose authority in this same transaction;
         # the next scheduled reconciliation emits only the new revision.
         current=ReminderIntent.objects.filter(case=case,status='DELIVERED')
         Notification.objects.filter(intent__in=current,status='ACTIVE').update(
             status='SUPERSEDED')
         retired=current.update(status='SUPERSEDED')
-        decision=CaseDateChange.objects.create(case=case,revision=current_revision,
-            prior_date=old_date,joining_date=new_date,preview_digest=preview_digest,
-            reason=reason,changed_by=actor,changes=plan['changes'],
-            preserved_task_ids=plan['preserved_task_ids'])
         audit=append_event(stream_key=f'case:{case.pk}',actor=actor,
             event_type='M5_JOINING_DATE_CHANGED',entity_id=decision.pk,
             changes={'old_date':old_date.isoformat(),
