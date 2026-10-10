@@ -8,7 +8,7 @@ from django.views.decorators.csrf import csrf_protect
 from backend.accounts.security import actor_context
 from backend.onboarding.services import get_authorized_case,CommandFailure
 from backend.notifications.models import Notification
-from backend.notifications.services import current_recipient
+from backend.notifications.services import current_recipient,current_handoff_candidate,HANDOFF_RULES
 
 
 def _visible(user,notice,now):
@@ -23,10 +23,17 @@ def _visible(user,notice,now):
         return False
     if case.status not in ('PRE_JOINING','ACTIVE'):
         return False
+    if notice.intent.schedule_revision!=case.schedule_revision:
+        return False
     if notice.task.version!=notice.intent.action_revision:
         return False
     if notice.task.due_at!=notice.intent.due_at:
         return False
+    if notice.intent.rule_code in HANDOFF_RULES:
+        current=current_handoff_candidate(notice.task,case,now)
+        return bool(current and current[0].pk==user.pk
+            and current[1]==notice.intent.rule_code
+            and current[2]==notice.intent.time_bucket)
     person=current_recipient(notice.task,case,now)
     return person is not None and person.pk==user.pk
 
