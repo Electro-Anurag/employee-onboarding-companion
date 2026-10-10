@@ -555,7 +555,7 @@ export default function App(){
               }}>
                 <h5>Report a real task blocker</h5>
                 <label>Task
-                  <select required value={exceptionTask} onChange={e=>setExceptionTask(e.target.value)}>
+                  <select aria-label="Exception task" required value={exceptionTask} onChange={e=>setExceptionTask(e.target.value)}>
                     <option value="">Select a task</option>
                     {detail.tasks.map(t=><option key={t.id} value={t.id}>{t.title}</option>)}
                   </select>
