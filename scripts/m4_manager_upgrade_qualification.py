@@ -1,4 +1,4 @@
-"""CI-only populated 0018 -> 0019 provenance upgrade qualification.
+"""CI-only populated 0018 -> 0019/0020 and already-applied-old-0019 qualification.
 
 Uses throwaway PostgreSQL databases prefixed ci_m4_upgrade_. Never runs on
 production/normal app data and never repairs historical evidence silently.
@@ -9,14 +9,17 @@ from datetime import timedelta
 
 db=os.environ.get('POSTGRES_DB','')
 scenario=os.environ.get('M4_MANAGER_UPGRADE_SCENARIO','')
-if not db.startswith('ci_m4_upgrade_') or scenario not in ('matching','mismatched'):
+if not db.startswith('ci_m4_upgrade_') or scenario not in (
+        'matching','mismatched','legacy_matching','legacy_mismatched'):
     raise SystemExit('Refusing to run outside explicit isolated CI upgrade database')
 
 os.environ.setdefault('DJANGO_SETTINGS_MODULE','backend.config.settings')
 import django
 django.setup()
 
+from importlib import import_module
 from django.core.management import call_command
+from django.db.migrations.recorder import MigrationRecorder
 from django.db import connection,transaction
 from django.utils import timezone
 from backend.accounts.models import Organization,Membership,User
@@ -51,7 +54,7 @@ made,_=create_case(actor=users['HR'],employee_id=members['EMPLOYEE'].pk,
 case=OnboardingCase.objects.get(pk=made['case_id'])
 activate_case(actor=users['HR'],case_id=case.pk,key=uuid.uuid4(),expected_version=1)
 task=Task.objects.get(case=case,key='manager_preparation')
-completed_by=users['MANAGER'] if scenario=='matching' else users['HR']
+completed_by=users['MANAGER'] if scenario in ('matching','legacy_matching') else users['HR']
 with transaction.atomic():
     evidence=ManagerAttestation.objects.create(task=task,actor=users['MANAGER'],
         prepared_fields={'first_week_plan':'Work planned','buddy_name':'Synthetic Buddy',
@@ -66,19 +69,41 @@ with connection.cursor() as cur:
     cur.execute('SELECT 1 FROM django_migrations WHERE app=%s AND name=%s',
         ['onboarding','0019_restore_manager_actor_provenance'])
     assert cur.fetchone() is None
-if scenario=='matching':
-    call_command('migrate','onboarding','0019',interactive=False,verbosity=0)
+legacy=scenario.startswith('legacy_')
+if legacy:
+    # Install the *exact trigger/function portion* of the old 0019 that had
+    # no historical preflight, then record 0019 as already applied. This
+    # represents the documented prior-installation upgrade path without
+    # weakening or mutating a real database.
+    old_0019=import_module(
+        'backend.onboarding.migrations.0019_restore_manager_actor_provenance')
+    previous_sql=old_0019.SQL[old_0019.SQL.index('CREATE OR REPLACE FUNCTION'):]
+    assert 'DO $m3_provenance_upgrade$' not in previous_sql
+    with connection.cursor() as cur:
+        cur.execute(previous_sql)
+    MigrationRecorder(connection).record_applied(
+        'onboarding','0019_restore_manager_actor_provenance')
     with connection.cursor() as cur:
         cur.execute('SELECT 1 FROM django_migrations WHERE app=%s AND name=%s',
             ['onboarding','0019_restore_manager_actor_provenance'])
         assert cur.fetchone() is not None
+
+if scenario in ('matching','legacy_matching'):
+    call_command('migrate','onboarding','0020',interactive=False,verbosity=0)
+    with connection.cursor() as cur:
+        for name in ('0019_restore_manager_actor_provenance',
+                     '0020_audit_existing_manager_completion_provenance'):
+            cur.execute('SELECT 1 FROM django_migrations WHERE app=%s AND name=%s',
+                ['onboarding',name])
+            assert cur.fetchone() is not None
         cur.execute("SELECT pg_get_functiondef('public.m3_guard_manager_completion_actor()'::regprocedure)")
         assert 'att.actor_id=NEW.completed_by_id' in cur.fetchone()[0]
     assert TaskCompletion.objects.get(pk=completion.pk).completed_by_id==users['MANAGER'].pk
-    print('M4_MANAGER_UPGRADE_MATCHING_PASS: existing matching evidence preserved and guard installed')
+    label='LEGACY_0019_' if legacy else ''
+    print(f'M4_MANAGER_UPGRADE_{label}MATCHING_PASS: immutable evidence preserved, 0020 installed')
 else:
     try:
-        call_command('migrate','onboarding','0019',interactive=False,verbosity=0)
+        call_command('migrate','onboarding','0020',interactive=False,verbosity=0)
     except Exception as exc:
         cause=exc
         found=False
@@ -93,7 +118,11 @@ else:
     connection.close()
     with connection.cursor() as cur:
         cur.execute('SELECT 1 FROM django_migrations WHERE app=%s AND name=%s',
-            ['onboarding','0019_restore_manager_actor_provenance'])
+            ['onboarding','0020_audit_existing_manager_completion_provenance'])
         assert cur.fetchone() is None
+        cur.execute('SELECT 1 FROM django_migrations WHERE app=%s AND name=%s',
+            ['onboarding','0019_restore_manager_actor_provenance'])
+        assert (cur.fetchone() is not None)==legacy
     assert TaskCompletion.objects.get(pk=completion.pk).completed_by_id==users['HR'].pk
-    print('M4_MANAGER_UPGRADE_MISMATCH_FAIL_CLOSED_PASS: historical evidence untouched, migration refused')
+    label='LEGACY_0019_' if legacy else ''
+    print(f'M4_MANAGER_UPGRADE_{label}MISMATCH_FAIL_CLOSED_PASS: evidence untouched, 0020 not installed')
