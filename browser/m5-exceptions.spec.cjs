@@ -46,7 +46,7 @@ test('M5 full Chromium exception opens, refuses bypass, typed manager evidence, 
     await exceptions.getByRole('button',{name:'Load current exceptions'}).click();
     await exceptions.getByRole('combobox',{name:'Exception task'}).selectOption({label:'M5 Team Introduction'});
     await exceptions.getByLabel('Blocking condition').selectOption('PREREQUISITE_BLOCKED');
-    await exceptions.getByLabel('Reason (8–240 characters)').fill('Manager preparation still requires verified evidence');
+    await exceptions.getByRole('textbox',{name:'Exception report reason'}).fill('Manager preparation still requires verified evidence');
     await exceptions.getByRole('button',{name:'Open exception with current-state verification'}).click();
     await expect(exceptions).toContainText('PREREQUISITE_BLOCKED');
     await expect(exceptions).toContainText('Episode 1');
