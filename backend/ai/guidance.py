@@ -33,5 +33,10 @@ def current_guidance(actor,case_id):
         'context_digest':ctx['context_digest'],
         'actionable':actions[:3],'total_eligible_actions':len(actions),
         'blockers':blockers[:15],
+        'open_exceptions':[{
+            'id':ex['id'],'cause':ex['cause'],'episode':ex['episode'],
+            'status':ex['status'],'assignee_role':ex['assignee_role'],
+            'task_title':indexed[ex['task_id']]['title']}
+            for ex in ctx['open_exceptions'] if ex['task_id'] in indexed][:15],
         'limitations':['No AI model has generated or verified this guidance.',
             'Task actions still require their normal authorized human commands.']}
