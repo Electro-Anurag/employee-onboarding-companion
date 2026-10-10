@@ -120,7 +120,14 @@ test('M5 Chromium HR previews joining date, commits and preserves existing manag
     await expect(datePanel).toContainText('1 started/completed task(s) stay unchanged');
     await datePanel.getByLabel('Joining date change reason').fill(
       'HR confirmed synthetic updated joining date with employee');
-    await datePanel.getByRole('button',{name:'Approve and commit previewed date change'}).click();
+    const [commitResponse]=await Promise.all([
+      hr.waitForResponse(response=>response.url().includes('/joining-date/commit')),
+      datePanel.getByRole('button',{name:'Approve and commit previewed date change'}).click()
+    ]);
+    if(commitResponse.status()!==200){
+      throw Error('M5_JOINING_DATE_COMMIT_FAILED: HTTP '+commitResponse.status()+
+        ' '+(await commitResponse.text()));
+    }
     await expect(datePanel).toContainText('Current joining date: '+target);
     await expect(card(hr,'M5 Manager Preparation')).toContainText('COMPLETED');
     await expect(card(hr,'M5 Team Introduction')).toContainText('NOT_STARTED');
