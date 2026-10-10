@@ -79,9 +79,11 @@ export default function App(){
   // Every identity transition invalidates all in-flight identity-bound reads.
   // The generation is checked immediately before committing any fetched data.
   const identityEpoch=useRef(0);
+  const aiRequestEpoch=useRef(0);
   const datePreviewGeneration=useRef(0);
   function forgetProtectedIdentity(){
     identityEpoch.current+=1;
+    aiRequestEpoch.current+=1;
     datePreviewGeneration.current+=1;
     setCases([]);setWork([]);setTemplates([]);setOwners({});
     setInbox([]);setInboxLoaded(false);
@@ -231,9 +233,10 @@ export default function App(){
   }
   async function selectCase(c:Case){
     const generation=identityEpoch.current;
+    const aiSwitch=++aiRequestEpoch.current;
     await perform(async()=>{
       const result=await request<TaskPayload>('/api/v1/cases/'+c.id+'/tasks');
-      if(identityEpoch.current!==generation)return;
+      if(identityEpoch.current!==generation||aiRequestEpoch.current!==aiSwitch)return;
       setSelected(c);setDetail(result);setTab('cases');setAttestTask(null);
       setExceptions([]);setExceptionsLoaded(false);setExceptionTask('');
       setGuidance(null);setAiAnswer(null);setAiQuestion('');setDatePreview(null);
@@ -294,19 +297,21 @@ export default function App(){
   }
   async function askCompanion(caseId:string){
     const generation=identityEpoch.current;
+    const aiGeneration=aiRequestEpoch.current;
     const question=aiQuestion.trim();
     if(!question||question.length>400)return;
     setBusy(true);
     try{
       const result=await request<CompanionAnswer>(
         '/api/v1/cases/'+caseId+'/companion/answer','POST',{question});
-      if(identityEpoch.current!==generation)return;
+      if(identityEpoch.current!==generation||aiRequestEpoch.current!==aiGeneration)return;
       setAiAnswer(result);
       if(!result.ai_model_used&&result.guidance){setGuidance(result.guidance);}
       setMessage(result.ai_model_used?'Validated model response received. No workflow changes made.':
         'Real AI unavailable: '+(result.error_code||'UNKNOWN')+'. Deterministic guidance shown.');
     }catch(e){
-      if(identityEpoch.current===generation)setMessage('Question failed: '+
+      if(identityEpoch.current===generation&&aiRequestEpoch.current===aiGeneration)
+        setMessage('Question failed: '+
         (e instanceof Error?e.message:String(e)));
     }finally{setBusy(false);}
   }
@@ -636,6 +641,9 @@ export default function App(){
                  <p>{aiAnswer.answer.answer}</p>
                  <p className="meta">Model: {aiAnswer.model} · Source identifiers:
                    {' '}{aiAnswer.answer.citations.length?aiAnswer.answer.citations.join(', '):'None'}</p>
+                 {!!aiAnswer.answer.recommended_actions.length&&<p className="meta">
+                   Eligible next-action IDs: {aiAnswer.answer.recommended_actions.join(', ')}
+                 </p>}
                  {aiAnswer.answer.limitations.map((x,i)=><p className="meta" key={i}>{x}</p>)}
                </div>}
                {aiAnswer&&!aiAnswer.ai_model_used&&<p className="meta">
