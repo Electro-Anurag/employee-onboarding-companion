@@ -71,6 +71,18 @@ def activate(request,case_id):
 
 @csrf_protect
 @require_POST
+def closeout(request,case_id):
+    """HR-only, typed-evidence closeout; no client-supplied bypass fields."""
+    from backend.onboarding.closeout import closeout_case
+    def execute():
+        json_payload(request,1024,set())
+        key,version=headers(request,case_id)
+        return closeout_case(actor=request.user,case_id=case_id,
+                             key=key,expected_version=version)
+    return command(execute)
+
+@csrf_protect
+@require_POST
 def day_one(request,case_id):
     def execute():
         json_payload(request,1024,set())
