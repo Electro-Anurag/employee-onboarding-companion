@@ -528,7 +528,7 @@ export default function App(){
                     datePreview.case_version!==detail.case_version}
                     onClick={()=>void commitJoiningDate()}>Approve and commit previewed date change</button>
                 </>}
-              </section>}}
+              </section>}
             {detail.tasks.length===0&&<p>Tasks will be instantiated only after successful activation.</p>}
             <div className="task-list">{detail.tasks.map(t=><article key={t.id} className="task">
               <div><h4>{t.title}</h4><span className="meta">{t.kind} · {t.owner_role} · {t.state}</span>
