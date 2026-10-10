@@ -1,5 +1,5 @@
 # Evaluation-only no-payment Blueprint: NOT full-product hosted acceptance.
-# Preserve render.yaml (full architecture with paid background worker) unchanged.
+# Complete paid-worker architecture is preserved in render.full.yaml.
 # No external AI/provider billing, no secure S3 document intake.
 # Free web spins down; free PostgreSQL expires after 30 days; no backups.
 databases:
