@@ -79,3 +79,30 @@ def test_m6_current_guidance_uses_real_prerequisites_and_denies_unassigned_user(
     assert response.status_code==200,response.content
     assert response.json()['mode']=='DETERMINISTIC_ONLY'
     assert TaskCompletion.objects.count()==before
+
+
+@pytest.mark.django_db(transaction=True)
+def test_m6_companion_exceptions_are_exact_case_episodes_not_approvals(world):
+    from backend.ai.guidance import current_guidance
+    from backend.onboarding.exceptions import open_exception
+    from backend.onboarding.models import CaseException
+    _,actors=world
+    result,_=create(world,published(world))
+    case=OnboardingCase.objects.get(pk=result['case_id'])
+    activate_case(actor=actors['HR'][0],case_id=case.pk,
+        key=uuid.uuid4(),expected_version=1)
+    case.refresh_from_db()
+    intro=case.tasks.get(key='team_introduction')
+    opened,_=open_exception(actor=actors['MANAGER'][0],case_id=case.pk,
+        task_id=intro.pk,cause='PREREQUISITE_BLOCKED',
+        note='Manager preparation evidence pending',key=uuid.uuid4(),
+        expected_version=case.version)
+    ex_id=opened['result']['id']
+    guided=current_guidance(actors['MANAGER'][0],case.pk)
+    assert guided['open_exceptions']==[{
+        'id':'EXCEPTION:'+ex_id,'task_title':intro.title,
+        'cause':'PREREQUISITE_BLOCKED','episode':1,'status':'OPEN','assignee_role':None}]
+    ctx=authorized_context(actors['MANAGER'][0],case.pk)
+    assert 'EXCEPTION:'+ex_id in ctx['sources']
+    assert CaseException.objects.filter(case=case,pk=ex_id,status='OPEN').exists()
+    assert not hasattr(intro,'completion')
