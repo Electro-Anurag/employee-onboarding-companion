@@ -44,10 +44,15 @@ async function taskData(page){
 async function pdfUpload(page,pdf){
   const doc=card(page,'Live Identity PDF');
   await doc.getByRole('button',{name:'Load S3 document processing history'}).click();
-  await doc.locator('input[type="file"]').setInputFiles({
+  // Loading history is asynchronous; the legacy synthetic form can render
+  // first. Never attach PDF bytes to its unrelated file input.
+  const uploadButton=doc.getByRole('button',{name:'Upload to private S3 quarantine'});
+  await expect(uploadButton).toBeVisible();
+  await doc.getByLabel('Generated/anonymized PDF (up to 10 MiB)').setInputFiles({
     name:pdf===invalid?'synthetic_invalid.pdf':'synthetic_recovered.pdf',
     mimeType:'application/pdf',buffer:fs.readFileSync(pdf)});
-  await doc.getByRole('button',{name:'Upload to private S3 quarantine'}).click();
+  await expect(uploadButton).toBeEnabled();
+  await uploadButton.click();
 }
 test('R2: browser invalid correction, reload resume, actual web hard exit after S3 PUT, recovered HR approval',async({browser})=>{
   test.setTimeout(210000);
