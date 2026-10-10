@@ -22,6 +22,8 @@ def ready_manager_case(world):
     case=OnboardingCase.objects.get(pk=result['case_id'])
     activate_case(actor=actors['HR'][0],case_id=case.pk,
                   key=uuid.uuid4(),expected_version=1)
+    case.refresh_from_db()
+    assert case.status=='PRE_JOINING'
     task=Task.objects.get(case=case,key='manager_preparation')
     return case,task,actors
 
@@ -35,6 +37,8 @@ def naturally_overdue_manager_case(world):
     case=OnboardingCase.objects.get(pk=result['case_id'])
     activate_case(actor=actors['HR'][0],case_id=case.pk,
                   key=uuid.uuid4(),expected_version=1)
+    case.refresh_from_db()
+    assert case.status=='PRE_JOINING'
     task=Task.objects.get(case=case,key='manager_preparation')
     assert timezone.now()>=task.due_at+ESCALATION_DELAY
     return case,task,actors
