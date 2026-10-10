@@ -24,6 +24,9 @@ type Guidance = {mode:'DETERMINISTIC_ONLY';ai_model_used:false;
     unmet_prerequisites:{task_title:string;state:string;owner_role:string}[]}[];
   open_exceptions:{id:string;task_title:string;cause:string;episode:number;
     status:string;assignee_role:string|null}[];limitations:string[]};
+type CompanionAnswer = {mode:string;ai_model_used:boolean;error_code?:string;model?:string;
+  guidance?:Guidance;answer?:{answer_type:string;answer:string;citations:string[];
+    recommended_actions:string[];blockers:string[];limitations:string[]}};
 type ExceptionRecord = {id:string;task_id:string;task_title:string;task_owner_role:string;
   cause:string;episode:number;
   status:'OPEN'|'ASSIGNED'|'RESOLVED'|'CLOSED'|'SUPERSEDED';assignee_role:string|null;
@@ -65,6 +68,8 @@ export default function App(){
   const [exceptions,setExceptions]=useState<ExceptionRecord[]>([]);
   const [exceptionsLoaded,setExceptionsLoaded]=useState(false);
   const [guidance,setGuidance]=useState<Guidance|null>(null);
+  const [aiQuestion,setAiQuestion]=useState('');
+  const [aiAnswer,setAiAnswer]=useState<CompanionAnswer|null>(null);
   const [exceptionTask,setExceptionTask]=useState('');
   const [exceptionCause,setExceptionCause]=useState('PREREQUISITE_BLOCKED');
   const [exceptionNote,setExceptionNote]=useState('');
@@ -81,7 +86,7 @@ export default function App(){
     setCases([]);setWork([]);setTemplates([]);setOwners({});
     setInbox([]);setInboxLoaded(false);
     setExceptions([]);setExceptionsLoaded(false);setExceptionTask('');
-    setGuidance(null);setExceptionNote('');setExceptionAssignees({});
+    setGuidance(null);setAiAnswer(null);setAiQuestion('');setExceptionNote('');setExceptionAssignees({});
     setRecoveryOwner({});setRecoveryReason('');
     setTemplate(null);setEditor('');setSelected(null);setDetail(null);
     setEmployeeId('');setItId('');setManagerId('');setTemplateId('');setJoiningDate('');
@@ -231,7 +236,7 @@ export default function App(){
       if(identityEpoch.current!==generation)return;
       setSelected(c);setDetail(result);setTab('cases');setAttestTask(null);
       setExceptions([]);setExceptionsLoaded(false);setExceptionTask('');
-      setGuidance(null);setDatePreview(null);
+      setGuidance(null);setAiAnswer(null);setAiQuestion('');setDatePreview(null);
       datePreviewGeneration.current+=1;
       setNewJoiningDate('');setDateChangeReason('');
       setRecoveryOwner({});setRecoveryReason('');
@@ -274,7 +279,7 @@ export default function App(){
           'If-Match':'"case:'+caseId+':v'+datePreview.case_version+'"'
         });
       setDatePreview(null);setDateChangeReason('');
-      setGuidance(null);setExceptionsLoaded(false);setExceptions([]);
+      setGuidance(null);setAiAnswer(null);setExceptionsLoaded(false);setExceptions([]);
       datePreviewGeneration.current+=1;
       await reloadCase(caseId,me);
       setSelected(old=>old&&old.id===caseId?
@@ -286,6 +291,24 @@ export default function App(){
     const result=await request<Guidance>('/api/v1/cases/'+caseId+'/companion/guidance');
     if(identityEpoch.current!==generation)return;
     setGuidance(result);
+  }
+  async function askCompanion(caseId:string){
+    const generation=identityEpoch.current;
+    const question=aiQuestion.trim();
+    if(!question||question.length>400)return;
+    setBusy(true);
+    try{
+      const result=await request<CompanionAnswer>(
+        '/api/v1/cases/'+caseId+'/companion/answer','POST',{question});
+      if(identityEpoch.current!==generation)return;
+      setAiAnswer(result);
+      if(!result.ai_model_used&&result.guidance){setGuidance(result.guidance);}
+      setMessage(result.ai_model_used?'Validated model response received. No workflow changes made.':
+        'Real AI unavailable: '+(result.error_code||'UNKNOWN')+'. Deterministic guidance shown.');
+    }catch(e){
+      if(identityEpoch.current===generation)setMessage('Question failed: '+
+        (e instanceof Error?e.message:String(e)));
+    }finally{setBusy(false);}
   }
   async function loadExceptions(caseId:string){
     const generation=identityEpoch.current;
@@ -300,7 +323,7 @@ export default function App(){
       await request('/api/v1/cases/'+caseId+'/exceptions'+route,'POST',body,
         {'If-Match':'"case:'+caseId+':v'+detail.case_version+'"'});
       await reloadCase(caseId,me);
-      setGuidance(null);
+      setGuidance(null);setAiAnswer(null);
       await loadExceptions(caseId);
       setExceptionNote('');
     });
@@ -316,7 +339,7 @@ export default function App(){
         role:episode.task_owner_role,new_member_id:target,reason:recoveryReason.trim()
       },{'If-Match':'"case:'+caseId+':v'+detail.case_version+'"'});
       await reloadCase(caseId,me);
-      setGuidance(null);setRecoveryReason('');setRecoveryOwner({});
+      setGuidance(null);setAiAnswer(null);setRecoveryReason('');setRecoveryOwner({});
       await loadExceptions(caseId);
       setMessage('Recovery owner reassigned; resolve exception only after confirming underlying blocker cleared.');
     });
@@ -485,7 +508,7 @@ export default function App(){
   }
   return <main className="shell">
     <header className="topbar"><div><span className="eyebrow">Aster Vale Labs — synthetic demo</span><h1>Onboarding Companion</h1>
-      <p>M2 case engine with M3 versioned form review and M4 synthetic IT operations. Remaining milestone workflows are still under development.</p></div>
+      <p>Persistent role-scoped onboarding workflows, evidence-based handoffs and reminders. Real model answers require an explicitly configured provider.</p></div>
       {me&&<button className="quiet" disabled={busy} onClick={()=>void signOut()}>Sign out</button>}
     </header>
     {!me?<section className="panel login"><h2>Sign in</h2>
@@ -581,7 +604,28 @@ export default function App(){
               </div>
               <p className="meta">Deterministic current-state guidance; no AI model call, external
                 provider, autonomous approval or message sending.</p>
-              {guidance&&<>
+              <div className="form">
+                 <label>Ask about a synthetic policy or next action
+                   <input value={aiQuestion} maxLength={400} onChange={e=>setAiQuestion(e.target.value)}
+                     placeholder="What conduct policy applies to me?"/>
+                 </label>
+                 <button disabled={busy||!aiQuestion.trim()}
+                   onClick={()=>void askCompanion(detail.case_id)}>Ask read-only companion</button>
+               </div>
+               <p className="meta">External model inference is opt-in and requires an approved
+                 provider/API configuration. The response cannot approve or change any task.</p>
+               {aiAnswer?.ai_model_used&&aiAnswer.answer&&<div className="subpanel">
+                 <strong>Model-generated, source-validated answer ({aiAnswer.answer.answer_type})</strong>
+                 <p>{aiAnswer.answer.answer}</p>
+                 <p className="meta">Model: {aiAnswer.model} · Source identifiers:
+                   {' '}{aiAnswer.answer.citations.length?aiAnswer.answer.citations.join(', '):'None'}</p>
+                 {aiAnswer.answer.limitations.map((x,i)=><p className="meta" key={i}>{x}</p>)}
+               </div>}
+               {aiAnswer&&!aiAnswer.ai_model_used&&<p className="meta">
+                 No model answer was produced ({aiAnswer.error_code}).
+                 Current-state deterministic guidance is displayed below.
+               </p>}
+               {guidance&&<>
                 <p className="meta">Evaluated case v{guidance.case_version}</p>
                 <h5>Your eligible next actions</h5>
                 {!guidance.actionable.length&&<p>Nothing currently actionable for this role.</p>}
