@@ -28,6 +28,16 @@
 - Developer PostgreSQL tests cover typed manager attestation as the ONLY path that removes a prerequisite, multi-episode recurrence, cross-tenant scope, CSRF/stale-version denial, historical immutability and retry receipts.
 - **Real Chromium M5 journey and real periodic worker** passed [run 38019286959](https://github.com/Electro-Anurag/employee-onboarding-companion/actions/runs/38019286959) at `f063ddadab597f0627dce9def3f1a982ede211f3`. The browser qualifies HR→Manager handoff and successful typed prerequisite recovery. The worker test qualifies one actual periodic current-state overdue inbox creation. Neither is hosted production qualification.
 
+## Third M5 slice — joining-date change with DB-backed preview and HR decision
+
+- `GET /api/v1/cases/{case}/joining-date/preview?joining_date=YYYY-MM-DD` is read-only, HR-scoped and requires the current If-Match case version. It returns a digest of the current case/template/task schedule and the exact old/new task timestamps. A preview performs no writes.
+- `POST /api/v1/cases/{case}/joining-date/commit` is HR-only, CSRF-guarded, case-locked, idempotent and requires a verbatim preview digest, current case ETag and reason. Only PRE_JOINING cases can be moved within the bounded local-time window. Date changes for ACTIVE cases are NOT claimed.
+- Snapshot scheduling uses the published immutable `TemplateTask.available_offset_days/due_offset_days` and local clock. A task with work-started or accepted/completed evidence is preserved unchanged; only untouched tasks shift. Recompute updates eligibility to READY/NOT_STARTED/BLOCKED without manufacturing completion.
+- Additive migrations `0023` (durable schedule_revision, write-once CaseDateChange), `0024` (narrow M2 DB snapshot exception requiring an exact HR-authorized predeclared date-change record and published template schedule), and `0025` (deferred case-date revision evidence check at COMMIT) preserve old migrations. Arbitrary direct SQL deadline rewrites, past evidence rewrites and unapproved case-date edits are negative test cases. **Independent source/security review of the new M2-trigger exception remains mandatory**.
+- Old M5 notifications are superseded inside the successful case transaction. Future reminder identities contain `case.schedule_revision` and cannot quietly replay an old due-time identity.
+- React HR screen shows the previewed per-task changes, preserved task count and explicit reasoned approval. The existing Chromium test now includes real HTML interaction, HTTP commit receipt, reloaded joining date and earlier typed-evidence preservation.
+- Qualification evidence from the additive migrations is **development-level only**, with exact final SHA and check results tracked in GitHub Actions; synthetic PostgreSQL and Chromium CI do not qualify hosted acceptance J01–J05.
+
 ## First M6 implemented slice
 
 - `backend/ai/context.py`: reads one currently authorized case, task/dependency states, actual blocker identifiers and the server's eligible action IDs; omits uploaded document bodies and private form data.
@@ -39,7 +49,7 @@
 
 1. Verify `.github/workflows/m5-m6-ci.yml` and `.github/workflows/m5-m6-browser-ci.yml` against the final code SHA: migration parity, PostgreSQL tests, React build, independent-role Chromium, real periodic worker and queue cursor. Do not transfer a prior SHA's PASS to a later source change.
 2. Close any observed test failures without bypassing session guards, version checks or SQL uniqueness.
-3. Finish M5: date-change preview/commit and schedule revisions, exception notifications and 48-hour escalations, document/form-review handoffs, verified 24-hour outage/multi-worker reconciliation, and owner-unavailable recovery. The current predicate-gated exception and periodic worker slices are not full M5 closure.
+3. Finish M5: independently review the joining-date DB exception; implement policy-versioned exception notifications and 48-hour escalations, document/form-review handoffs, 24-hour outage and multi-worker reconciliation, owner-unavailable remediation, and full temporal edge cases. The date-change slice covers PRE_JOINING only; do not claim full M5 closure.
 4. Add real M6 AI request/attempt/answer persistence, approved synthetic policy evidence/citations, account-authorized provider adapter, strict structured-output validation, cost budget and end-to-end evaluator. Require owner-authorized inference account/budget for the real gate.
 5. Re-review combined changes independently before milestone closure. Keep all J01–J05 hosted and production IAM/KMS/retention/security gates separately open.
 
