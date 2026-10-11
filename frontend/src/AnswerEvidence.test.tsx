@@ -60,3 +60,30 @@ describe('M6 verbatim policy presentation',()=>{
     expect(stale).not.toContain('Do not share secrets.');
   });
 });
+
+
+
+describe('M6 deterministic exact policy source display',()=>{
+  it('shows the verified source without claiming a model generated the answer',()=>{
+    const source:ModelAnswer={
+      answer_type:'PARTIAL',answer:'Verbatim assigned policy edition demo-v1:\n' +
+        'Synthetic conduct is required; no employment promise is made.',
+      case_version:4,citations:['POLICY:t-one:abcd1234abcd'],
+      recommended_actions:[],blockers:[],
+      limitations:['This answer covers only the cited fact, not the entire question.'],
+    };
+    const html=renderToStaticMarkup(<AnswerEvidence answer={source}
+      origin="DETERMINISTIC" model="Verified case-assigned policy — no AI"
+      tasks={tasks} currentVersion={4}/>);
+    expect(html).toContain('Verified assigned policy text (no model inference)');
+    expect(html).toContain('Source:');
+    expect(html).toContain('not an AI interpretation');
+    expect(html).not.toContain('Model-generated answer');
+    expect(html).not.toContain('model-selected; relevance unverified');
+    const old=renderToStaticMarkup(<AnswerEvidence answer={source}
+      origin="DETERMINISTIC" model="Verified case-assigned policy — no AI"
+      tasks={tasks} currentVersion={5}/>);
+    expect(old).toContain('Outdated companion answer');
+    expect(old).not.toContain('Synthetic conduct is required');
+  });
+});

@@ -40,10 +40,20 @@ def test_m6_disabled_provider_is_truthful_fallback_without_external_call(monkeyp
     monkeypatch.setattr('backend.ai.answers.infer',
                         lambda *_: pytest.fail('Provider must not be called'))
     result = answer_question(actors['EMPLOYEE'][0], case.pk, 'What is the conduct policy?')
-    assert result['mode'] == 'DETERMINISTIC_FALLBACK'
+    assert result['mode'] == 'DETERMINISTIC_SOURCE_ANSWER'
     assert result['ai_model_used'] is False
-    assert result['guidance']['mode'] == 'DETERMINISTIC_ONLY'
+    ctx = authorized_context(actors['EMPLOYEE'][0], case.pk)
+    policy = next(p for p in ctx['policies'] if
+        p['source_id'].startswith('POLICY:'+next(
+            t['id'] for t in ctx['tasks'] if t['key']=='conduct_ack')+':'))
+    assert result['answer']['answer_type'] == 'PARTIAL'
+    assert result['answer']['answer'].endswith(policy['text'])
+    assert result['answer']['citations'] == [policy['source_id']]
     assert not AuditEvent.objects.filter(event_type='AI_MODEL_ATTEMPT').exists()
+    unknown = answer_question(actors['EMPLOYEE'][0], case.pk,
+                              'Does this policy guarantee a salary bonus?')
+    assert unknown['mode'] == 'DETERMINISTIC_FALLBACK'
+    assert unknown['guidance']['mode'] == 'DETERMINISTIC_ONLY'
 
 
 @pytest.mark.django_db(transaction=True)

@@ -369,7 +369,10 @@ export default function App(){
       if(identityEpoch.current!==generation||aiRequestEpoch.current!==aiGeneration)return;
       setAiAnswer(result);
       if(!result.ai_model_used&&result.guidance){setGuidance(result.guidance);}
-      setMessage(result.ai_model_used?'Validated model response received. No workflow changes made.':
+      else if(result.answer){setGuidance(null);}
+      setMessage(result.mode==='DETERMINISTIC_SOURCE_ANSWER'?
+        'Exact assigned policy displayed from authorized evidence; no AI was used.':
+        result.ai_model_used?'Validated model response received. No workflow changes made.':
         'Real AI unavailable: '+(result.error_code||'UNKNOWN')+'. Deterministic guidance shown.');
     }catch(e){
       if(identityEpoch.current===generation&&aiRequestEpoch.current===aiGeneration)
@@ -836,10 +839,11 @@ export default function App(){
                </div>
                <p className="meta">External model inference is opt-in and requires an approved
                  provider/API configuration. The response cannot approve or change any task.</p>
-               {aiAnswer?.ai_model_used&&aiAnswer.answer&&<AnswerEvidence
+               {aiAnswer?.answer&&<AnswerEvidence
                  answer={aiAnswer.answer} model={aiAnswer.model||'configured provider'}
-                 currentVersion={detail.case_version} tasks={detail.tasks}/>} 
-               {aiAnswer&&!aiAnswer.ai_model_used&&<p className="meta">
+                 origin={aiAnswer.ai_model_used?'MODEL':'DETERMINISTIC'}
+                 currentVersion={detail.case_version} tasks={detail.tasks}/>}
+               {aiAnswer&&!aiAnswer.answer&&!aiAnswer.ai_model_used&&<p className="meta">
                  No model answer was produced ({aiAnswer.error_code}).
                  Current-state deterministic guidance is displayed below.
                </p>}

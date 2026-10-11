@@ -24,8 +24,9 @@ export function evidenceLabel(source:string,tasks:EvidenceTask[]):string{
   return 'Case source reference';
 }
 
-export default function AnswerEvidence({answer,model,tasks,currentVersion}:{
+export default function AnswerEvidence({answer,model,tasks,currentVersion,origin='MODEL'}:{
   answer:ModelAnswer;model:string;tasks:EvidenceTask[];currentVersion:number;
+  origin?:'MODEL'|'DETERMINISTIC';
 }){
   if(answer.case_version!==currentVersion){
     return <div className="subpanel" role="alert" aria-label="Outdated companion answer">
@@ -37,11 +38,15 @@ export default function AnswerEvidence({answer,model,tasks,currentVersion}:{
     answer.answer.startsWith('Verbatim assigned policy edition ')&&
     answer.citations.length===1&&answer.citations[0].startsWith('POLICY:');
   return <section className="subpanel" aria-label="Companion answer with citations">
-    <strong>{verbatimPolicy?'Verbatim case-assigned policy text (model-selected; relevance unverified)':
+    <strong>{origin==='DETERMINISTIC'?
+      'Verified assigned policy text (no model inference)':
+      verbatimPolicy?'Verbatim case-assigned policy text (model-selected; relevance unverified)':
       `Model-generated answer (${answer.answer_type})`}</strong>
     <p style={{whiteSpace:'pre-wrap'}}>{answer.answer}</p>
-    <p className="meta">Model: {model} · Evaluated case v{answer.case_version}.
-      {verbatimPolicy?
+    <p className="meta">{origin==='DETERMINISTIC'?'Source: ':'Model: '}{model} · Evaluated case v{answer.case_version}.
+      {origin==='DETERMINISTIC'?
+        ' The entire assigned edition was reproduced verbatim from the authorized case. This is not an AI interpretation or legal/employment advice.':
+        verbatimPolicy?
         ' The entire displayed policy body was checked against the authorized snapshot. This does not verify the model selected a relevant policy or interpret its meaning.':
         " Source identifiers are checked for authorization and task linkage; the model's prose has not been independently fact-checked."}</p>
     <h5>Cited case evidence</h5>
