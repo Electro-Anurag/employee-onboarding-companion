@@ -13,6 +13,8 @@ on:
       - 'backend/accounts/tests/test_hosted_startup.py'
       - 'backend/accounts/management/commands/rotate_hosted_synthetic.py'
       - 'backend/accounts/tests/test_hosted_rotation.py'
+      - 'backend/accounts/management/commands/diagnose_hosted_synthetic.py'
+      - 'backend/accounts/tests/test_hosted_diagnostic.py'
   workflow_dispatch:
 permissions:
   contents: read

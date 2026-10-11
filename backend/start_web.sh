@@ -21,6 +21,12 @@ if [ "${EOC_HOSTED_DEMO_CREDENTIAL_ROTATE:-0}" = "1" ]; then
   echo "Owner-gated synthetic hosted credential recovery requested."
   python manage.py rotate_hosted_synthetic --confirm-synthetic-rotation
 fi
+# Read-only diagnostic is a separate explicit owner-gated one-time action.
+# It never writes to account tables or prints private credential material.
+if [ "${EOC_HOSTED_DEMO_CREDENTIAL_DIAGNOSE:-0}" = "1" ]; then
+  echo "Hosted synthetic authentication diagnostic explicitly enabled."
+  python manage.py diagnose_hosted_synthetic --confirm-synthetic-diagnostic
+fi
 echo "Starting Django/Gunicorn web server..."
 exec gunicorn backend.config.wsgi:application \
   --bind "0.0.0.0:${PORT:-10000}" \
