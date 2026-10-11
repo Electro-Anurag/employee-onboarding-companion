@@ -35,6 +35,12 @@ Exact SHA `6a32720b7fa75ab56a8626ee4df1bb0f8aabde4a`. Strengthened malformed/unh
 
 Backend source `4cf8fa1c4b193d146d1f0717a014b1cd6c11ac9c`, frontend and API test source `eeb2884964c028bf4d40639c81833c0bbd0122ba`: HR can request read-only, case-version-scoped closeout blockers (missing mandatory typed evidence and still-open exception episodes). Authorization is checked server-side; preview does not mutate data or authorize closeout. The final command re-evaluates gates under case/task PostgreSQL locks. React only enables confirmation after an exact current-version readiness response. **Focused CI PASS** [run 38129044659](https://github.com/Electro-Anurag/employee-onboarding-companion/actions/runs/38129044659) on `eeb2884964c028bf4d40639c81833c0bbd0122ba`: 1 PostgreSQL closeout test passed, 14 React tests passed and Vite build succeeded (1 nonfatal Python warning). No hosted J01 completion, Chromium UI journey, full closeout dashboard, accessibility qualification, or release approval is implied.
 
+## M7 HR case dashboard (focused qualification)
+
+Backend source `9b50d0abc5443fa6701e794eb0b8086dd1ebfb2f`; React integration and source tests `798bd0d57d7af7456943e3f2a297e1038bbed06f`; HTTP test session-guard alignment `c48f5c1b0737eb717284d64945505da7b2d91fa9`. HR-only read-only `GET /api/v1/cases/{case_id}/dashboard` returns a versioned, timestamped view derived from typed mandatory TaskCompletion, task eligibility, role workload, overdue work and active exception episodes. Case/organization authorization is rechecked; Employee/IT/Manager cannot access the HR projection. React shows the counts only in the authenticated HR case view for the matching case version, with explicit snapshot timestamp and refresh button. No task mutations, new migrations, external calls or paid services.
+
+**Focused CI PASS** [run 38130225197](https://github.com/Electro-Anurag/employee-onboarding-companion/actions/runs/38130225197) at exact SHA `c48f5c1b0737eb717284d64945505da7b2d91fa9`: 3 PostgreSQL tests passed, 15 React tests passed, Vite production build succeeded. The previous run failed because an HTTP test omitted the existing SessionGuard session-start value; its test-only correction passed. Not a hosted browser demonstration, cross-case analytics or release clearance.
+
 ## Next implementation order
 
 1. M5 reminder and escalation recovery, worker outage/multi-worker evidence and handoff edge cases.
