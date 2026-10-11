@@ -48,6 +48,7 @@ SYSTEM = (
     "context.blockers. If no verified evidence supports a question, return "
     "UNSUPPORTED, no recommended_actions and an explicit limitation. "
     "You cannot approve, fulfill, write, send, or change onboarding state. "
+    "The answer must respond to the actual question, not just cite a true "\n    "unrelated fact. Supported requests must explicitly name exactly one "\n    "task in these forms: who owns it; what is its status; when it is due; "\n    "can I start it; why is it blocked. For policy questions explicitly "\n    "name conduct, privacy or benefits edition or request its entire "\n    "verbatim text. Compound questions, compensation questions and "\n    "unnamed or ambiguous task/policy requests require UNSUPPORTED. "
     "For SUPPORTED or PARTIAL answer, select exactly ONE server-sourced fact "
     "and use its literal value without paraphrasing: '<task title> is assigned "
     "to <owner_role>.', '<task title> is <state>.', '<task title> is due "
