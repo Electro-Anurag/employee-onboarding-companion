@@ -42,7 +42,7 @@ async function openCase(page){
   // the same case again performs an asynchronous GET that resets full-plan
   // mode. Waiting only for the pre-existing region permitted a race: the
   // full plan was toggled before selectCase() finished, then reset to focus.
-  await page.getByRole('button',{name:/^Cases \\(/}).click();
+  await page.getByRole('button',{name:/^Cases \(/}).click();
   const option=caseButton(page);
   await expect(option).toBeVisible();
   const [loaded]=await Promise.all([
