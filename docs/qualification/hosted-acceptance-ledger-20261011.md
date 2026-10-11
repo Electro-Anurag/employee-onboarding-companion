@@ -33,3 +33,47 @@ After provisioning, hosted role scenarios still need a secure runner-side creden
 - Actual hosted responses: `/health/live` 200, `/health/ready` 200, root 200, both immutable-production React CSS/JS assets 200, `/api/v1/auth/csrf` 200 and no-store, `/api/v1/auth/me` 401 UNAUTHENTICATED and no-store, `/api/v1/cases` 401 and no-store, `/api/v1/notifications` 403 and no-store. No credentials supplied; no unauthorized data disclosed in inspected responses. 
 - J01 **BLOCKED**, J02 **BLOCKED**, J03 **BLOCKED**, J04 **BLOCKED**, J05 **BLOCKED/PARTIAL**. None passed. This adds **hosted public smoke qualification only**, not AI, storage, background work, full workflow or owner-grade security GO.
 - Last inspected Render logs did not include any `Created four synthetic-only demo identities` message. Actual account existence could not be established directly because Render's private PostgreSQL database has external IP access disabled. Do not remove or modify this allowlist.
+
+## Credential-private four-role hosted access qualification
+
+A read-only authenticated probe `scripts/hosted_role_verify.py` is available
+for the owner to execute **locally in a private, interactive Ubuntu shell**
+against Render. It prompts for each existing demo password with hidden input
+(no GitHub Actions secrets or logs). It exercises live HTTPS CSRF and
+login/session handling, exact role identity, same organization, assigned case
+listing, HR-only template and portfolio boundaries, in-app inbox and logout.
+No business task or database document is mutated. It only reports role,
+status codes and PASS/FAIL, not passwords, cookies, organization IDs or record
+contents. The output must not be called J01–J05 PASS.
+
+**Observed bootstrap attempt:** An explicitly gated one-time startup on Render
+deploy `dep-db5s49t9fdbs73du3na0` at app source `3749df543…` returned
+`CommandError: Hosted synthetic demo already exists; refusing to overwrite`.
+The attempted deployment **failed closed** and earlier app deployment
+`dep-db5rr48473hc73c6mvlg` at `ded82f9c…` remained live. The error only
+proves that at least one existing-org / existing-account predicate matched,
+not that all four accounts exist or that newly configured passwords match.
+No duplicate-account seed, password reset or destructive DB mutation is
+authorized. A request to set `EOC_HOSTED_DEMO_BOOTSTRAP=0` was blocked by
+tool safety checks; the owner must disable the flag manually in the Render
+Dashboard and apply the environment before further redeployments.
+
+After the service is healthy and the flag is disabled, the owner may run:
+
+```bash
+gh api repos/Electro-Anurag/employee-onboarding-companion/contents/scripts/hosted_role_verify.py \
+  -f ref=feature/eoc-completion-development --jq .content | base64 -d > /tmp/eoc-hosted-role-verify.py
+chmod 600 /tmp/eoc-hosted-role-verify.py
+python3 /tmp/eoc-hosted-role-verify.py
+rm -f /tmp/eoc-hosted-role-verify.py
+```
+
+The CLI `gh api` **GET** must use a URL query string `?ref=...` rather than
+a POST-form flag if the user's GitHub CLI converts `-f` into POST.
+Use:
+`gh api 'repos/Electro-Anurag/employee-onboarding-companion/contents/scripts/hosted_role_verify.py?ref=feature/eoc-completion-development' --jq .content`.
+
+If any role fails, inspect only the role/status code, confirm the private
+existing-account credential and role presence; do not automatically retry
+or re-seed. J01–J05 remain **0/5 PASS** without the actual workflows, secure
+storage, persistent worker and explicitly approved model provider.
