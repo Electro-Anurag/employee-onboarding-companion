@@ -121,6 +121,7 @@ export default function App(){
       headers['Idempotency-Key']=extra['Idempotency-Key']||crypto.randomUUID();
     }
     const response=await fetch(path,{method,credentials:'same-origin',headers,
+      cache:method==='GET'?'no-store':'default',
       body:method==='GET'?undefined:JSON.stringify(body||{})});
     let result:unknown;
     try{result=await response.json();}catch{result={};}

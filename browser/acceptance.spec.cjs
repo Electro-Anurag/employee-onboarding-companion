@@ -204,6 +204,16 @@ test('four-role real-browser case, template, dependency and evidence journey',as
       expect(formApproval.status(),
         'FORM_HR_APPROVAL_HTTP_'+formApproval.status()+
         ': '+(approvalResult?.error?.code||'NO_ERROR_CODE')).toBe(201);
+      // This journey explicitly proves a real browser read-after-write, not
+      // just a separate Playwright API client's authoritative result.
+      await expect.poll(async()=>{
+        const ui=await hr.evaluate(()=>{
+          const p=[...document.querySelectorAll('[aria-label="Case tasks"] article.task')]
+            .find(node=>node.querySelector('h4')?.textContent==='Personal Details');
+          return p?.textContent?.includes('COMPLETED')||false;
+        });
+        return ui;
+      },{timeout:12000}).toBe(true);
       // Approval is not assumed merely from clicking the UI; require the
       // server's exact task state before checking the rendered card.
       await expect.poll(async()=>{

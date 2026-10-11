@@ -27,6 +27,7 @@ MIDDLEWARE = [
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "backend.accounts.middleware.SessionGuard",
+    "backend.accounts.middleware.PrivateApiNoStore",
 ]
 ROOT_URLCONF = "backend.config.urls"
 TEMPLATES = [{"BACKEND": "django.template.backends.django.DjangoTemplates", "DIRS": [], "APP_DIRS": True,
