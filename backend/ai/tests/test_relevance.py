@@ -107,8 +107,9 @@ def test_named_task_cannot_cite_other_true_task_or_wrong_fact(scene):
 @pytest.mark.django_db(transaction=True)
 def test_explicit_benefits_policy_question_scoped_and_generic_ambiguous(scene):
     case, user, ctx = scene
-    employee = next(x for x in case.organization.memberships.select_related("user")
-                    if x.role == "EMPLOYEE").user
+    from backend.accounts.models import Membership
+    employee = Membership.objects.select_related("user").get(
+        organization=case.organization, role="EMPLOYEE").user
     employee_ctx = authorized_context(employee, case.pk)
     task = next(t for t in employee_ctx["tasks"] if t["key"] == "benefits_ack")
     policy = next(p for p in employee_ctx["policies"]
