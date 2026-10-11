@@ -1,0 +1,26 @@
+name: EOC hosted preflight retry tooling
+on:
+  push:
+    branches: ['feature/eoc-completion-development']
+    paths:
+      - '.github/workflows/eoc-hosted-preflight-tooling.yml'
+      - 'scripts/hosted_journey_preflight.py'
+      - 'scripts/hosted_role_verify.py'
+      - 'scripts/test_hosted_journey_preflight.py'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  no-secret-preflight-regression:
+    runs-on: [self-hosted, linux, ARM64, eoc-mac-ci]
+    timeout-minutes: 5
+    steps:
+      - name: Check out immutable source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Validate read-only prelogin retries without live authentication
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m compileall -q scripts/hosted_journey_preflight.py scripts/hosted_role_verify.py scripts/test_hosted_journey_preflight.py
+          python3 -m unittest discover -s scripts -p 'test_hosted_journey_preflight.py' -v
+          echo "HOSTED_PREFLIGHT_SAFE_GET_RETRY_TEST_PASS@$GITHUB_SHA"

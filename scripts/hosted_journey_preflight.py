@@ -11,6 +11,7 @@ import hashlib
 import http.cookiejar
 import json
 import sys
+import time
 from collections import Counter
 from datetime import datetime, timezone
 from urllib.request import HTTPCookieProcessor, build_opener
@@ -25,11 +26,39 @@ def ensure(condition, message):
         raise AssertionError(message)
 
 
+def safe_prelogin_get(opener, path, attempts=3):
+    """Bounded retries ONLY for credential-free GETs during free-web wakeup.
+
+    Never retry login POST or any business mutation here. All transient
+    attempts are bounded; 401/403 and unexpected responses fail immediately.
+    """
+    ensure(path in ("/health/ready", "/api/v1/auth/csrf"),
+           "Retry is restricted to public pre-login GETs")
+    ensure(1 <= attempts <= 3, "Invalid bounded retry count")
+    for attempt in range(1, attempts + 1):
+        try:
+            status, body, cache = request(opener, path)
+        except RuntimeError as exc:
+            if not str(exc).startswith("Transport failure on") or attempt == attempts:
+                raise
+            print(f"PRELOGIN_SAFE_GET_RETRY={path} attempt={attempt} cause=transport")
+        else:
+            if status == 200:
+                return body, cache
+            if status not in (502, 503, 504) or attempt == attempts:
+                raise AssertionError(f"{path}: HTTP {status}, expected 200")
+            print(f"PRELOGIN_SAFE_GET_RETRY={path} attempt={attempt} status={status}")
+        time.sleep(4)
+    raise AssertionError(f"{path}: bounded retry exhausted")
+
+
 def prompt_session(role):
     jar = http.cookiejar.CookieJar()
     opener = build_opener(HTTPCookieProcessor(jar), HostOnlyRedirect())
-    status, csrf, cache = request(opener, "/api/v1/auth/csrf")
-    ensure(status == 200 and isinstance(csrf.get("csrf_token"), str),
+    ready, _ = safe_prelogin_get(opener, "/health/ready")
+    ensure(isinstance(ready, dict), f"{role}: readiness response invalid")
+    csrf, cache = safe_prelogin_get(opener, "/api/v1/auth/csrf")
+    ensure(isinstance(csrf.get("csrf_token"), str),
            f"{role}: CSRF preflight unavailable")
     assert_private(cache, "csrf")
     password = getpass.getpass(f"{role} password (hidden): ")
