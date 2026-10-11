@@ -1,6 +1,6 @@
 # Employee Onboarding Companion
 
-**Status (11 October 2026): development candidate. An older Render build is live, but the current completion branch is not deployed or production-qualified. The product is not an approved complete submission.**
+**Status (12 October 2026): ongoing development and hosted partial evaluation, NOT production release GO.** The existing Free Render web service is LIVE at application SHA `ec781ab7362da10648eea496b1402b8c317dcd4c`; newer source and documentation commits are NOT deployed. Four-role authentication and synthetic partial HR/Employee workflows were demonstrated. Hosted J01–J05 remain 0/5 full PASS.
 
 Repository: private personal GitHub repo `Electro-Anurag/employee-onboarding-companion`.
 Development branch: `feature/eoc-completion-development`.
@@ -58,9 +58,7 @@ acceptable production reliability guarantee.
 **Unverified current-SHA final deliverables:** fresh deployment of the
 completion branch; live four-role sign-in on that SHA; real model inference;
 successful hosted J01–J05; video of actual hosted interactions; release
-and security qualification. An older Render web build is live at
-`https://eoc-companion-web.onrender.com` on SHA `b4312679cddf7598d542f396a45318cde9a3e590c`;
-its availability does **not** qualify current code or the hosted journeys.
+and security qualification. The existing Free Render web is LIVE at `https://eoc-companion-web.onrender.com` on SHA `ec781ab7362da10648eea496b1402b8c317dcd4c` (last independently checked 12 October); this does **not** qualify newer branch source, the absent persistent worker or the five complete hosted journeys.
 See [submission evidence and recording plan](docs/submission/evaluation-demo-evidence.md). Independent SOURCE GO is not production GO.
 
 ### Local-only synthetic development
@@ -112,3 +110,9 @@ separates source claims from hosted demonstrations and gives the owner a
 six-minute YouTube recording plan. The [T01–T25 exact-SHA tracker](docs/tracking/release-test-gates-20261011.md)
 remains authoritative for production/release qualification. Never label the
 old LIVE Render SHA as the current completion branch.
+
+### M5 control worker development update — 12 October 2026
+
+The branch has an existing one-minute periodic reminder reconcile, plus a bounded five-minute abandoned-job retry restricted to two M5 task identities, a separate explicit-flag dedicated worker startup and a reviewed but **unapplied paid Starter-worker proposal** in `render.full.yaml`. Focused self-hosted [run 38178074575](https://github.com/Electro-Anurag/employee-onboarding-companion/actions/runs/38178074575) **PASS**: 16 focused tests, actual killed worker after DB commit before ACK, successful stale-job retry with one active reminder, and actual minute-cron periodic scheduling. Details: [M5 background processing](docs/operations/background-processing.md).
+
+The production Free web **does not have a continuously running control worker**. Do not claim J03 or uninterrupted reminders without an authorized worker deployment and real hosted evidence. The old worker branch listed in `render.full.yaml` has been corrected to the completion branch; applying that paid manifest remains a separate owner decision.
