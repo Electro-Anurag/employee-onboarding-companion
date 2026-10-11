@@ -195,22 +195,8 @@ test('four-role real-browser case, template, dependency and evidence journey',as
       await hrForm.getByRole('button',{name:'Load form history'}).click();
       await expect(hrForm).toContainText('Pending HR review');
       await hrForm.getByLabel('HR review note').fill('Synthetic form reviewed and accepted.');
-      // Temporary bounded diagnostic: distinguish stale browser responses,
-      // suppressed React updates and client exceptions. No form answers or
-      // passwords are logged.
-      const caseReads=[];
-      const pageErrors=[];
-      hr.on('pageerror',error=>pageErrors.push(error.name+': '+error.message.slice(0,180)));
-      hr.on('response',response=>{
-        if(response.request().method()!=='GET' ||
-           !response.url().includes('/api/v1/cases/'+caseId+'/tasks'))return;
-        void response.json().then(body=>caseReads.push({
-          status:response.status(),
-          version:body.case_version,
-          personalState:body.tasks?.find(t=>t.key==='personal_details')?.state,
-          cacheControl:response.headers()['cache-control']||''
-        })).catch(()=>caseReads.push({status:response.status(),parse:'failed'}));
-      });
+      // Verified HR acceptance removes this card from focused work.
+      // Assert the server decision and the UI's completed-history presentation.
       const [formApproval]=await Promise.all([
         hr.waitForResponse(response=>response.url().includes('/form-submissions/')&&
           response.url().endsWith('/review')&&response.request().method()==='POST'),
@@ -220,46 +206,37 @@ test('four-role real-browser case, template, dependency and evidence journey',as
       expect(formApproval.status(),
         'FORM_HR_APPROVAL_HTTP_'+formApproval.status()+
         ': '+(approvalResult?.error?.code||'NO_ERROR_CODE')).toBe(201);
-      // This journey explicitly proves a real browser read-after-write, not
-      // just a separate Playwright API client's authoritative result.
-      try{
-        await expect.poll(async()=>hr.evaluate(()=>{
-          const p=[...document.querySelectorAll('[aria-label="Case tasks"] article.task')]
-            .find(node=>node.querySelector('h4')?.textContent==='Personal Details');
-          return p?.textContent?.includes('COMPLETED')||false;
-        }),{timeout:12000}).toBe(true);
-      }catch(e){
-        const htmlState=await hr.evaluate(()=>{
-          const card=[...document.querySelectorAll('[aria-label="Case tasks"] article.task')]
-            .find(node=>node.querySelector('h4')?.textContent==='Personal Details');
-          const region=document.querySelector('[aria-label="Case tasks"]');
-          const pending=card?.textContent?.includes('Pending HR review');
-          return {
-            cardPresent:!!card,cardCompleted:card?.textContent?.includes('COMPLETED'),
-            pending,caseProgress:region?.querySelector('.heading p')?.textContent,
-            alertCount:document.querySelectorAll('[role="alert"]').length,
-            visibleStatus:document.querySelector('[role="status"]')?.textContent?.slice(0,160),
-          };
-        });
-        const fresh=await (await hr.request.get('/api/v1/cases/'+caseId+'/tasks')).json();
-        console.log('EOC_FORM_UI_DIAG '+JSON.stringify({
-          ackStatus:formApproval.status(),ackVersion:approvalResult.case_version,
-          serverVersion:fresh.case_version,
-          serverTaskState:fresh.tasks.find(t=>t.key==='personal_details')?.state,
-          htmlState,caseReads:caseReads.slice(-10),pageErrors:pageErrors.slice(-5),
-        }));
-        throw e;
-      }
-      // Approval is not assumed merely from clicking the UI; require the
-      // server's exact task state before checking the rendered card.
+      expect(approvalResult.result?.decision).toBe('ACCEPTED');
+      expect(approvalResult.result?.task_completion).toBe('COMPLETED');
       await expect.poll(async()=>{
         const response=await hr.request.get('/api/v1/cases/'+caseId+'/tasks');
         expect(response.status()).toBe(200);
         const current=await response.json();
         return current.tasks.find(t=>t.key==='personal_details')?.state;
       },{timeout:12000}).toBe('COMPLETED');
-      await expect(taskCard(hr,'Personal Details')).toContainText('COMPLETED');
       await expect(hr.getByText('2/17 mandatory tasks completed')).toBeVisible();
+
+      // Default focuses on actionable work; future blocked steps are absent.
+      const focus=hr.getByRole('button',{name:'Return to focused work'});
+      if(await focus.isVisible())await focus.click();
+      const caseView=hr.getByRole('region',{name:'Case tasks'});
+      const completed=caseView.locator('details[aria-label="Completed onboarding steps"]');
+      await expect(completed.locator('summary').first()).toHaveText('Completed steps (2)');
+      await expect(caseView.locator('article.task').filter({
+        has:caseView.getByRole('heading',{name:'Workspace Access',exact:true}),
+      })).toHaveCount(0);
+      await completed.locator('summary').first().click();
+      const personal=completed.locator('article.task').filter({
+        has:completed.getByText('Personal Details',{exact:true}),
+      });
+      await expect(personal).toContainText('COMPLETED');
+      await personal.getByText('Review completed evidence',{exact:true}).click();
+      await personal.getByRole('button',{name:'Load form history'}).click();
+      await expect(personal).toContainText('Revision 1: ACCEPTED');
+
+      // An explicitly opened full plan still provides prerequisite visibility.
+      await hr.getByRole('button',{name:'View all steps (advanced)'}).click();
+      await expect(taskCard(hr,'Personal Details')).toContainText('COMPLETED');
       await expect(taskCard(hr,'Workspace Access')).toContainText('PREREQUISITE_INCOMPLETE');
       await hr.reload();
       await expect(hr.getByText('Role: HR')).toBeVisible();
