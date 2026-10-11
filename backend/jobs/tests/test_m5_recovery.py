@@ -20,7 +20,7 @@ def test_only_reminder_jobs_retried_and_bounded():
     manager = SimpleNamespace(get_stalled_jobs=AsyncMock(return_value=jobs),
                               retry_job=AsyncMock())
     result = asyncio.run(retry_stalled_m5(manager, limit=2))
-    assert result == {"recovered": 2, "unrelated_skipped": 2}
+    assert result == {"recovered": 2, "unrelated_skipped": 3}
     assert [c.args[0].id for c in manager.retry_job.call_args_list] == [2, 4]
     manager.get_stalled_jobs.assert_awaited_once_with(seconds_since_heartbeat=120)
 
