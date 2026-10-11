@@ -11,6 +11,8 @@ on:
       - 'backend/start_web.sh'
       - 'backend/accounts/management/commands/seed_hosted_synthetic.py'
       - 'backend/accounts/tests/test_hosted_startup.py'
+      - 'backend/accounts/management/commands/rotate_hosted_synthetic.py'
+      - 'backend/accounts/tests/test_hosted_rotation.py'
   workflow_dispatch:
 permissions:
   contents: read

@@ -75,3 +75,10 @@ If any role fails, inspect only the role/status code, confirm the private
 existing-account credential and role presence; do not automatically retry
 or re-seed. J01–J05 remain **0/5 PASS** without the actual workflows, secure
 storage, persistent worker and explicitly approved model provider.
+
+## Existing synthetic account login: HTTP 401 — qualified recovery candidate
+
+- The interactive authenticated check returned `HOSTED_FOUR_ROLE_READ_ONLY_FAIL=HR: live sign-in HTTP 401`. The real endpoint returned `LOGIN_UNAVAILABLE` (not proof of absence) and intentionally did not retry.
+- The original `seed_hosted_synthetic` is **create-only**. Four new environment-secret passwords do not modify preexisting password hashes. Its previous fail-closed result means only that an existing account or demo organization matched. No successful new bootstrap is evidenced.
+- `rotate_hosted_synthetic` is a separate, owner-gated recovery command. **Do not activate it without explicit owner approval**. It requires `DEBUG=0`, `EOC_HOSTED_DEMO_CREDENTIAL_ROTATE=1`, `--confirm-synthetic-rotation` and the create-only bootstrap flag disabled. It locks the unique exact-name synthetic organization and precisely four allowlisted `@hosted-onboarding-demo.invalid` accounts and membership records. Missing, disabled, staff, additional, cross-org or incorrectly privileged identities fail closed before changes. Four distinct Django-policy-validated passwords must be provided only in private Render environment variables. It rotates existing password hashes in one PostgreSQL transaction, revokes pending reset/invitation tokens and appends a sanitized immutable audit event; it never creates an identity, changes membership, emits secrets or executes on ordinary web startup. Already-matching credentials cause a no-op.
+- The private PostgreSQL external IP allowlist must stay empty. Any credential-rotation deployment must first pass the exact new integrated CI, be authorized by the owner, then have its one-time flag disabled as soon as verified. Until then **hosted login FAIL, J01-J05 0/5 PASS, release STOP**.
