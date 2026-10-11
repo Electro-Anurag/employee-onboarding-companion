@@ -25,15 +25,20 @@ REQUEST = re.compile(
 )
 
 
-def offline_policy_answer(*, question, context, actor, case_id):
-    """Return a server-verified quote or None; no provider, writes or heuristics."""
+def requested_policy_key(question):
+    """Return exactly one explicit policy key, else None (no fuzzy similarity)."""
     if not isinstance(question, str):
         return None
     normalized = ' '.join(question.strip().casefold().split())
     match = REQUEST.fullmatch(normalized)
-    if match is None:
+    return POLICY_KEYS[match.group(1)] if match else None
+
+
+def offline_policy_answer(*, question, context, actor, case_id):
+    """Return a server-verified quote or None; no provider, writes or heuristics."""
+    key = requested_policy_key(question)
+    if key is None:
         return None
-    key = POLICY_KEYS[match.group(1)]
     matching_tasks = [t for t in context['tasks']
                       if t['key'] == key and t['kind'] == 'POLICY_ACK']
     if len(matching_tasks) != 1:

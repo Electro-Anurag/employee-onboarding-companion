@@ -67,7 +67,7 @@ def test_m6_validated_source_and_bounded_provider_audit(monkeypatch, m6_case):
     monkeypatch.setenv('OPENAI_API_KEY', 'synthetic-test-token-not-real')
     def fake_infer(snapshot, question):
         assert snapshot['context_digest'] == ctx['context_digest']
-        assert question == 'What is the conduct policy?'
+        assert question == 'Which assigned policy edition is available?'
         return _synthetic_answer(snapshot), {
             'model': 'gpt-4o-mini', 'response_id': 'test-only-not-real',
             'input_tokens': 80, 'output_tokens': 45,
@@ -76,12 +76,12 @@ def test_m6_validated_source_and_bounded_provider_audit(monkeypatch, m6_case):
     before = TaskCompletion.objects.count()
     for _ in range(3):
         result = answer_question(actors['EMPLOYEE'][0], case.pk,
-                                 'What is the conduct policy?')
+                                 'Which assigned policy edition is available?')
         assert result['mode'] == 'MODEL_VALIDATED'
         assert result['ai_model_used']
         assert result['answer']['citations'][0] in ctx['sources']
     limited = answer_question(actors['EMPLOYEE'][0], case.pk,
-                              'What is the conduct policy?')
+                              'Which assigned policy edition is available?')
     assert limited['mode'] == 'DETERMINISTIC_FALLBACK'
     assert limited['error_code'] == 'DAILY_INFERENCE_LIMIT'
     assert TaskCompletion.objects.count() == before
@@ -200,7 +200,7 @@ def test_m6_mock_provider_full_policy_quote_is_partial_not_model_interpretation(
     monkeypatch.setenv('OPENAI_API_KEY', 'synthetic-test-token-not-real')
     def synthetic_transport(context, question):
         assert context['context_digest'] == snapshot['context_digest']
-        assert question == 'Show the assigned conduct policy'
+        assert question == 'Quote an assigned policy edition verbatim'
         return {
             'answer_type': 'PARTIAL',
             'answer': canonical_policy_quote(policy),
@@ -210,7 +210,7 @@ def test_m6_mock_provider_full_policy_quote_is_partial_not_model_interpretation(
         }, {'model': 'offline-mock', 'response_id': 'test-only',
             'input_tokens': 30, 'output_tokens': 80}
     monkeypatch.setattr('backend.ai.answers.infer', synthetic_transport)
-    response = answer_question(user, case.pk, 'Show the assigned conduct policy')
+    response = answer_question(user, case.pk, 'Quote an assigned policy edition verbatim')
     assert response['mode'] == 'MODEL_VALIDATED'
     assert response['answer']['answer_type'] == 'PARTIAL'
     assert response['answer']['answer'].endswith(policy['text'])

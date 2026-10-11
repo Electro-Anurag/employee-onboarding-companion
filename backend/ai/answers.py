@@ -17,7 +17,7 @@ from backend.audit.services import append_event
 from backend.ai.context import authorized_context
 from backend.ai.guidance import current_guidance
 from backend.ai.provider import ProviderFailure, infer
-from backend.ai.offline_policy import offline_policy_answer
+from backend.ai.offline_policy import offline_policy_answer, requested_policy_key
 from backend.ai.validator import UnsafeAIAnswer, validate_answer
 
 MAX_CALLS_PER_USER_24H = 3
@@ -37,15 +37,18 @@ def answer_question(actor, case_id, question):
         raise ValueError("INVALID_QUESTION")
     question = question.strip()
     context = authorized_context(actor, case_id)
-    if (os.environ.get("EOC_AI_PROVIDER") != "OPENAI"
-            or not os.environ.get("OPENAI_API_KEY")):
-        # This is deterministic authorized source retrieval, not a model call.
-        # Do not spend inference budget or label this as AI-generated.
+    # Explicit, single-edition policy reads are always source-rendered first,
+    # even when a provider is configured. This prevents irrelevant model
+    # selections and unnecessary external calls or inference budget use.
+    if requested_policy_key(question) is not None:
         verified_policy = offline_policy_answer(
             question=question, context=context, actor=actor, case_id=case_id,
         )
         if verified_policy is not None:
             return verified_policy
+        return _fallback(actor, case_id, "POLICY_SOURCE_UNAVAILABLE")
+    if (os.environ.get("EOC_AI_PROVIDER") != "OPENAI"
+            or not os.environ.get("OPENAI_API_KEY")):
         return _fallback(actor, case_id, "MODEL_NOT_CONFIGURED")
     digest = hashlib.sha256(question.encode("utf-8")).hexdigest()
     stream = "case:" + str(case_id)

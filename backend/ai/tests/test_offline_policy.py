@@ -109,3 +109,27 @@ def test_policy_reader_never_excerpts_edition_above_limit(policy_case):
     # exception or a fragment to be published by the offline renderer.
     assert offline_policy_answer(question='Read the conduct policy',
                                  context=ctx, actor=user, case_id=case.pk) is None
+
+
+
+@pytest.mark.django_db(transaction=True)
+def test_explicit_policy_read_never_spends_configured_provider_budget(
+        monkeypatch, policy_case):
+    case, actors = policy_case
+    monkeypatch.setenv('EOC_AI_PROVIDER', 'OPENAI')
+    monkeypatch.setenv('OPENAI_API_KEY', 'synthetic-offline-no-billing-token')
+    monkeypatch.setattr('backend.ai.answers.infer',
+                        lambda *_: pytest.fail('Explicit policy read must never call provider'))
+    for role in ('EMPLOYEE', 'HR'):
+        response = answer_question(actors[role][0], case.pk,
+                                   'Show the assigned conduct policy')
+        assert response['mode'] == 'DETERMINISTIC_SOURCE_ANSWER'
+        assert response['ai_model_used'] is False
+    for role in ('IT', 'MANAGER'):
+        response = answer_question(actors[role][0], case.pk,
+                                   'Show the assigned conduct policy')
+        assert response['mode'] == 'DETERMINISTIC_FALLBACK'
+        assert response['error_code'] == 'POLICY_SOURCE_UNAVAILABLE'
+        assert 'answer' not in response
+    assert not AuditEvent.objects.filter(event_type='AI_MODEL_ATTEMPT').exists()
+    assert not AuditEvent.objects.filter(event_type='AI_MODEL_VALIDATED').exists()

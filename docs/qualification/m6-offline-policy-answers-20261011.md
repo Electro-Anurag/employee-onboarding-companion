@@ -28,3 +28,18 @@ require their own exact-SHA CI execution.
 Adversarial tests cover ambiguous requests, unauthorized roles, nonexistent
 policy, fabricated monetary claim, source text integrity and stale context.
 Actual runtime or browser validation is pending.
+
+## Strict-request routing takes precedence over provider configuration
+
+For an explicit single-edition policy-reading request, this trusted server
+path runs **even if an external model is configured**. It avoids unnecessary
+external transmission, consumes no inference budget, and cannot accept an
+incorrectly chosen policy edition. If the edition is not authorized or cannot
+be rendered completely, it falls back with `POLICY_SOURCE_UNAVAILABLE`
+without calling a model. Other questions retain the existing optional
+provider/fallback behavior.
+
+The preexisting mocked provider contract tests now use **nonmatching**
+questions and continue testing the opt-in transport; their PASS would not
+establish natural-language relevance. New exact-SHA CI qualification is
+required before considering this functionality verified.
