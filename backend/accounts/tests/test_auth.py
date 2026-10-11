@@ -124,3 +124,18 @@ def test_csrf_and_bad_input_rejected(environment):
     c,_=csrf_client();token=login_as(c,'HR')
     assert c.post('/api/v1/auth/logout',content_type='application/json',data='{}').status_code==403
     assert post(c,'/api/v1/auth/password/change',{'unknown_field':1},token).status_code==422
+
+@pytest.mark.django_db(transaction=True)
+def test_private_api_no_store(environment):
+    users,members,case,other,othercase=environment
+    c,_=csrf_client()
+    anonymous=c.get('/api/v1/auth/me')
+    assert 'no-store' in anonymous['Cache-Control']
+    login_as(c,'HR')
+    for path in ['/api/v1/auth/me','/api/v1/cases',
+                 f'/api/v1/cases/{case.pk}/tasks']:
+        result=c.get(path)
+        assert result.status_code==200
+        assert 'private' in result['Cache-Control']
+        assert 'no-store' in result['Cache-Control']
+        assert result['Pragma']=='no-cache'
