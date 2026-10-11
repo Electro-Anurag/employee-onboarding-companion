@@ -33,12 +33,17 @@ export default function AnswerEvidence({answer,model,tasks,currentVersion}:{
       Ask again after refreshing the case.
     </div>;
   }
+  const verbatimPolicy=answer.answer_type==='PARTIAL'&&
+    answer.answer.startsWith('Verbatim assigned policy edition ')&&
+    answer.citations.length===1&&answer.citations[0].startsWith('POLICY:');
   return <section className="subpanel" aria-label="Companion answer with citations">
-    <strong>Model-generated answer ({answer.answer_type})</strong>
-    <p>{answer.answer}</p>
+    <strong>{verbatimPolicy?'Verbatim case-assigned policy text (model-selected; relevance unverified)':
+      `Model-generated answer (${answer.answer_type})`}</strong>
+    <p style={{whiteSpace:'pre-wrap'}}>{answer.answer}</p>
     <p className="meta">Model: {model} · Evaluated case v{answer.case_version}.
-      Source identifiers are checked for authorization and task linkage;
-      the model's prose has not been independently fact-checked.</p>
+      {verbatimPolicy?
+        ' The entire displayed policy body was checked against the authorized snapshot. This does not verify the model selected a relevant policy or interpret its meaning.':
+        " Source identifiers are checked for authorization and task linkage; the model's prose has not been independently fact-checked."}</p>
     <h5>Cited case evidence</h5>
     {answer.citations.length?
       <ul>{answer.citations.map(source=><li key={source}>

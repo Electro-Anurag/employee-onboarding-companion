@@ -175,3 +175,35 @@ def test_m6_malformed_model_output_fails_closed_and_records_sanitized_audit(monk
     assert AuditEvent.objects.filter(event_type='AI_MODEL_ATTEMPT').count()==1
     assert AuditEvent.objects.filter(event_type='AI_MODEL_FAILED').count()==1
     assert not AuditEvent.objects.filter(event_type='AI_MODEL_VALIDATED').exists()
+
+
+
+@pytest.mark.django_db(transaction=True)
+def test_m6_mock_provider_full_policy_quote_is_partial_not_model_interpretation(
+        monkeypatch, m6_case):
+    from backend.ai.validator import canonical_policy_quote, PARTIAL_LIMITATION
+    case, actors = m6_case
+    user = actors['EMPLOYEE'][0]
+    snapshot = authorized_context(user, case.pk)
+    policy = snapshot['policies'][0]
+    monkeypatch.setenv('EOC_AI_PROVIDER', 'OPENAI')
+    monkeypatch.setenv('OPENAI_API_KEY', 'synthetic-test-token-not-real')
+    def synthetic_transport(context, question):
+        assert context['context_digest'] == snapshot['context_digest']
+        assert question == 'Show the assigned conduct policy'
+        return {
+            'answer_type': 'PARTIAL',
+            'answer': canonical_policy_quote(policy),
+            'citations': [policy['source_id']], 'recommended_actions': [],
+            'blockers': [], 'clarification': None, 'escalation_draft': None,
+            'limitations': [PARTIAL_LIMITATION],
+        }, {'model': 'offline-mock', 'response_id': 'test-only',
+            'input_tokens': 30, 'output_tokens': 80}
+    monkeypatch.setattr('backend.ai.answers.infer', synthetic_transport)
+    response = answer_question(user, case.pk, 'Show the assigned conduct policy')
+    assert response['mode'] == 'MODEL_VALIDATED'
+    assert response['answer']['answer_type'] == 'PARTIAL'
+    assert response['answer']['answer'].endswith(policy['text'])
+    assert response['answer']['citations'] == [policy['source_id']]
+    assert AuditEvent.objects.filter(event_type='AI_MODEL_VALIDATED').count() == 1
+    assert not TaskCompletion.objects.exists()

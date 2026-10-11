@@ -11,6 +11,26 @@ SAFE_ABSTENTION = 'The available authorized sources do not establish that claim.
 SAFE_LIMITATION = 'No verified fact supports the requested claim.'
 PARTIAL_LIMITATION = 'This answer covers only the cited fact, not the entire question.'
 
+# Full-edition quotation only; never permit model-picked substrings to
+# omit negation, scope or qualifications from the assigned document.
+MAX_POLICY_QUOTE_CHARS = 800
+POLICY_QUOTE_PREFIX = 'Verbatim assigned policy edition '
+
+
+def canonical_policy_quote(policy):
+    """Render a complete edition from hash-verified, role-authorized context.
+
+    Return no candidate for long or malformed editions; a source URL or the
+    existing authorized policy reader can handle those without truncation.
+    """
+    if not isinstance(policy, dict):
+        return None
+    version, body = policy.get('version'), policy.get('text')
+    if (not isinstance(version, str) or not isinstance(body, str)
+            or not version or not body or len(body) > MAX_POLICY_QUOTE_CHARS):
+        return None
+    return POLICY_QUOTE_PREFIX + version + ':\\n' + body
+
 
 class UnsafeAIAnswer(ValueError):
     pass
@@ -57,9 +77,16 @@ def _has_grounded_fact(payload, context):
     if actions or blockers:
         return False
     for policy in context['policies']:
-        if (source == policy['source_id'] and
-                answer == 'Assigned policy edition ' + str(policy['version']) +
+        if source != policy['source_id']:
+            continue
+        if (answer == 'Assigned policy edition ' + str(policy['version']) +
                 ' is available for review.'):
+            return True
+        # A *complete*, byte-for-byte policy body can be shown as a quotation.
+        # Relevance to the question is not proved; quote is PARTIAL only.
+        canonical = canonical_policy_quote(policy)
+        if (canonical is not None and answer == canonical and
+                payload['answer_type'] == 'PARTIAL'):
             return True
     for exception in context['open_exceptions']:
         if (source == exception['id'] and

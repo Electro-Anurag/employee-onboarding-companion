@@ -37,3 +37,26 @@ describe('M6 answer provenance presentation',()=>{
     expect(evidenceLabel('EXCEPTION:synthetic',tasks)).toContain('exception episode');
   });
 });
+
+describe('M6 verbatim policy presentation',()=>{
+  it('clearly distinguishes verified quotation from a verified interpretation, preserving line breaks and HTML escaping',()=>{
+    const verbatim:ModelAnswer={
+      answer_type:'PARTIAL', answer:'Verbatim assigned policy edition test-v1:\\n' +
+        'Do not share secrets.\\n<script>alert(1)</script>',
+      case_version:4,citations:['POLICY:t-one:abcd1234abcd'],
+      recommended_actions:[],blockers:[],
+      limitations:['This answer covers only the cited fact, not the entire question.'],
+    };
+    const html=renderToStaticMarkup(<AnswerEvidence answer={verbatim}
+      model="synthetic-offline" tasks={tasks} currentVersion={4}/>);
+    expect(html).toContain('Verbatim case-assigned policy text');
+    expect(html).toContain('relevance unverified');
+    expect(html).toContain('white-space:pre-wrap');
+    expect(html).toContain('Do not share secrets.');
+    expect(html).toContain('&lt;script&gt;alert(1)&lt;/script&gt;');
+    expect(html).not.toContain('<script>alert(1)</script>');
+    const stale=renderToStaticMarkup(<AnswerEvidence answer={verbatim}
+      model="synthetic-offline" tasks={tasks} currentVersion={5}/>);
+    expect(stale).not.toContain('Do not share secrets.');
+  });
+});

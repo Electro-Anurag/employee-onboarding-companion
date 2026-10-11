@@ -63,6 +63,12 @@ SYSTEM = (
     "UNSUPPORTED, answer exactly 'The available authorized sources do not "
     "establish that claim.', empty citations/actions/blockers, and limitations "
     "exactly ['No verified fact supports the requested claim.']. "
+    "For a policy-content question you may instead quote one whole eligible "
+    "policy ONLY when context.policies text is 800 characters or fewer: "
+    "answer_type PARTIAL, answer exactly 'Verbatim assigned policy edition "
+    "<version>:\\n<entire policy text>', and exactly its POLICY source citation. "
+    "Do not trim, summarize, normalize, paraphrase, or pick a substring. "
+    "A quoted edition is source text, not a verified interpretation. "
     "Do not return CONFLICT or policy paraphrases: verification is unavailable."
 )
 
