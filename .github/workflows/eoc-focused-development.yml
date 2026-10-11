@@ -7,6 +7,7 @@ on:
       - 'backend/jobs/**'
       - 'backend/start_control_worker.sh'
       - 'render.full.yaml'
+      - 'scripts/m5_worker_recovery.py'
       - '.github/workflows/eoc-focused-development.yml'
   workflow_dispatch:
 permissions:
@@ -54,3 +55,9 @@ jobs:
           sh -n backend/start_control_worker.sh
           uv run python -m compileall -q backend/jobs backend/notifications
           uv run pytest -q backend/jobs/tests/test_m5_recovery.py backend/notifications/tests/test_current_window.py backend/notifications/tests/test_reminders.py backend/notifications/tests/test_escalation.py backend/notifications/tests/test_scheduler.py
+      - name: Real worker kill after commit, heartbeat retry, one delivery
+        env:
+          EOC_M5_ISOLATED_RECOVERY_TEST: '1'
+        run: |
+          set -euo pipefail
+          uv run python scripts/m5_worker_recovery.py

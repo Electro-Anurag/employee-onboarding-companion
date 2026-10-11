@@ -49,6 +49,19 @@ def reconcile_current_reminders(after: str = ''):
         from django.db import transaction
         with transaction.atomic():
             defer_atomic(reconcile_current_reminders,after=result['next_cursor'])
+    # Explicitly isolated integration crash: AFTER committed effects, BEFORE ACK.
+    from django.conf import settings
+    from django.db import connection
+    db = connection.settings_dict
+    if (os.environ.get("EOC_M5_ISOLATED_RECOVERY_TEST") == "1"
+            and os.environ.get("M5_CI_CRASH_AFTER_RECONCILE") == "1"
+            and os.environ.get("RENDER") != "true"
+            and not settings.DEBUG
+            and not os.environ.get("DATABASE_URL")
+            and db["HOST"] in ("localhost", "127.0.0.1")
+            and db["NAME"] == "onboarding_m0"):
+        os._exit(77)
+
 
 
 @app.periodic(cron="* * * * *")
