@@ -142,6 +142,28 @@ def main():
                     f"{second.stderr.read()[:500]!r}")
             time.sleep(.5)
         assert state(job) == "succeeded", state(job)
+        print("EOC_M5_REAL_WORKER_CRASH_RECOVERY_PASS", flush=True)
+        # Keep the second worker alive across a genuine wall-clock cron tick.
+        # This is essential: manually deferring a job does not prove that
+        # Procrastinate's periodic scheduler runs automatically.
+        deadline = time.monotonic() + 85
+        periodic_succeeded = False
+        while time.monotonic() < deadline:
+            connection.close()
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    "SELECT COUNT(*) FROM procrastinate_jobs "
+                    "WHERE task_name=%s AND status='succeeded'",
+                    ["m5.reconcile_reminders_periodic"],
+                )
+                periodic_succeeded = cursor.fetchone()[0] > 0
+            if periodic_succeeded:
+                break
+            if second.poll() is not None:
+                raise AssertionError("Periodic worker terminated unexpectedly")
+            time.sleep(.8)
+        assert periodic_succeeded, "No real 1-minute M5 periodic job succeeded"
+        print("EOC_M5_REAL_PERIODIC_CONTROL_WAKE_PASS", flush=True)
     finally:
         stop(second)
     assert ReminderIntent.objects.filter(
@@ -149,7 +171,6 @@ def main():
     assert Notification.objects.filter(
         task=task, intent__rule_code="OVERDUE_DAILY",
         status="ACTIVE").count() == 1
-    print("EOC_M5_REAL_WORKER_CRASH_RECOVERY_PASS")
     print("HOSTED_WORKER_UNQUALIFIED_LOCAL_ISOLATED_CI_ONLY")
 
 
