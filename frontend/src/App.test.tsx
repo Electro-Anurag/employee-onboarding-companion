@@ -66,3 +66,11 @@ describe('case response ordering under overlapping form-review refresh',()=>{
     expect(preferNewerCase(accepted,different)).toBe(different);
   });
 });
+
+describe('approved evidence remains authoritative',()=>{
+  it('retains accepted task state while stale navigation returns',()=>{
+    const accepted={case_id:'case',case_version:9,tasks:[{state:'COMPLETED'}]};
+    const earlier={case_id:'case',case_version:8,tasks:[{state:'IN_PROGRESS'}]};
+    expect(preferNewerCase(accepted,earlier).tasks[0].state).toBe('COMPLETED');
+  });
+});

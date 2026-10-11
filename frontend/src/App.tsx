@@ -264,17 +264,23 @@ export default function App(){
   async function reloadCase(caseId:string,identity:Me){
     const generation=identityEpoch.current;
     const selection=aiRequestEpoch.current;
-    await refresh(identity);
-    if(identityEpoch.current!==generation||aiRequestEpoch.current!==selection)return;
+    // After a successful evidence command, case tasks are the authoritative
+    // urgent read. Do not defer that read behind six auxiliary workspace GETs:
+    // a slow/failing template/owner endpoint must not leave accepted evidence
+    // displayed as pending or encourage a duplicate HR decision.
     const result=await request<TaskPayload>('/api/v1/cases/'+caseId+'/tasks');
     if(identityEpoch.current!==generation||aiRequestEpoch.current!==selection)return;
-    // A prior request (for example, Load form history) may resolve after an
-    // approval response. Never allow its older snapshot to overwrite the
-    // authoritative completed task or case progress.
     setDetail(previous=>preferNewerCase(previous,result));
     setSelected(previous=>previous&&previous.id===caseId&&
       previous.version<=result.case_version?
       {...previous,version:result.case_version,status:result.case_status}:previous);
+    // Ancillary navigation counts can be refreshed separately. Their failure
+    // must not falsely report that the already-committed approval failed.
+    try{await refresh(identity);}
+    catch{
+      if(identityEpoch.current===generation&&aiRequestEpoch.current===selection)
+        setMessage('Case updated. Workspace navigation may need a refresh.');
+    }
   }
   async function previewJoiningDate(){
     if(!selected||!detail||!newJoiningDate)return;
