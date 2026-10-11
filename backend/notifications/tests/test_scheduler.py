@@ -11,6 +11,7 @@ from backend.accounts.models import Organization,User,Membership
 from backend.jobs.atomic import defer_atomic,AtomicDeferralRequired
 from backend.jobs.tasks import reconcile_current_reminders
 from backend.notifications.services import reconcile_batch
+from backend.onboarding.tests.test_m2_workflow import world
 from backend.onboarding.models import OnboardingCase
 
 
