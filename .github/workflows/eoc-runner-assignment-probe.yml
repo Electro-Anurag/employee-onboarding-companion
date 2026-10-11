@@ -1,0 +1,25 @@
+name: EOC self-hosted runner assignment probe
+on:
+  push:
+    branches:
+      - feature/eoc-completion-development
+    paths:
+      - .github/workflows/eoc-runner-assignment-probe.yml
+permissions:
+  contents: read
+jobs:
+  runner-assignment:
+    runs-on: [self-hosted, linux, ARM64, eoc-mac-ci]
+    timeout-minutes: 4
+    steps:
+      - name: Prove a fresh queued job can reach the original runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "EOC_RUNNER_PROBE_SHA=$GITHUB_SHA"
+          echo "EOC_RUNNER_NAME=$RUNNER_NAME"
+          echo "EOC_RUNNER_OS=$RUNNER_OS"
+          echo "EOC_RUNNER_ARCH=$RUNNER_ARCH"
+          date -u '+UTC=%Y-%m-%dT%H:%M:%SZ'
+          [[ "$RUNNER_OS" == Linux && "$RUNNER_ARCH" == ARM64 ]]
+          echo "RUNNER_ASSIGNMENT_PROBE_PASS"
