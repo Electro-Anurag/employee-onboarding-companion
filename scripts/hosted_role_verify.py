@@ -20,7 +20,8 @@ from urllib.request import (
 )
 
 HOST = "https://eoc-companion-web.onrender.com"
-TARGET_DEPLOYED_SHA = "ded82f9ca85213eb7bbc50ceb3eb81f4864b92f2"
+# App commit identity must be attested using Render deployment evidence,
+# not a locally hardcoded copy of an earlier SHA.
 ROLES = ("HR", "EMPLOYEE", "IT", "MANAGER")
 MAX_BYTES = 120_000
 
@@ -145,7 +146,7 @@ def main():
     if len(set(orgs)) != 1:
         raise AssertionError("The four synthetic roles are not scoped to one organization")
     print("HOSTED_FOUR_ROLE_READ_ONLY_PASS")
-    print("DEPLOYED_APP_SHA_EXPECTED=" + TARGET_DEPLOYED_SHA)
+    print("DEPLOYED_APP_SHA=NOT_OBSERVED_BY_THIS_HTTP_PROBE")
     print("UTC=" + datetime.now(timezone.utc).isoformat())
     print("QUALIFICATION_SCOPE=AUTHENTICATED_READ_ONLY_AND_LOGIN_LOGOUT_NOT_J01_TO_J05")
 
