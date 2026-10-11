@@ -133,3 +133,45 @@ def test_explicit_policy_read_never_spends_configured_provider_budget(
         assert 'answer' not in response
     assert not AuditEvent.objects.filter(event_type='AI_MODEL_ATTEMPT').exists()
     assert not AuditEvent.objects.filter(event_type='AI_MODEL_VALIDATED').exists()
+
+
+
+@pytest.mark.django_db(transaction=True)
+def test_offline_policy_http_response_is_scoped_unchanged_and_not_a_model(
+        monkeypatch, policy_case):
+    import json
+    from django.test import Client
+    case, actors = policy_case
+    monkeypatch.setenv('EOC_AI_PROVIDER', 'OPENAI')
+    monkeypatch.setenv('OPENAI_API_KEY', 'synthetic-not-a-secret')
+    monkeypatch.setattr('backend.ai.answers.infer',
+                        lambda *_: pytest.fail('HTTP offline policy must not call model'))
+    employee = actors['EMPLOYEE'][0]
+    ctx = authorized_context(employee, case.pk)
+    conduct_task = next(t for t in ctx['tasks'] if t['key'] == 'conduct_ack')
+    source = next(p for p in ctx['policies'] if p['source_id'].startswith(
+        'POLICY:' + conduct_task['id'] + ':'))
+    url = '/api/v1/cases/' + str(case.pk) + '/companion/answer'
+    client = Client()
+    client.force_login(employee)
+    response = client.post(url, data=json.dumps(
+        {'question':'What is the conduct policy?'}),
+        content_type='application/json')
+    assert response.status_code == 200, response.content
+    assert response['Cache-Control'] == 'private, no-store'
+    body = response.json()
+    assert body['mode'] == 'DETERMINISTIC_SOURCE_ANSWER'
+    assert body['ai_model_used'] is False
+    assert body['answer']['citations'] == [source['source_id']]
+    assert body['answer']['answer'].endswith(source['text'])
+    assert not AuditEvent.objects.filter(event_type='AI_MODEL_ATTEMPT').exists()
+    client.force_login(actors['MANAGER'][0])
+    denied = client.post(url,data=json.dumps(
+        {'question':'What is the conduct policy?'}),
+        content_type='application/json')
+    assert denied.status_code == 200
+    assert denied.json()['mode'] == 'DETERMINISTIC_FALLBACK'
+    assert source['text'] not in denied.content.decode()
+    assert 'answer' not in denied.json()
+    # No source state mutations occurred due to either read.
+    assert not TaskCompletion.objects.exists()

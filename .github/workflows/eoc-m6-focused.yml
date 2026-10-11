@@ -49,7 +49,7 @@ jobs:
           uv run python manage.py makemigrations --check --dry-run
           uv run python manage.py migrate --noinput
       - name: M6 adversarial answer and provider contract tests
-        run: uv run pytest -q backend/ai/tests/test_inference.py backend/ai/tests/test_context.py backend/ai/tests/test_provenance.py
+        run: uv run pytest -q backend/ai/tests/test_inference.py backend/ai/tests/test_context.py backend/ai/tests/test_provenance.py backend/ai/tests/test_offline_policy.py
       - name: M6 exact-fact claim admission and adversarial synthetic evaluation (candidate only)
         run: uv run pytest -q -s backend/ai/tests/test_semantic_evaluation.py backend/ai/tests/test_claim_boundary.py
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
