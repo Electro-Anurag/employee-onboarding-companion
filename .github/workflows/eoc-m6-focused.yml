@@ -46,4 +46,4 @@ jobs:
           uv run python manage.py makemigrations --check --dry-run
           uv run python manage.py migrate --noinput
       - name: M6 adversarial answer and provider contract tests
-        run: uv run pytest -q backend/ai/tests/test_inference.py backend/ai/tests/test_context.py
+        run: uv run pytest -q backend/ai/tests/test_inference.py backend/ai/tests/test_context.py backend/ai/tests/test_provenance.py
