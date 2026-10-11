@@ -23,6 +23,14 @@ Source implementation `1ea658b15df95a917cebcb580c066bae5ea62da9`; focused test c
 
 Source commit `08142c2131292f692b746e1093452e6728b3c5f7`: the recipient inbox now filters retired notification rows, retired intents and obsolete case/task revisions before the 100-record result limit. The existing per-user, per-case and live time-window checks remain authoritative on each item and mark-read action. A new synthetic regression adds 105 later archived notices and verifies that the older valid actionable notice remains visible and readable. **Focused PostgreSQL qualification PASS:** [run 38128147331](https://github.com/Electro-Anurag/employee-onboarding-companion/actions/runs/38128147331), 10 passed (5 non-fatal warnings) on the exact implementation SHA. This does not prove unrestricted pagination or production-scale performance; full milestone/hosted qualification remains open.
 
+## M5 worker concurrency and late recovery verification
+
+Exact SHA `af0abf5392b8b602d987e4d31c7738f16cc0ca36`. Real separate PostgreSQL transactions from two concurrent application workers and a 72-hour simulated worker outage exercised in focused [CI run 38128475743](https://github.com/Electro-Anurag/employee-onboarding-companion/actions/runs/38128475743): **14 passed, 5 nonfatal warnings**. Proves bounded idempotent concurrent reconciliation and no missed-day notice replay; does not qualify actual killed-process restart, multiple persistent worker hosts or production SLA.
+
+## M6 offline model answer validation
+
+Exact SHA `6a32720b7fa75ab56a8626ee4df1bb0f8aabde4a`. Strengthened malformed/unhashable answer-type denial, nonblank answer enforcement and meaningful abstention limitation. Focused [CI run 38128660863](https://github.com/Electro-Anurag/employee-onboarding-companion/actions/runs/38128660863): **17 passed, 1 nonfatal warning**. All provider calls mocked or deliberately unavailable; no API charges, live semantic evaluation or production model admission implied. Real inference/provider, adversarial semantic relevance and hosted J04 remain open.
+
 ## Next implementation order
 
 1. M5 reminder and escalation recovery, worker outage/multi-worker evidence and handoff edge cases.
