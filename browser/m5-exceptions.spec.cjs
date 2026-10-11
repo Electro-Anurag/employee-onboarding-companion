@@ -110,6 +110,7 @@ test('M5 full Chromium exception opens, refuses bypass, typed manager evidence, 
     await expect(card(hr,'M5 Team Introduction')).toContainText('READY');
     // Read-only deterministic guidance has no model or hidden task completion.
     const guide=hr.getByRole('region',{name:'Case companion guidance'});
+    await hr.getByText('Guidance and policy assistant',{exact:true}).click();
     await guide.getByRole('button',{name:'Analyze current case'}).click();
     await expect(guide).toContainText('no AI model call');
     await expect(guide).toContainText('No current exception episodes');
@@ -146,7 +147,7 @@ test('M5 Chromium HR previews joining date, commits and preserves existing manag
       throw Error('M5_JOINING_DATE_COMMIT_FAILED: HTTP '+commitResponse.status()+
         ' '+(await commitResponse.text()));
     }
-    await expect(datePanel).toContainText('Current joining date: '+target);
+    await expect(datePanel).toContainText('Current: '+target);
     await expect(card(hr,'M5 Manager Preparation')).toContainText('COMPLETED');
     await expect(card(hr,'M5 Team Introduction')).toContainText('NOT_STARTED');
     const introAfter=await card(hr,'M5 Team Introduction').innerText();
@@ -156,7 +157,7 @@ test('M5 Chromium HR previews joining date, commits and preserves existing manag
     await expect(hr.getByText('Role: HR')).toBeVisible();
     await openCase(hr);
     await expect(hr.getByRole('region',{name:'Joining date reschedule'}))
-      .toContainText('Current joining date: '+target);
+      .toContainText('Current: '+target);
     await expect(card(hr,'M5 Manager Preparation')).toContainText('COMPLETED');
     await expect(card(hr,'M5 Team Introduction')).toContainText('NOT_STARTED');
   }finally{await context.close();}

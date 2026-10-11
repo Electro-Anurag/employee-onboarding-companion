@@ -26,6 +26,8 @@ async function open(page){
   await page.getByRole('button',{name:/^Cases \(/}).click();
   await page.locator('.case-list').first().getByRole('button').first().click();
   await expect(page.getByRole('region',{name:'Case tasks'})).toBeVisible();
+  const full=page.getByRole('button',{name:'View all steps (advanced)'});
+  if(await full.isVisible())await full.click();
 }
 function card(page,name){
   return page.getByRole('region',{name:'Case tasks'}).locator('article.task')
@@ -141,7 +143,15 @@ test('R2: browser invalid correction, reload resume, actual web hard exit after 
       await expect(doc).toContainText('AWAITING_HR_REVIEW');
       await doc.getByLabel('Clean-object HR decision').selectOption('ACCEPTED');
       await doc.getByLabel('HR review evidence').fill('Actual S3, scanner, and recovery checked by assigned synthetic HR');
-      await doc.getByRole('button',{name:'Record HR decision for exact clean version'}).click();
+      const [approval]=await Promise.all([
+        hr.waitForResponse(x=>x.url().endsWith('/review')&&
+          x.request().method()==='POST'),
+        doc.getByRole('button',{name:'Record HR decision for exact clean version'}).click(),
+      ]);
+      expect(approval.status(),await approval.text()).toBe(201);
+      // Verify server-authoritative completion and successful UI transition.
+      await expect.poll(async()=>(await taskData(hr)).tasks.find(t=>t.id===task.id).state)
+        .toBe('COMPLETED');
       await expect(doc).toContainText('COMPLETED');
       await hr.reload();await expect(hr.getByText('Role: HR')).toBeVisible();await open(hr);
       await expect(card(hr,'Blocked Equipment')).toContainText('READY');

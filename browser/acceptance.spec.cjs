@@ -27,7 +27,8 @@ async function login(page,role){
   await page.getByRole('button',{name:'Sign in'}).click();
   await expect(page.getByText('Role: '+role)).toBeVisible();
   await expect(page.getByRole('navigation',{name:'Workspace'})).toBeVisible();
-  await expect(page.getByRole('status')).not.toContainText('Unable to read workspace');
+  // The neutral empty status toast is intentionally omitted for clarity.
+  await expect(page.getByRole('status').filter({hasText:'Unable to read workspace'})).toHaveCount(0);
 }
 function caseButton(page){
   return page.locator('.case-list').first().getByRole('button').first();
