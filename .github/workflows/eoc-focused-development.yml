@@ -46,4 +46,4 @@ jobs:
           uv run python manage.py makemigrations --check --dry-run
           uv run python manage.py migrate --noinput
       - name: M5 current reminder visibility and escalation tests
-        run: uv run pytest -q backend/notifications/tests/test_current_window.py backend/notifications/tests/test_reminders.py backend/notifications/tests/test_escalation.py
+        run: uv run pytest -q backend/notifications/tests/test_current_window.py backend/notifications/tests/test_reminders.py backend/notifications/tests/test_escalation.py backend/notifications/tests/test_scheduler.py
