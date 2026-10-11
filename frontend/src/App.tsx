@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import './App.css';
 import EvidenceWorkflows from './EvidenceWorkflows';
+import CaseDashboard,{type CaseDashboardData} from './CaseDashboard';
 import {workflowPresentation} from './workflowPresentation';
 
 type Me = { display_name:string;email:string;role:'HR'|'IT'|'MANAGER'|'EMPLOYEE';user_id:string;capabilities?:{manage_templates:boolean;coordinate_ownership:boolean} };
@@ -62,6 +63,7 @@ export default function App(){
   const [selected,setSelected]=useState<Case|null>(null);
   const [detail,setDetail]=useState<TaskPayload|null>(null);
   const [closeoutReadiness,setCloseoutReadiness]=useState<CloseoutReadiness|null>(null);
+  const [caseDashboard,setCaseDashboard]=useState<CaseDashboardData|null>(null);
   const [focusedTaskId,setFocusedTaskId]=useState<string|null>(null);
   const [showFullPlan,setShowFullPlan]=useState(false);
   const [employeeId,setEmployeeId]=useState('');
@@ -108,6 +110,7 @@ export default function App(){
     setGuidance(null);setAiAnswer(null);setAiQuestion('');setExceptionNote('');setExceptionAssignees({});
     setRecoveryOwner({});setRecoveryReason('');
     setTemplate(null);setEditor('');setSelected(null);setDetail(null);setFocusedTaskId(null);setShowFullPlan(false);
+    setCloseoutReadiness(null);setCaseDashboard(null);
     setEmployeeId('');setItId('');setManagerId('');setTemplateId('');setJoiningDate('');
     setNewJoiningDate('');setDateChangeReason('');setDatePreview(null);
     setAttestTask(null);setPlan('');setBuddy('');setStation(false);setNote('');
@@ -259,7 +262,7 @@ export default function App(){
       const result=await request<TaskPayload>('/api/v1/cases/'+c.id+'/tasks');
       if(identityEpoch.current!==generation||aiRequestEpoch.current!==aiSwitch)return;
       setSelected(c);setDetail(result);setTab('cases');setAttestTask(null);
-      setFocusedTaskId(null);setShowFullPlan(false);setCloseoutReadiness(null);
+      setFocusedTaskId(null);setShowFullPlan(false);setCloseoutReadiness(null);setCaseDashboard(null);
       setExceptions([]);setExceptionsLoaded(false);setExceptionTask('');
       setGuidance(null);setAiAnswer(null);setAiQuestion('');setDatePreview(null);
       datePreviewGeneration.current+=1;
@@ -398,6 +401,24 @@ export default function App(){
         {'If-Match':'"case:'+selected.id+':v'+detail.case_version+'"'});
       await reloadCase(selected.id,me);
     });
+  }
+  async function loadCaseDashboard(){
+    if(!selected||!detail||!me||me.role!=='HR')return;
+    const generation=identityEpoch.current,selection=aiRequestEpoch.current;
+    const caseId=detail.case_id;
+    setCaseDashboard(null);
+    setBusy(true);
+    try{
+      const result=await request<CaseDashboardData>('/api/v1/cases/'+caseId+'/dashboard');
+      if(identityEpoch.current===generation&&aiRequestEpoch.current===selection)
+        setCaseDashboard(result);
+    }catch(error){
+      if(identityEpoch.current===generation&&aiRequestEpoch.current===selection)
+        setMessage('Dashboard unavailable: '+(error instanceof Error?error.message:String(error)));
+    }finally{
+      if(identityEpoch.current===generation&&aiRequestEpoch.current===selection)
+        setBusy(false);
+    }
   }
   async function previewCloseoutReadiness(){
     if(!selected||!detail||!me||me.role!=='HR')return;
@@ -626,6 +647,14 @@ export default function App(){
           {selected&&detail&&<section aria-label="Case tasks" className="subpanel">
             <div className="heading"><h3>{selected.employee_name} — {detail.case_status}</h3>
               <p>{detail.progress.mandatory_completed}/{detail.progress.mandatory_total} mandatory tasks completed ({detail.progress.percent}%)</p></div>
+            {me.role==='HR'&&<>
+              <button disabled={busy} onClick={()=>void loadCaseDashboard()}>
+                View case dashboard
+              </button>
+              {caseDashboard?.case_id===detail.case_id&&
+               caseDashboard.case_version===detail.case_version&&
+               <CaseDashboard snapshot={caseDashboard}/>}
+            </>}
             {detail.case_status==='CREATED'&&me.role==='HR'&&<button disabled={busy} onClick={()=>void activate()}>Activate case</button>}
             {detail.case_status==='PRE_JOINING'&&me.role==='HR'&&<button disabled={busy} onClick={()=>void beginDayOne()}>Begin Day 1 (joining date required)</button>}
             {detail.case_status==='ACTIVE'&&me.role==='HR'&&

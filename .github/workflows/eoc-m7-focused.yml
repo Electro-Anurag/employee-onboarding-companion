@@ -5,9 +5,13 @@ on:
     paths:
       - 'backend/onboarding/closeout.py'
       - 'backend/onboarding/api_m2.py'
+      - 'backend/onboarding/dashboard.py'
       - 'backend/onboarding/tests/test_closeout.py'
+      - 'backend/onboarding/tests/test_dashboard.py'
       - 'backend/config/urls.py'
       - 'frontend/src/App.tsx'
+      - 'frontend/src/CaseDashboard.tsx'
+      - 'frontend/src/CaseDashboard.test.tsx'
       - '.github/workflows/eoc-m7-focused.yml'
   workflow_dispatch:
 permissions:
@@ -53,7 +57,7 @@ jobs:
         with:
           node-version: '22'
       - name: M7 closeout and readiness API PostgreSQL tests
-        run: uv run pytest -q backend/onboarding/tests/test_closeout.py
+        run: uv run pytest -q backend/onboarding/tests/test_closeout.py backend/onboarding/tests/test_dashboard.py
       - name: React regression and build
         working-directory: frontend
         run: |
