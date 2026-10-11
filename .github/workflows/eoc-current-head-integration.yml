@@ -1,0 +1,116 @@
+name: EOC completion-branch integrated PostgreSQL React Chromium
+on:
+  push:
+    branches: ['feature/eoc-completion-development']
+    paths:
+      - '.github/workflows/eoc-current-head-integration.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  # Preserve any running qualification; replace older pending same-workflow
+  # requests instead of allowing an unlimited backlog on one ARM64 runner.
+  group: eoc-current-head-integrated
+  cancel-in-progress: false
+jobs:
+  integration:
+    runs-on: [self-hosted, linux, ARM64, eoc-mac-ci]
+    timeout-minutes: 50
+    services:
+      postgres:
+        image: postgres:17@sha256:2d2b8998d31037bf721cfdf764d76ba74171b4fab3431b7f72c27c56ddbdf9e3
+        env:
+          POSTGRES_USER: onboarding
+          POSTGRES_PASSWORD: ci-temporary-only
+          POSTGRES_DB: onboarding_m0
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 3s --health-timeout 3s --health-retries 15
+    env:
+      DJANGO_SECRET_KEY: ci-only-not-a-production-credential
+      DJANGO_DEBUG: '0'
+      DJANGO_ALLOWED_HOSTS: localhost,127.0.0.1,testserver
+      POSTGRES_HOST: localhost
+      POSTGRES_PORT: '5432'
+      POSTGRES_DB: onboarding_m0
+      POSTGRES_USER: onboarding
+      POSTGRES_PASSWORD: ci-temporary-only
+    steps:
+      - name: Check out immutable commit and identify qualification scope
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e
+        with:
+          python-version: '3.13'
+          version: '0.12.23'
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+      - name: Verify locked dependencies, compile, migrations, and DB readiness
+        run: |
+          set -euo pipefail
+          echo "EOC_INTEGRATION_SOURCE_SHA=$GITHUB_SHA"
+          uv lock --check
+          uv sync --locked
+          uv run python -m compileall -q backend manage.py
+          uv run python manage.py check
+          uv run python manage.py makemigrations --check --dry-run
+          uv run python manage.py migrate --noinput
+          uv run python manage.py procrastinate healthchecks
+      - name: Complete current-source PostgreSQL backend regression
+        run: uv run pytest -q
+      - name: React unit regressions and production bundle
+        working-directory: frontend
+        run: |
+          set -euo pipefail
+          npm ci
+          npm run test
+          npm run build
+      - name: Verify frozen dependency manifests
+        run: git diff --exit-code -- uv.lock frontend/package-lock.json
+      - name: Real Chromium four-role case, dependency, policy and document journey
+        env:
+          DJANGO_DEBUG: '1'
+        run: |
+          set -euo pipefail
+          umask 077
+          export M2_BROWSER_CREDENTIAL_FILE="$RUNNER_TEMP/eoc-integration-roles.txt"
+          uv run python manage.py seed_m2_demo --confirm-synthetic --include-second-hr > "$M2_BROWSER_CREDENTIAL_FILE"
+          mkdir -p "$RUNNER_TEMP/eoc-integration-chromium"
+          cp browser/playwright.config.cjs browser/acceptance.spec.cjs "$RUNNER_TEMP/eoc-integration-chromium/"
+          npm --prefix "$RUNNER_TEMP/eoc-integration-chromium" install --no-save --package-lock=false --ignore-scripts @playwright/test@1.64.0
+          "$RUNNER_TEMP/eoc-integration-chromium/node_modules/.bin/playwright" install chromium
+          uv run python manage.py runserver --nostatic --noreload 127.0.0.1:8000 > "$RUNNER_TEMP/eoc-integration-server.log" 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true; rm -f "$M2_BROWSER_CREDENTIAL_FILE"' EXIT
+          ready=0
+          for attempt in $(seq 1 50); do
+            if curl --fail --silent --output /dev/null http://127.0.0.1:8000/health/ready; then ready=1; break; fi
+            sleep 1
+          done
+          if [ "$ready" != 1 ]; then
+            echo 'STOP: Django did not become ready for real Chromium.'
+            tail -65 "$RUNNER_TEMP/eoc-integration-server.log"
+            exit 1
+          fi
+          uv run python - <<'PY'
+          import re
+          from urllib.request import urlopen
+          origin='http://127.0.0.1:8000'
+          html=urlopen(origin+'/').read().decode('utf-8')
+          assets=re.findall(r'(?:src|href)="(/static/[^"]+)"',html)
+          assert assets,'Compiled UI contains no static assets'
+          for asset in assets:
+              with urlopen(origin+asset) as response:
+                  assert response.status==200 and response.read(),f'Missing compiled asset: {asset}'
+          print('INTEGRATION_COMPILED_FRONTEND_ASSETS_PASS',len(assets))
+          PY
+          cd "$RUNNER_TEMP/eoc-integration-chromium"
+          ./node_modules/.bin/playwright test -c playwright.config.cjs acceptance.spec.cjs
+      - name: End of scope
+        if: success()
+        run: |
+          echo "CURRENT_HEAD_POSTGRESQL_REACT_CHROMIUM_CANDIDATE_PASS@$GITHUB_SHA"
+          echo 'This is NOT real S3/ClamAV interruption, worker kill/restart,'
+          echo 'independent security or semantic review, actual model provider,'
+          echo 'a current hosted deployment or hosted J01-J05 qualification.'
