@@ -20,6 +20,7 @@ if (os.environ.get("EOC_M5_ISOLATED_RECOVERY_TEST") != "1"
         or os.environ.get("DJANGO_DEBUG") != "0"):
     raise SystemExit("STOP: M5 crash test requires isolated localhost CI PostgreSQL")
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "backend.config.settings")
 import django
 django.setup()
