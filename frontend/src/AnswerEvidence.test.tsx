@@ -41,8 +41,8 @@ describe('M6 answer provenance presentation',()=>{
 describe('M6 verbatim policy presentation',()=>{
   it('clearly distinguishes verified quotation from a verified interpretation, preserving line breaks and HTML escaping',()=>{
     const verbatim:ModelAnswer={
-      answer_type:'PARTIAL', answer:'Verbatim assigned policy edition test-v1:\\n' +
-        'Do not share secrets.\\n<script>alert(1)</script>',
+      answer_type:'PARTIAL', answer:'Verbatim assigned policy edition test-v1:\n' +
+        'Do not share secrets.\n<script>alert(1)</script>',
       case_version:4,citations:['POLICY:t-one:abcd1234abcd'],
       recommended_actions:[],blockers:[],
       limitations:['This answer covers only the cited fact, not the entire question.'],

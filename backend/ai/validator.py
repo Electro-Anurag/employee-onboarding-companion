@@ -29,7 +29,7 @@ def canonical_policy_quote(policy):
     if (not isinstance(version, str) or not isinstance(body, str)
             or not version or not body or len(body) > MAX_POLICY_QUOTE_CHARS):
         return None
-    return POLICY_QUOTE_PREFIX + version + ':\\n' + body
+    return POLICY_QUOTE_PREFIX + version + ':\n' + body
 
 
 class UnsafeAIAnswer(ValueError):
