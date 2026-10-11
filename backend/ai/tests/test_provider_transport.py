@@ -66,7 +66,7 @@ def test_completed_envelope_uses_one_output_and_counts_usage(monkeypatch):
     envelope(status="incomplete"),
     envelope(output=[]),
     envelope(output=[{"type":"message","content":[{"type":"refusal","refusal":"No"}]}]),
-    envelope(output=[{"type":"message","content":[{"type":"output_text","text":"{}"}]},
+    envelope(output=[{"type":"message","content":[{"type":"output_text","text":"{}"}]}],
                      usage={"input_tokens":"wrong", "output_tokens":9}),
     envelope(output=[{"type":"message","content":[{"type":"output_text","text":"{"}]}]),
     envelope(output=[{"type":"message","content":[
