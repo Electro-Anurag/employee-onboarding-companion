@@ -19,6 +19,10 @@ Workflow: finish M5, M6, M7 product functionality with focused tests; execute ex
 
 Source implementation `1ea658b15df95a917cebcb580c066bae5ea62da9`; focused test correction `8e5368753c85dc9c330778a49881b5697fe681a5`: recipient inbox rejects stale DUE_SOON / OVERDUE_DAILY identities during worker outages without changing durable history. **Focused PostgreSQL qualification PASS:** [run 38127290650](https://github.com/Electro-Anurag/employee-onboarding-companion/actions/runs/38127290650), 9 passed (4 non-fatal warnings) on exact SHA `8e5368753c85dc9c330778a49881b5697fe681a5`. Full milestone/hosted gates remain open.
 
+## M5 second development slice
+
+Source commit `08142c2131292f692b746e1093452e6728b3c5f7`: the recipient inbox now filters retired notification rows, retired intents and obsolete case/task revisions before the 100-record result limit. The existing per-user, per-case and live time-window checks remain authoritative on each item and mark-read action. A new synthetic regression adds 105 later archived notices and verifies that the older valid actionable notice remains visible and readable. **Focused PostgreSQL qualification PASS:** [run 38128147331](https://github.com/Electro-Anurag/employee-onboarding-companion/actions/runs/38128147331), 10 passed (5 non-fatal warnings) on the exact implementation SHA. This does not prove unrestricted pagination or production-scale performance; full milestone/hosted qualification remains open.
+
 ## Next implementation order
 
 1. M5 reminder and escalation recovery, worker outage/multi-worker evidence and handoff edge cases.
