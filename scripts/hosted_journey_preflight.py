@@ -33,6 +33,11 @@ def prompt_session(role):
            f"{role}: CSRF preflight unavailable")
     assert_private(cache, "csrf")
     password = getpass.getpass(f"{role} password (hidden): ")
+    confirmation = getpass.getpass(f"{role} confirm same password (hidden): ")
+    # Reject local typing/copy errors without consuming a login attempt.
+    ensure(password == confirmation,
+           f"{role}: local password confirmation mismatch; no login request sent")
+    del confirmation
     ensure(0 < len(password) <= 256, f"{role}: invalid password length")
     code, _, _ = request(
         opener, "/api/v1/auth/login", method="POST",
