@@ -17,7 +17,7 @@ Workflow: finish M5, M6, M7 product functionality with focused tests; execute ex
 
 ## M5 first development slice
 
-Source commit `1ea658b15df95a917cebcb580c066bae5ea62da9`: current recipient inbox now checks current DUE_SOON / OVERDUE_DAILY rule and local-time bucket, even if the worker has not reconciled. It retains immutable historical intents and rejects stale actionable display. Focused tests: `backend/notifications/tests/test_current_window.py`. **Tests not yet run; implementation candidate only.**
+Source implementation `1ea658b15df95a917cebcb580c066bae5ea62da9`; focused test correction `8e5368753c85dc9c330778a49881b5697fe681a5`: recipient inbox rejects stale DUE_SOON / OVERDUE_DAILY identities during worker outages without changing durable history. **Focused PostgreSQL qualification PASS:** [run 38127290650](https://github.com/Electro-Anurag/employee-onboarding-companion/actions/runs/38127290650), 9 passed (4 non-fatal warnings) on exact SHA `8e5368753c85dc9c330778a49881b5697fe681a5`. Full milestone/hosted gates remain open.
 
 ## Next implementation order
 
