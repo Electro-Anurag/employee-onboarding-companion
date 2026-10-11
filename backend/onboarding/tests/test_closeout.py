@@ -5,7 +5,7 @@ import pytest
 from django.utils import timezone
 from backend.audit.models import AuditEvent
 from backend.onboarding.commands import create_case, activate_case, start_task, attest_manager
-from backend.onboarding.closeout import closeout_case
+from backend.onboarding.closeout import closeout_case,preview_closeout
 from backend.onboarding.models import OnboardingCase, Task
 from backend.onboarding.services import CommandFailure
 from backend.onboarding.tests.test_m2_workflow import world
@@ -47,6 +47,14 @@ def test_closeout_refuses_missing_evidence_then_completes_exactly_once(world):
     assert case.status == 'ACTIVE'
     t = Task.objects.get(case=case, key='manager_preparation')
     assert t.execution_state == 'READY'
+    before=preview_closeout(users['HR'][0],case.pk)
+    assert before['ready'] is False
+    assert before['reason_codes']==['CLOSEOUT_MANDATORY_INCOMPLETE']
+    assert before['mandatory_total']==1 and before['mandatory_completed']==0
+    assert before['missing_tasks'][0]['task_id']==str(t.pk)
+    assert before['unclosed_exceptions']==[]
+    with pytest.raises(CommandFailure):
+        preview_closeout(users['EMPLOYEE'][0],case.pk)
     with pytest.raises(CommandFailure) as blocked:
         closeout_case(actor=users['HR'][0], case_id=case.pk,
                       key=uuid.uuid4(), expected_version=2)
@@ -66,6 +74,9 @@ def test_closeout_refuses_missing_evidence_then_completes_exactly_once(world):
         note='Manager preparations are complete',
         key=uuid.uuid4(), expected_version=3,
     )
+    ready=preview_closeout(users['HR'][0],case.pk)
+    assert ready['ready'] is True and ready['reason_codes']==[]
+    assert ready['mandatory_completed']==1 and ready['missing_tasks']==[]
     key = uuid.uuid4()
     closed, code = closeout_case(
         actor=users['HR'][0], case_id=case.pk, key=key, expected_version=4
@@ -75,6 +86,8 @@ def test_closeout_refuses_missing_evidence_then_completes_exactly_once(world):
     assert len(closed['result']['evidence_manifest_sha256']) == 64
     case.refresh_from_db()
     assert case.status == 'COMPLETED' and case.completed_at is not None
+    assert preview_closeout(users['HR'][0],case.pk)['reason_codes'][0] == (
+        'CLOSEOUT_REQUIRES_ACTIVE_CASE')
     assert case.closeout_snapshot['mandatory_completed'] == 1
     replay, replay_code = closeout_case(
         actor=users['HR'][0], case_id=case.pk, key=key, expected_version=4

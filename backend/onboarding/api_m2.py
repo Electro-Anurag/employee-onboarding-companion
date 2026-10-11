@@ -69,6 +69,20 @@ def activate(request,case_id):
         return commands.activate_case(actor=request.user,case_id=case_id,key=key,expected_version=version)
     return command(execute)
 
+@require_GET
+def closeout_readiness(request,case_id):
+    """Human-readable, HR-only readiness; closeout still checks transactionally."""
+    from backend.onboarding.closeout import preview_closeout
+    try:
+        response=JsonResponse(preview_closeout(request.user,case_id))
+        response['Cache-Control']='private, no-store'
+        return response
+    except (CommandFailure,PermissionDenied):
+        return error('NOT_FOUND',404)
+    except DatabaseError as exc:
+        return transient_db_response(exc,preflight=True)
+
+
 @csrf_protect
 @require_POST
 def closeout(request,case_id):
