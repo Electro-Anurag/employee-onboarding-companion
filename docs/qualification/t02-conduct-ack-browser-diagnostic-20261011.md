@@ -2,7 +2,7 @@
 
 Current source baseline: 0d1de5212f342330568ebc26ba67d0070320a2ae.
 Source: browser/m3-policy-card-focused.spec.cjs.
-Manual-only workflow: .github/workflows/eoc-t02-policy-focused.yml.
+Targeted push-path/manual workflow: .github/workflows/eoc-t02-policy-focused.yml.
 
 Why this exists: a real four-role Chromium run (38126300241 at 60e6dbb9…)
 failed after authorized GET /assigned-policy returned HTTP 200 with the expected
@@ -20,8 +20,9 @@ toggle, sanitized headings, UI alerts and browser console errors. The original
 visibility assertion remains strict. The test uses the same disposable synthetic
 database, pinned browser dependency and self-hosted Linux ARM64 runner.
 
-Workflow is manual-only, deliberately NOT automatically queued while the
-existing self-hosted CI queue is unresolved. This does not replace the full
+Workflow triggers for this diagnostic's source/workflow files only (not on
+unrelated feature commits), and uses no GitHub-hosted runner. It may remain queued
+until the owner's self-hosted runner is available. This does not replace the full
 M3–M4 four-role Chromium suite or hosted J01–J05. No new Run ID, PASS or
 root-cause claim exists until actual successful execution and investigation
 of any observed failure.

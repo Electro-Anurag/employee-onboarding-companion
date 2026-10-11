@@ -77,11 +77,12 @@ test('T02 focused: assigned policy read preserves Conduct Ack card and genuine a
       expect(created.status()).toBe(201);
       caseId=(await created.json()).case_id;
       expect(caseId).toMatch(/^[0-9a-f-]{36}$/);
-      await selectCaseWithAllTasks(hr).catch(async error=>{
-        // Created cases have no instantiated tasks until activation.
-        if(!String(error).includes('toHaveCount'))throw error;
-      });
+      const createdCase=hr.locator('.case-list').first().getByRole('button').first();
+      await expect(createdCase).toContainText('CREATED');
+      await createdCase.click();
       const region=hr.getByRole('region',{name:'Case tasks'});
+      await expect(region).toBeVisible();
+      await expect(region.locator('article.task')).toHaveCount(0);
       await expect(region.getByRole('button',{name:'Activate case'})).toBeVisible();
       await region.getByRole('button',{name:'Activate case'}).click();
       await expect(hr.getByRole('region',{name:'Case tasks'})).toContainText('0/17 mandatory tasks completed');

@@ -1,5 +1,10 @@
 name: EOC T02 focused policy-card browser diagnostic
 on:
+  push:
+    branches: ['feature/eoc-completion-development']
+    paths:
+      - 'browser/m3-policy-card-focused.spec.cjs'
+      - '.github/workflows/eoc-t02-policy-focused.yml'
   workflow_dispatch:
 permissions:
   contents: read
