@@ -6,6 +6,11 @@ on:
       - '.github/workflows/eoc-current-head-integration.yml'
       - 'backend/ai/tests/test_offline_policy.py'
       - 'browser/acceptance.spec.cjs'
+      - 'render.yaml'
+      - 'render.evaluation.yaml'
+      - 'backend/start_web.sh'
+      - 'backend/accounts/management/commands/seed_hosted_synthetic.py'
+      - 'backend/accounts/tests/test_hosted_startup.py'
   workflow_dispatch:
 permissions:
   contents: read
@@ -70,6 +75,11 @@ jobs:
           npm run build
       - name: Verify frozen dependency manifests
         run: git diff --exit-code -- uv.lock frontend/package-lock.json
+      - name: Build exact production Docker candidate (no deploy)
+        run: |
+          set -euo pipefail
+          docker build --file Dockerfile --tag "eoc-ci:$GITHUB_SHA" .
+          echo "EOC_PRODUCTION_DOCKER_BUILD_PASS@$GITHUB_SHA"
       - name: Real Chromium four-role case, dependency, policy and document journey
         env:
           DJANGO_DEBUG: '1'

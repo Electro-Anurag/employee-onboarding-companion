@@ -115,3 +115,51 @@ Use [the evidence and video guide](evaluation-demo-evidence.md) to capture
 real role journeys, measured business outcomes, honest AI contribution and
 actual code/host SHA. Do not publish an unqualified release as a production
 system. The latest test ledger is [T01–T25](../tracking/release-test-gates-20261011.md).
+
+## Free-web one-time synthetic demo bootstrap (no worker shell)
+
+The zero-paid-compute Render web plan provides no interactive service shell.
+The startup script `backend/start_web.sh` now offers an **explicitly gated,
+one-time** call to the already tested `seed_hosted_synthetic` command after
+forward migrations and before Gunicorn. Without the flag, startup does not
+create or mutate any demo identities. This is not an HTTP endpoint.
+
+1. Set the service **branch** through the Render Dashboard to
+   `feature/eoc-completion-development` under the service's Settings >
+   Build & Deploy. Keep auto-deploy **OFF**. Its local Blueprint definition
+   now matches the intended branch. No available connected Render action
+   edits an existing service's branch; do not trigger an old-branch deploy.
+2. Confirm the dashboard still shows plan `free`, private PostgreSQL
+   database `eoc-companion-postgres`, generated secret, `DJANGO_DEBUG=0`,
+   `EOC_AI_PROVIDER=DISABLED`, and both M3 real/quarantine intake flags
+   disabled. Do **not** add external database IP allowlist entries.
+3. In the **private Render web service environment**, configure **four
+   distinct, strong** secrets named `EOC_DEMO_HR_PASSWORD`,
+   `EOC_DEMO_EMPLOYEE_PASSWORD`, `EOC_DEMO_IT_PASSWORD` and
+   `EOC_DEMO_MANAGER_PASSWORD`. Create and retain them privately; **never
+   share their values in chat, source or a demo recording**. Set
+   `EOC_HOSTED_DEMO_BOOTSTRAP=1` only for the **first** deploy where the
+   synthetic organization is absent.
+4. Trigger a deployment of the **exact CI-qualified completion-branch SHA**.
+   The startup migrates, verifies all secrets via Django's password policy,
+   and creates an isolated synthetic-only org plus the four users in a single
+   transaction. If any account already exists or bootstrap fails, startup
+   **fails closed** rather than resetting accounts. This path must never be
+   enabled for real employee data.
+5. Once the deployment is LIVE and synthetic sign-in works, promptly set
+   `EOC_HOSTED_DEMO_BOOTSTRAP=0` and remove the four bootstrap password
+   environment values from the **service** after recording them securely.
+   Any automatic restart after this change must run with the flag disabled;
+   otherwise the command correctly refuses to seed the same org twice.
+   Persisted password hashes remain in private PostgreSQL.
+6. The synthetic emails are fixed by source and can be shown without secrets:
+   `hr@hosted-onboarding-demo.invalid`,
+   `employee@hosted-onboarding-demo.invalid`,
+   `it@hosted-onboarding-demo.invalid`,
+   `manager@hosted-onboarding-demo.invalid`.
+   Use the real UI to create and activate the versioned 17-step case.
+
+**Explicit limitations:** The free web can sleep. There is no paid persistent
+Procrastinate worker, live provider AI, secure live S3/ClamAV intake or
+operational backup. The synthetic demo is not automatically J01–J05 GO.
+Full production qualification must separately address these gates.

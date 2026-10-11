@@ -1,8 +1,9 @@
 """One-time production-mode bootstrap for explicitly synthetic hosted demo accounts.
 
-This command is not included in a deploy/startup process. The operator must
-run it manually in an authenticated service shell with separately configured
-strong secrets. Never enable DEBUG or echo passwords for a hosted demo.
+This command runs only with an explicit one-time flag and four owner-supplied
+private passwords. It may be invoked through an authenticated shell or by the
+free-tier startup gate in backend/start_web.sh, which otherwise does nothing.
+Never enable DEBUG, echo passwords, or expose a public bootstrap HTTP route.
 """
 import os
 from django.conf import settings

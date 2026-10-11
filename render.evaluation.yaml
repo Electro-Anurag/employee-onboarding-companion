@@ -16,7 +16,7 @@ services:
     runtime: docker
     plan: free
     region: singapore
-    branch: feature/m5-m6-parallel-development
+    branch: feature/eoc-completion-development
     autoDeployTrigger: off
     dockerfilePath: ./Dockerfile
     dockerContext: .
