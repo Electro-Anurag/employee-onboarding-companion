@@ -4,6 +4,9 @@ on:
     branches: ['feature/eoc-completion-development']
     paths:
       - 'backend/notifications/**'
+      - 'backend/jobs/**'
+      - 'backend/start_control_worker.sh'
+      - 'render.full.yaml'
       - '.github/workflows/eoc-focused-development.yml'
   workflow_dispatch:
 permissions:
@@ -11,7 +14,7 @@ permissions:
 jobs:
   focused-m5-postgresql:
     runs-on: [self-hosted, linux, ARM64, eoc-mac-ci]
-    timeout-minutes: 12
+    timeout-minutes: 18
     services:
       postgres:
         image: postgres:17@sha256:2d2b8998d31037bf721cfdf764d76ba74171b4fab3431b7f72c27c56ddbdf9e3
@@ -45,5 +48,9 @@ jobs:
           uv run python manage.py check
           uv run python manage.py makemigrations --check --dry-run
           uv run python manage.py migrate --noinput
-      - name: M5 current reminder visibility and escalation tests
-        run: uv run pytest -q backend/notifications/tests/test_current_window.py backend/notifications/tests/test_reminders.py backend/notifications/tests/test_escalation.py backend/notifications/tests/test_scheduler.py
+      - name: Worker shell preflight and M5 PostgreSQL source regression
+        run: |
+          set -euo pipefail
+          sh -n backend/start_control_worker.sh
+          uv run python -m compileall -q backend/jobs backend/notifications
+          uv run pytest -q backend/jobs/tests/test_m5_recovery.py backend/notifications/tests/test_current_window.py backend/notifications/tests/test_reminders.py backend/notifications/tests/test_escalation.py backend/notifications/tests/test_scheduler.py

@@ -15,7 +15,7 @@ services:
     runtime: docker
     plan: free
     region: singapore
-    branch: feature/m5-m6-parallel-development
+    branch: feature/eoc-completion-development
     autoDeployTrigger: off
     dockerfilePath: ./Dockerfile
     dockerContext: .
@@ -43,11 +43,11 @@ services:
     runtime: docker
     plan: starter
     region: singapore
-    branch: feature/m5-m6-parallel-development
+    branch: feature/eoc-completion-development
     autoDeployTrigger: off
     dockerfilePath: ./Dockerfile
     dockerContext: .
-    dockerCommand: python manage.py procrastinate worker --queues control
+    dockerCommand: /bin/sh /app/backend/start_control_worker.sh
     envVars:
       - key: DATABASE_URL
         fromDatabase:
@@ -65,4 +65,10 @@ services:
       - key: M3_QUARANTINE_INTAKE_ENABLED
         value: "0"
       - key: EOC_HOSTED_DEMO_BOOTSTRAP
+        value: "0"
+      - key: EOC_RUN_CONTROL_WORKER
+        value: "1"
+      - key: EOC_HOSTED_DEMO_CREDENTIAL_ROTATE
+        value: "0"
+      - key: EOC_HOSTED_DEMO_CREDENTIAL_DIAGNOSE
         value: "0"
