@@ -1,6 +1,7 @@
 """Recipient-only inbox. Reading never grants case access or mutates status."""
 import uuid
 from django.db import transaction
+from django.db.models import F
 from django.http import JsonResponse
 from django.utils import timezone
 from django.views.decorators.http import require_GET,require_POST
@@ -62,8 +63,16 @@ def inbox(request):
         actor_context(request.user)
         now=timezone.now()
         results=[]
-        qs=Notification.objects.filter(recipient=request.user).select_related(
-            'intent','task','case','case__organization','case__employee__user')
+        # Exclude retired or revision-stale history before the 100-item
+        # result limit; otherwise it can crowd out an older live action.
+        # _visible remains authoritative for role/assignment and time windows.
+        qs=Notification.objects.filter(
+            recipient=request.user,status='ACTIVE',intent__status='DELIVERED',
+            case__status__in=('PRE_JOINING','ACTIVE'),
+            intent__schedule_revision=F('case__schedule_revision'),
+            intent__action_revision=F('task__version'),
+            intent__due_at=F('task__due_at'),
+        ).select_related('intent','task','case','case__organization','case__employee__user')
         for row in qs.order_by('-created_at')[:100]:
             if not _visible(request.user,row,now):
                 continue
