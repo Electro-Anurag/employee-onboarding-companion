@@ -31,6 +31,10 @@ Exact SHA `af0abf5392b8b602d987e4d31c7738f16cc0ca36`. Real separate PostgreSQL t
 
 Exact SHA `6a32720b7fa75ab56a8626ee4df1bb0f8aabde4a`. Strengthened malformed/unhashable answer-type denial, nonblank answer enforcement and meaningful abstention limitation. Focused [CI run 38128660863](https://github.com/Electro-Anurag/employee-onboarding-companion/actions/runs/38128660863): **17 passed, 1 nonfatal warning**. All provider calls mocked or deliberately unavailable; no API charges, live semantic evaluation or production model admission implied. Real inference/provider, adversarial semantic relevance and hosted J04 remain open.
 
+## M7 HR closeout readiness (focused qualification)
+
+Backend source `4cf8fa1c4b193d146d1f0717a014b1cd6c11ac9c`, frontend and API test source `eeb2884964c028bf4d40639c81833c0bbd0122ba`: HR can request read-only, case-version-scoped closeout blockers (missing mandatory typed evidence and still-open exception episodes). Authorization is checked server-side; preview does not mutate data or authorize closeout. The final command re-evaluates gates under case/task PostgreSQL locks. React only enables confirmation after an exact current-version readiness response. **Focused CI PASS** [run 38129044659](https://github.com/Electro-Anurag/employee-onboarding-companion/actions/runs/38129044659) on `eeb2884964c028bf4d40639c81833c0bbd0122ba`: 1 PostgreSQL closeout test passed, 14 React tests passed and Vite build succeeded (1 nonfatal Python warning). No hosted J01 completion, Chromium UI journey, full closeout dashboard, accessibility qualification, or release approval is implied.
+
 ## Next implementation order
 
 1. M5 reminder and escalation recovery, worker outage/multi-worker evidence and handoff edge cases.
