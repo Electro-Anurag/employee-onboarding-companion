@@ -23,3 +23,15 @@ Does the current server-side output validator reject *false prose* when a return
 ## Limitations
 
 All gold labels are developer-authored, not independently adjudicated. This is a tiny deterministic synthetic probe of the current output checker, **not** a model benchmark, prompt-injection guarantee, accuracy claim, natural-language entailment engine or a pass for hosted J04. Real-model evaluation, unbiased labeled datasets, private-data review, cost/latency controls and owner authorization remain open.
+
+## Measured CI result — 11 October 2026
+
+The [focused run 38131859968](https://github.com/Electro-Anurag/employee-onboarding-companion/actions/runs/38131859968) ran the actual source SHA `00a9219c82529cb71ae627982877f50f3b4b762a`. CI succeeded because the evaluation accurately reported the present limitations, not because those limitations were remediated.
+
+| Gold label (developer, synthetic) | Admitted by current validator | Rejected |
+|---|---:|---:|
+| Supported | 4 | 0 |
+| Unsupported | 4 | 3 |
+| Safe abstention | 1 | 0 |
+
+The four unsupported admissions were `false_owner`, `false_state`, `false_due`, `invented_bonus`. Exact measured unsupported false-accept proportion in this sample: **4/7 (57.1%)**. Result: **SEMANTIC ADMISSION STOP**. Do not conflate this figure with external-model factuality or infer generalization. Full source/fixture is `backend/ai/tests/test_semantic_evaluation.py`.

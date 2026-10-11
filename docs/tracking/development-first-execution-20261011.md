@@ -55,6 +55,12 @@ React source `2a71b39bb560ee60dc961dfde23dbb72cc958e9f`: the model answer now pr
 
 These results are deterministic contract and presentation verification only. A correctly referenced task can still be attached to unsupported arbitrary prose. No real external AI provider called; semantic entailment, adversarial natural-language grounding, prompt injection resilience, human acceptance, browser/hosted J04, cost/latency and accessibility remain open. No deployment or billing implied.
 
+## M6 developer-labeled semantic baseline — measured STOP
+
+Exact code/test SHA `00a9219c82529cb71ae627982877f50f3b4b762a`; focused [CI run 38131859968](https://github.com/Electro-Anurag/employee-onboarding-companion/actions/runs/38131859968) PASS for execution (24 existing Python/PostgreSQL tests, 2 semantic-evaluation tests, 20 React tests, successful build). The report printed by the actual test states `admission=STOP`, with **12 cases: 4/4 supported admitted, 4/7 unsupported wrongly admitted (57.1% on this synthetic sample), 3/7 unsupported rejected, 1/1 safe abstention admitted**. Unsupported fabricated statements concerned task owner, task state, due date and an invented cash bonus, all attached to valid task citations. The test PASS demonstrates the measurement works, **not** semantic admission. This is a developer-labeled, non-independent, tiny synthetic sample; the 57.1% is not a model hallucination rate or an estimate on users' questions.
+
+**Release-blocking finding:** valid citation IDs are insufficient evidence that arbitrary model prose is true. Do not mark M6 factual grounding, external-provider admission, J04 or full delivery PASS. Continue safe deterministic guidance; before real-provider admission implement and independently qualify a conservative claim-to-evidence mechanism with audited fail-closed behavior and separately evaluated real-provider outputs.
+
 ## Next implementation order
 
 1. M5 reminder and escalation recovery, worker outage/multi-worker evidence and handoff edge cases.
