@@ -1,9 +1,9 @@
 # Employee Onboarding Companion
 
-**Status (10 October 2026): submission-oriented development candidate. Not yet hosted, not production-qualified, and not approved as a complete submission.**
+**Status (11 October 2026): development candidate. An older Render build is live, but the current completion branch is not deployed or production-qualified. The product is not an approved complete submission.**
 
 Repository: private personal GitHub repo `Electro-Anurag/employee-onboarding-companion`.
-Development branch: `feature/m5-m6-parallel-development`.
+Development branch: `feature/eoc-completion-development`.
 The owner's PRD v1.1 (28 requirements), Business Journey v1.0 (four roles,
 ten exception journeys, mandatory hosted J01–J05), revised 8 October brief
 and architecture handoff remain authoritative. All demonstration information
@@ -26,11 +26,13 @@ documents to the demo.
   48-hour escalation. The latest escalation fixture corrections require
   exact-HEAD PostgreSQL and browser requalification.
 - **M6 candidate:** deterministic current-state guidance is not model AI.
-  An additional explicit, read-only, opt-in model-question path now uses
+  An additional explicit, read-only, opt-in model-question path uses
   case-authorized sources, exact citation validation, provider output bounds,
-  per-user attempt quotas and sanitized audit. **No real provider request
-  has been qualified**; without owner-configured API authorization it gives
-  an explicitly labelled deterministic fallback.
+  per-user attempt quotas and sanitized audit. An exact whole-edition policy
+  retrieval path is now implemented for tightly bounded questions even with
+  model inference disabled, clearly labelled **not AI**. **No real provider
+  request has been qualified**; any non-policy question without approved
+  API configuration receives clearly labelled deterministic guidance.
 - **M7 closeout candidate:** HR closeout command checks all applicable
   mandatory task completions with typed evidence and refuses unclosed
   exceptions. It uses the governed transaction/audit/idempotency mechanism.
@@ -53,10 +55,13 @@ acceptable production reliability guarantee.
 - [Prior independent M1 review](docs/qualification/m1-third-review-remediation-20261008.md)
 - [Earlier M2 focused re-review packet](docs/qualification/m2-astra-remediation-20261009.md)
 
-**Unverified final deliverables:** reachable HTTPS URL; exact deployed SHA;
-live four-role sign-in; real model inference; successful hosted J01–J05;
-video of real hosted interactions; reviewable submission package and
-deployment qualification. Independent SOURCE GO is not production GO.
+**Unverified current-SHA final deliverables:** fresh deployment of the
+completion branch; live four-role sign-in on that SHA; real model inference;
+successful hosted J01–J05; video of actual hosted interactions; release
+and security qualification. An older Render web build is live at
+`https://eoc-companion-web.onrender.com` on SHA `b4312679cddf7598d542f396a45318cde9a3e590c`;
+its availability does **not** qualify current code or the hosted journeys.
+See [submission evidence and recording plan](docs/submission/evaluation-demo-evidence.md). Independent SOURCE GO is not production GO.
 
 ### Local-only synthetic development
 
@@ -99,3 +104,11 @@ only case-authorized synthetic context and have no permission to execute
 approvals, issue IT access, upload files or change case state. Case
 authorization, evidence requirements, audit and idempotency remain
 server-side. No external identity or HR integration is implied.
+
+## Submission quick reference
+
+The [real walkthrough and evidence matrix](docs/submission/evaluation-demo-evidence.md)
+separates source claims from hosted demonstrations and gives the owner a
+six-minute YouTube recording plan. The [T01–T25 exact-SHA tracker](docs/tracking/release-test-gates-20261011.md)
+remains authoritative for production/release qualification. Never label the
+old LIVE Render SHA as the current completion branch.

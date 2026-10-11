@@ -1,8 +1,8 @@
 # Employee Onboarding Companion — implementation technical design
 
-**Version:** submission candidate, 10 October 2026. **Not a production security sign-off.**
+**Version:** completion-branch design candidate, 11 October 2026. **Not a production security sign-off.**
 **Governing source:** PRD v1.1, Business Journey v1.0, revised 8 October brief.
-**Branch:** `feature/m5-m6-parallel-development`. No changes to protected `main`.
+**Branch:** `feature/eoc-completion-development`. No changes to protected `main`.
 **Evidence boundary:** The implementation described here is visible in the repository;
 a successful hosted system and J01–J05 cannot be inferred from source alone.
 
@@ -129,9 +129,14 @@ blocker IDs and source IDs, with HR/Employee-only case-assigned
 hash-verified policy editions. No uploads, credentials, employee email,
 form answers or exception free-text notes enter that context.
 
-If `EOC_AI_PROVIDER != OPENAI` or `OPENAI_API_KEY` is absent, the
-response is labelled `DETERMINISTIC_FALLBACK` and
-`ai_model_used=false`. With explicit configuration, a fixed HTTPS
+A strict request to read exactly one assigned conduct, privacy or benefits
+edition is handled by a deterministic, hash-verified full-text policy reader
+and returned as `DETERMINISTIC_SOURCE_ANSWER` with `ai_model_used=false`;
+this path is **not model reasoning** and even when a model is configured
+it does not send the policy question externally. Other questions without
+`EOC_AI_PROVIDER=OPENAI` plus `OPENAI_API_KEY` return
+`DETERMINISTIC_FALLBACK` with `ai_model_used=false`.
+With explicit provider configuration for remaining questions, a fixed HTTPS
 Responses endpoint is called with model specified by `EOC_AI_MODEL`
 (default `gpt-4o-mini`), output token cap 650, maximum context
 payload 16 KB, 12-second network timeout and strict JSON schema.
@@ -141,7 +146,11 @@ and call bound*, **not a verified monetary maximum**.
 
 The validator checks exact keys, source IDs, actionable IDs, blockers,
 allowed answer types, lengths and current authorized case digest.
-Only an accepted response is labelled `MODEL_VALIDATED`;
+Only an accepted response is labelled `MODEL_VALIDATED`; exact complete
+policy quotation is admitted only as `PARTIAL`, not independent proof of
+question relevance. Supported model claims are restricted to canonical
+server-rendered facts or source identifiers, not arbitrary free prose.
+
 validated answer hash, citations and token usage are written to the
 existing append-only audit stream. A provider failure or rejected
 citation returns **clearly labelled deterministic** guidance. Questions,
@@ -198,8 +207,10 @@ J05 unauthorized access, idempotency and rollback.
 None is accepted without real deployed browser, roles, timestamps,
 responses, persisted evidence and exact deployed SHA.
 
-**Other material limitations:** no authenticated hosted deployment
-connection completed; no reachable URL; no live model credential;
+**Other material limitations:** an older Render web build is live at
+`https://eoc-companion-web.onrender.com` on
+`b4312679cddf7598d542f396a45318cde9a3e590c`, **not** this branch;
+no current-HEAD deployment or hosted acceptance; no live model credential;
 secure document storage/scanning disabled; no production backup,
 monitoring or recovery qualification; no measured business
 improvement benchmark; no recorded hosted demo video; independent
@@ -223,3 +234,10 @@ a finished product.
    test evidence and known limitations in the submission.
 5. Do not activate paid hosting, a third-party AI API or public
    distribution without owner's explicit authority.
+
+## 9. Evaluation and demo proof
+
+The [submission evidence and actual screen-recording guide](evaluation-demo-evidence.md)
+provides measurable-value hypotheses, strict real-AI evidence requirements,
+and a safe six-minute recording sequence. No improvements, real AI accuracy,
+security signoff or final video URL are presumed without measurements.

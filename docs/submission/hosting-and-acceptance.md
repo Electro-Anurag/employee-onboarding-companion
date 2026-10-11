@@ -1,8 +1,11 @@
-# Hosted submission and acceptance runbook — 10 Oct 2026
+# Hosted submission and acceptance runbook — 11 Oct 2026
 
-Status: **prepared, not deployed or hosted-qualified**. Applies to the exact
-`feature/m5-m6-parallel-development` branch. This guide is for the synthetic
-demo only; it is not a production security certification.
+Status: **older Render web build live, completion-branch release not deployed or
+hosted-qualified**. Current development branch: `feature/eoc-completion-development`.
+Last observed Render LIVE SHA: `b4312679cddf7598d542f396a45318cde9a3e590c`
+(`https://eoc-companion-web.onrender.com`). This is an **older** build, not
+permission to claim any current feature or hosted journey works. This guide is
+synthetic-demo-only and is not a production security certification.
 
 ## Deployment boundary
 
@@ -80,8 +83,9 @@ not an accepted or mock demonstration.
 
 ## Submission manifest — fill from actual evidence only
 
-- Hosted URL: **NOT YET AVAILABLE**
-- Exact deployed SHA: **NOT YET VERIFIED**
+- Older hosted web URL: `https://eoc-companion-web.onrender.com` (**not a current release**) 
+- Older Render LIVE SHA: `b4312679cddf7598d542f396a45318cde9a3e590c`
+- Required current completion-branch deployed SHA: **NOT YET QUALIFIED**
 - Git repository: private `Electro-Anurag/employee-onboarding-companion`
 - J01–J05 hosted acceptance: **NOT YET RUN**
 - Real M6 inference: **NOT YET QUALIFIED**
@@ -104,3 +108,10 @@ the necessary changed-HEAD integrated/browser gates when worker capacity allows.
 **Operational limitation:** No controlled backup/restore, paid worker SLA,
 secure hosted S3/ClamAV document path, model inference or all-five hosted
 acceptance evidence has been established merely by this repository document.
+
+## Evidence capture and submission readiness
+
+Use [the evidence and video guide](evaluation-demo-evidence.md) to capture
+real role journeys, measured business outcomes, honest AI contribution and
+actual code/host SHA. Do not publish an unqualified release as a production
+system. The latest test ledger is [T01–T25](../tracking/release-test-gates-20261011.md).
