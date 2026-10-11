@@ -52,6 +52,22 @@ def validate_answer(payload,context,*,actor,case_id):
         raise UnsafeAIAnswer('INVALID_LIMITATIONS')
     if payload['answer_type'] in ('SUPPORTED','PARTIAL') and not payload['citations']:
         raise UnsafeAIAnswer('CITATIONS_REQUIRED')
+    if payload['answer_type']=='PARTIAL' and (
+            not payload['limitations'] or any(not x.strip() for x in payload['limitations'])):
+        raise UnsafeAIAnswer('PARTIAL_LIMITATION_REQUIRED')
+    # A valid citation ID alone is not enough for a proposed task action:
+    # the *specific referenced task* must be among the cited evidence.
+    # This is an exact provenance consistency check, not semantic verification
+    # of arbitrary text in the answer or the underlying task's correctness.
+    cited=set(payload['citations'])
+    for action in context['eligible_actions']:
+        if (action['id'] in payload['recommended_actions']
+                and 'TASK:'+action['task_id'] not in cited):
+            raise UnsafeAIAnswer('ACTION_TASK_CITATION_REQUIRED')
+    for blocker in context['blockers']:
+        if (blocker['id'] in payload['blockers']
+                and 'TASK:'+blocker['task_id'] not in cited):
+            raise UnsafeAIAnswer('BLOCKER_TASK_CITATION_REQUIRED')
     if payload['answer_type'] in ('UNSUPPORTED','CONFLICT'):
         if payload['recommended_actions']:
             raise UnsafeAIAnswer('UNSUPPORTED_ACTION_CLAIM')
