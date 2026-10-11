@@ -41,6 +41,12 @@ Backend source `9b50d0abc5443fa6701e794eb0b8086dd1ebfb2f`; React integration and
 
 **Focused CI PASS** [run 38130225197](https://github.com/Electro-Anurag/employee-onboarding-companion/actions/runs/38130225197) at exact SHA `c48f5c1b0737eb717284d64945505da7b2d91fa9`: 3 PostgreSQL tests passed, 15 React tests passed, Vite production build succeeded. The previous run failed because an HTTP test omitted the existing SessionGuard session-start value; its test-only correction passed. Not a hosted browser demonstration, cross-case analytics or release clearance.
 
+## M7 current-HR portfolio (focused qualification)
+
+Backend source `9b44ad0184298ef7d5420a7145d17af2540e433e`; React interface + tests `98ffa277934a7838aa80710ef6962fee9a7427fe`; corrected test setup `fb59c4543e673a6b00f801c472a59d2c3af17385`. Private `GET /api/v1/portfolio` is scoped through the current HR's assignments and returns max 25 cases per page with opaque UUID cursor, no organization-wide total claim. It reports case status, real typed mandatory completion, overdue mandatory tasks and active exception episodes. React includes HR-only navigation, refresh, pagination and open-case action. Created cases with no activated snapshot correctly show zero mandatory tasks, not fabricated 17-task progress; test distinguishes them from activated cases. Unassigned HR memberships see empty results; other roles denied. User-provided limit and cursor are validated. No mutations, migrations, paid provider calls or deployment.
+
+**Focused CI PASS:** [run 38130736087](https://github.com/Electro-Anurag/employee-onboarding-companion/actions/runs/38130736087) at exact SHA `fb59c4543e673a6b00f801c472a59d2c3af17385`: 5 PostgreSQL tests passed (4 nonfatal warnings), 17 React tests passed and Vite build succeeded. No full/browser/hosted security qualification or production release claim.
+
 ## Next implementation order
 
 1. M5 reminder and escalation recovery, worker outage/multi-worker evidence and handoff edge cases.
