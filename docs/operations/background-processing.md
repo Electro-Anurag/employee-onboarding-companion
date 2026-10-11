@@ -20,3 +20,10 @@ The isolated real-worker qualification also keeps the recovered worker running t
 - **EOC_M5_REAL_WORKER_CRASH_RECOVERY_PASS:** genuine child Procrastinate control process died after committed reminder effect and before job acknowledgement; a heartbeat-based retry made the same job `todo`; a new worker completed it with exactly one active overdue reminder.
 - **EOC_M5_REAL_PERIODIC_CONTROL_WAKE_PASS:** same running worker independently deferred and completed a real once-per-minute periodic M5 job, not invoked by the test via manual deferral.
 - All crash test env flags are restricted to isolated local non-Render PostgreSQL. The dedicated Render Starter worker proposal has **not** been deployed or billed. Source-level worker/recovery/scheduler qualification: **PASS**; full repository integrated regression: **PENDING**; live J03: **BLOCKED — no hosted always-on worker**.
+
+## M5 integrated completion — verified 12 October 2026
+
+- [Full integrated run 38178300531](https://github.com/Electro-Anurag/employee-onboarding-companion/actions/runs/38178300531) **PASS** at application SHA `9c567d6ac1491bd1403cbd03296cd1d55b33ece8`: **235 backend PASS / 2 live storage tests SKIPPED**, **26 frontend PASS**, Docker production image PASS, compiled asset check PASS, real four-role Chromium case journey PASS.
+- [Focused M5 run 38178074575](https://github.com/Electro-Anurag/employee-onboarding-companion/actions/runs/38178074575) **PASS** at prior source SHA `d69cbcee00c7dc6b16ad72da474dd92a25989340`: 16 tests PASS; real separate worker crashed after durable reminder commit and before ACK; stale heartbeat recovery succeeded with only one active reminder; automatic periodic one-minute worker job succeeded.
+- **M5 source development for current in-app reminders, automatic periodic scheduling, HR escalation and dead-worker recovery: QUALIFIED.** No email/SMS delivery claim, no hosted uptime SLA.
+- **Hosted J03 remains BLOCKED:** Free Render web has no continuously running worker. The paid Starter worker in `render.full.yaml` was updated but NOT deployed or authorized for billing. Source-level PASS is not hosted acceptance. J01–J05 0/5 full hosted PASS.
