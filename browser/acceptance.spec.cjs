@@ -102,6 +102,7 @@ test('four-role real-browser case, template, dependency and evidence journey',as
       await expect(hr.getByRole('region',{name:'Case tasks'}).locator('article.task')).toHaveCount(0);
       await hr.getByRole('button',{name:'Activate case'}).click();
       await expect(hr.getByRole('region',{name:'Focused current work'}).locator('article.task')).toHaveCount(1);
+      await expect(hr.getByRole('region',{name:'Focused current work'})).not.toContainText('Blocked: PREREQUISITE_INCOMPLETE');
       await hr.getByRole('button',{name:'View all steps (advanced)'}).click();
       await expect(hr.getByRole('region',{name:'Case tasks'}).locator('article.task')).toHaveCount(17);
       await expect(taskCard(hr,'Manager Preparation')).toContainText('READY');

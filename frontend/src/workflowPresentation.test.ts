@@ -37,3 +37,23 @@ describe('governed focused workflow',()=>{
     expect(()=>workflowPresentation([task('a','READY',0,['b']),task('b','READY',1,['a'])])).toThrow('Invalid workflow dependency graph');
   });
 });
+
+describe('one-step role priority with concurrent obligations',()=>{
+  const own=(id:string,owner_role:string,state='READY',position=0,kind='FORM')=>
+    ({...task(id,state,position),owner_role,kind});
+  it('places own actionable work ahead of independent colleague work',()=>{
+    const jobs=[own('it','IT','IN_PROGRESS',0),own('employee','EMPLOYEE','READY',1),
+      own('manager','MANAGER','READY',2)];
+    const result=workflowPresentation(jobs,'EMPLOYEE');
+    expect(result.current[0].id).toBe('employee');
+    expect(result.current).toHaveLength(3);
+  });
+  it('prioritizes pending employee form review for HR without auto-approving',()=>{
+    const jobs=[own('manager','MANAGER','READY',0),own('form','EMPLOYEE','IN_PROGRESS',1),
+      own('hr','HR','READY',2,'ACTIVITY')];
+    const result=workflowPresentation(jobs,'HR');
+    expect(result.current[0].id).toBe('form');
+    expect(result.current.map(x=>x.id)).toContain('manager');
+    expect(result.completed).toHaveLength(0);
+  });
+});

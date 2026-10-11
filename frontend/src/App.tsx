@@ -548,7 +548,7 @@ export default function App(){
   const managerChoice=managerId||((owners.MANAGER||[]).length===1?owners.MANAGER[0].id:'');
   const currentWork=work.filter(t=>t.state==='READY'||t.state==='IN_PROGRESS')
     .sort((a,b)=>a.due_at.localeCompare(b.due_at)||a.title.localeCompare(b.title));
-  const workflow=detail?workflowPresentation(detail.tasks):null;
+  const workflow=detail?workflowPresentation(detail.tasks,me?.role):null;
   const activeTaskIndex=workflow?
     Math.max(0,workflow.current.findIndex(task=>task.id===focusedTaskId)):0;
   const activeTask=workflow?.current[activeTaskIndex]||null;

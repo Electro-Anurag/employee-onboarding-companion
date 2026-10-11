@@ -5,7 +5,7 @@
  */
 export type DisplayTask={
   id:string;key:string;state:string;position:number;prerequisite_task_ids:string[];
-  due_at:string;
+  due_at:string;owner_role?:string;kind?:string;
 };
 
 export function orderedWorkflowTasks<T extends DisplayTask>(tasks:readonly T[]):T[]{
@@ -38,12 +38,17 @@ export function orderedWorkflowTasks<T extends DisplayTask>(tasks:readonly T[]):
   return result;
 }
 
-export function workflowPresentation<T extends DisplayTask>(tasks:readonly T[]){
+export function workflowPresentation<T extends DisplayTask>(tasks:readonly T[],role?:string){
   const ordered=orderedWorkflowTasks(tasks);
   const current=ordered.filter(t=>t.state==='READY'||t.state==='IN_PROGRESS');
-  // In-progress work is the initial focus; navigation can reach all other
-  // concurrently eligible tasks without inventing new dependencies.
-  current.sort((a,b)=>
+  // Prioritize the signed-in person's work, including HR review of submitted
+  // employee forms/documents. All other parallel eligible work remains reachable.
+  const attention=(t:T)=>{
+    if(role==='HR'&&t.state==='IN_PROGRESS'&&
+       (t.kind==='FORM'||t.kind==='DOCUMENT'))return -1;
+    return t.owner_role===role?0:1;
+  };
+  current.sort((a,b)=>attention(a)-attention(b) ||
     (a.state==='IN_PROGRESS'?0:1)-(b.state==='IN_PROGRESS'?0:1) ||
     a.position-b.position || a.due_at.localeCompare(b.due_at) || a.key.localeCompare(b.key));
   const completed=ordered.filter(t=>t.state==='COMPLETED');
