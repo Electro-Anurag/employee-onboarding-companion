@@ -1,7 +1,10 @@
 """J01 closeout qualification: actual typed manager evidence, HR-only and replay."""
 from datetime import timedelta
 import uuid
+import json
+import time
 import pytest
+from django.test import Client
 from django.utils import timezone
 from backend.audit.models import AuditEvent
 from backend.onboarding.commands import create_case, activate_case, start_task, attest_manager
@@ -53,6 +56,23 @@ def test_closeout_refuses_missing_evidence_then_completes_exactly_once(world):
     assert before['mandatory_total']==1 and before['mandatory_completed']==0
     assert before['missing_tasks'][0]['task_id']==str(t.pk)
     assert before['unclosed_exceptions']==[]
+    hr_client=Client()
+    hr_client.force_login(users['HR'][0])
+    session=hr_client.session
+    session['m1_session_started']=time.time()
+    session.save()
+    employee_client=Client()
+    employee_client.force_login(users['EMPLOYEE'][0])
+    employee_session=employee_client.session
+    employee_session['m1_session_started']=time.time()
+    employee_session.save()
+    uri=f'/api/v1/cases/{case.pk}/closeout-readiness'
+    wire=hr_client.get(uri)
+    assert wire.status_code==200 and wire['Cache-Control']=='private, no-store'
+    assert wire.json()['case_version']==case.version
+    assert wire.json()['missing_tasks'][0]['task_id']==str(t.pk)
+    assert employee_client.get(uri).status_code==404
+    assert hr_client.post(uri,data=json.dumps({}),content_type='application/json').status_code==405
     with pytest.raises(CommandFailure):
         preview_closeout(users['EMPLOYEE'][0],case.pk)
     with pytest.raises(CommandFailure) as blocked:
@@ -77,6 +97,7 @@ def test_closeout_refuses_missing_evidence_then_completes_exactly_once(world):
     ready=preview_closeout(users['HR'][0],case.pk)
     assert ready['ready'] is True and ready['reason_codes']==[]
     assert ready['mandatory_completed']==1 and ready['missing_tasks']==[]
+    assert hr_client.get(uri).json()['ready'] is True
     key = uuid.uuid4()
     closed, code = closeout_case(
         actor=users['HR'][0], case_id=case.pk, key=key, expected_version=4

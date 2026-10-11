@@ -13,6 +13,10 @@ type Template = {id:string;version_id:string;name:string;key:string;version:numb
   state:'DRAFT'|'PUBLISHED';tasks?:unknown[];dependencies?:unknown[];content_hash:string};
 type Owner = {id:string;name:string};
 type TaskPayload = {case_id:string;case_version:number;case_status:string;progress:Progress;tasks:Task[]};
+type CloseoutReadiness = {case_id:string;case_version:number;case_status:string;ready:boolean;
+  reason_codes:string[];mandatory_total:number;mandatory_completed:number;
+  missing_tasks:{task_id:string;title:string;owner_role:string;state:string}[];
+  unclosed_exceptions:{exception_id:string;task_id:string;cause:string;status:string}[]};
 type WorkspaceTask = Task & {case_id:string;employee_name:string};
 type ApiError = {error?:{code?:string;message?:string}};
 type DatePreview = {case_id:string;case_version:number;schedule_revision:number;
@@ -57,6 +61,7 @@ export default function App(){
   const [editor,setEditor]=useState('');
   const [selected,setSelected]=useState<Case|null>(null);
   const [detail,setDetail]=useState<TaskPayload|null>(null);
+  const [closeoutReadiness,setCloseoutReadiness]=useState<CloseoutReadiness|null>(null);
   const [focusedTaskId,setFocusedTaskId]=useState<string|null>(null);
   const [showFullPlan,setShowFullPlan]=useState(false);
   const [employeeId,setEmployeeId]=useState('');
@@ -254,7 +259,7 @@ export default function App(){
       const result=await request<TaskPayload>('/api/v1/cases/'+c.id+'/tasks');
       if(identityEpoch.current!==generation||aiRequestEpoch.current!==aiSwitch)return;
       setSelected(c);setDetail(result);setTab('cases');setAttestTask(null);
-      setFocusedTaskId(null);setShowFullPlan(false);
+      setFocusedTaskId(null);setShowFullPlan(false);setCloseoutReadiness(null);
       setExceptions([]);setExceptionsLoaded(false);setExceptionTask('');
       setGuidance(null);setAiAnswer(null);setAiQuestion('');setDatePreview(null);
       datePreviewGeneration.current+=1;
@@ -392,6 +397,18 @@ export default function App(){
       await request('/api/v1/cases/'+selected.id+'/day-one','POST',{},
         {'If-Match':'"case:'+selected.id+':v'+detail.case_version+'"'});
       await reloadCase(selected.id,me);
+    });
+  }
+  async function previewCloseoutReadiness(){
+    if(!selected||!detail||!me||me.role!=='HR')return;
+    const identity=identityEpoch.current;
+    const selection=aiRequestEpoch.current;
+    const caseId=detail.case_id;
+    await perform(async()=>{
+      const result=await request<CloseoutReadiness>(
+        '/api/v1/cases/'+caseId+'/closeout-readiness');
+      if(identityEpoch.current===identity&&aiRequestEpoch.current===selection)
+        setCloseoutReadiness(result);
     });
   }
   async function closeout(){
@@ -615,7 +632,28 @@ export default function App(){
               <div className="subpanel">
                 <p className="meta">HR closeout checks typed evidence for every applicable mandatory
                   task and refuses any unclosed exception. No automatic waiver is available.</p>
-                <button disabled={busy||detail.progress.mandatory_remaining!==0}
+                <button disabled={busy} onClick={()=>void previewCloseoutReadiness()}>
+                  Check closeout readiness
+                </button>
+                {closeoutReadiness?.case_id===detail.case_id&&
+                 closeoutReadiness.case_version===detail.case_version&&
+                 <div role="region" aria-label="Closeout readiness">
+                   <p>{closeoutReadiness.ready?'All mandatory evidence and exception gates are satisfied.':
+                     'Closeout is blocked until the following requirements are satisfied.'}</p>
+                   {closeoutReadiness.missing_tasks.map(t=>
+                     <p className="block" key={t.task_id}>
+                       Pending {t.title} — {t.owner_role} — {t.state}
+                     </p>)}
+                   {closeoutReadiness.unclosed_exceptions.map(ex=>
+                     <p className="block" key={ex.exception_id}>
+                       Unclosed {ex.cause} exception ({ex.status}) for {
+                         detail.tasks.find(t=>t.id===ex.task_id)?.title||'task'}
+                     </p>)}
+                 </div>}
+                <button disabled={busy||detail.progress.mandatory_remaining!==0||
+                  closeoutReadiness?.case_id!==detail.case_id||
+                  closeoutReadiness?.case_version!==detail.case_version||
+                  !closeoutReadiness?.ready}
                   onClick={()=>void closeout()}>Confirm final onboarding closeout</button>
               </div>}
             {detail.case_status==='PRE_JOINING'&&me.role==='HR'&&
