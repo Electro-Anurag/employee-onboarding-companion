@@ -98,7 +98,9 @@ def test_form_api_case_scoped_and_owner_reads(world):
     session=hr.session
     session['m1_session_started']=time.time()
     session.save()
-    assert hr.get(path).status_code==200
+    hr_response=hr.get(path)
+    assert hr_response.status_code==200
+    assert hr_response.json()['results'][0]['answers']==answers
     it=Client()
     it.force_login(persons['IT'][0])
     session=it.session

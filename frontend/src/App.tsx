@@ -447,9 +447,24 @@ export default function App(){
   async function mutateEvidence(path:string,body:unknown){
     if(!detail||!me)throw new Error('No authenticated case selected');
     const generation=identityEpoch.current;
+    const selection=aiRequestEpoch.current;
     const caseId=detail.case_id;
-    await request(path,'POST',body,{'If-Match':'"case:'+caseId+':v'+detail.case_version+'"'});
-    if(identityEpoch.current!==generation)return;
+    // A different role can submit while this case is open. Re-read the
+    // authoritative version before the command; keep If-Match fail-closed.
+    try{
+      const current=await request<TaskPayload>('/api/v1/cases/'+caseId+'/tasks');
+      if(identityEpoch.current!==generation||aiRequestEpoch.current!==selection)
+        throw new Error('Selected case changed. Review the latest case before retrying.');
+      await request(path,'POST',body,{'If-Match':'"case:'+caseId+':v'+current.case_version+'"'});
+    }catch(e){
+      if(identityEpoch.current===generation&&aiRequestEpoch.current===selection){
+        try{await reloadCase(caseId,me);}catch{/* Preserve the original error. */}
+      }
+      if(e instanceof Error&&e.message==='STALE_VERSION')
+        throw new Error('Case changed during your action. No approval was recorded. Reload form history and review the latest revision.');
+      throw e;
+    }
+    if(identityEpoch.current!==generation||aiRequestEpoch.current!==selection)return;
     await reloadCase(caseId,me);
   }
   async function attest(event:React.FormEvent){
@@ -608,7 +623,9 @@ export default function App(){
               </div>
               {(t.kind==='FORM'||t.kind==='DOCUMENT'||t.kind==='TRAINING'||t.kind==='POLICY_ACK'||t.kind==='ACTIVITY'||t.kind==='INTRODUCTION'||t.kind==='CHECK_IN'||t.kind==='ACCESS'||t.kind==='EQUIPMENT'||t.kind==='EQUIPMENT_RECEIPT')&&
                 <EvidenceWorkflows key={me.user_id+':'+t.id} task={t} caseId={detail.case_id}
-                  role={me.role} read={path=>request(path)} mutate={mutateEvidence} uploadDocument={uploadDocument} uploadSecureDocument={uploadSecureDocument}/>}
+                  role={me.role} read={path=>request(path)} mutate={mutateEvidence}
+                  refreshCase={()=>reloadCase(detail.case_id,me)}
+                  uploadDocument={uploadDocument} uploadSecureDocument={uploadSecureDocument}/>}
               {attestTask===t.id&&<form className="form attest" onSubmit={e=>void attest(e)}>
                 <label>First-week plan<input required minLength={8} maxLength={300} value={plan} onChange={e=>setPlan(e.target.value)}/></label>
                 <label>Buddy's name<input required minLength={2} maxLength={100} value={buddy} onChange={e=>setBuddy(e.target.value)}/></label>

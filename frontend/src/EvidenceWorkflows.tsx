@@ -30,10 +30,32 @@ type PolicyEdition={task_id:string;policy:{version:string;content_sha256:string;
   acknowledged:boolean};
 type Task={id:string;key:string;kind:string;state:string;owner_role:string};
 
-export default function EvidenceWorkflows({task,caseId,role,read,mutate,uploadDocument,uploadSecureDocument}:{
+// Answers are already returned only by the case- and role-scoped form endpoint.
+// Never fetch them through an unscoped route, or render raw HTML.
+export function FormRevisionEntry({entry,role}:{entry:FormEntry;role:Role}){
+  const state=entry.review?entry.review.decision+
+    (entry.review.note?' — '+entry.review.note:''):'Pending HR review';
+  return <div className="form-revision">
+    <p className="meta">Revision {entry.revision}: {state}</p>
+    {role==='HR'&&<div className="subpanel"
+      aria-label={'Employee-submitted values for revision '+entry.revision}>
+      <strong>Submitted fields — revision {entry.revision} (read-only)</strong>
+      <dl className="form-evidence-values">
+        {Object.entries(entry.answers).map(([key,value])=><div key={key}>
+          <dt>{key.replace(/_/g,' ').replace(/^./,letter=>letter.toUpperCase())}</dt>
+          <dd>{value}</dd>
+        </div>)}
+      </dl>
+      <p className="meta">Compare this exact submitted revision before your HR decision.</p>
+    </div>}
+  </div>;
+}
+
+export default function EvidenceWorkflows({task,caseId,role,read,mutate,refreshCase,uploadDocument,uploadSecureDocument}:{
   task:Task;caseId:string;role:Role;
   read:(path:string)=>Promise<unknown>;
   mutate:(path:string,body:unknown)=>Promise<void>;
+  refreshCase:()=>Promise<void>;
   uploadDocument:(path:string,file:File)=>Promise<void>;
   uploadSecureDocument:(base:string,file:File)=>Promise<void>;
 }){
@@ -83,6 +105,9 @@ export default function EvidenceWorkflows({task,caseId,role,read,mutate,uploadDo
   async function loadForms(){
     const r=await read(base+'/form-submissions') as FormList;
     setHistory(r.results);
+    // Loading history must also refresh the case version used by a subsequent
+    // HR review; employee submissions can change it in another session.
+    await refreshCase();
   }
   async function loadIT(){
     const r=await read(base+'/it-operation') as ITOperation;
@@ -388,8 +413,7 @@ export default function EvidenceWorkflows({task,caseId,role,read,mutate,uploadDo
       <button className="quiet" disabled={busy} onClick={()=>void safeRun(loadForms)}>Load form history</button>
       {history&&<div>
         {history.length===0?<p>No submitted form revisions.</p>:
-          history.map(x=><p className="meta" key={x.id}>Revision {x.revision}: {x.review?
-            x.review.decision+(x.review.note?' — '+x.review.note:''):'Pending HR review'}</p>)}
+          history.map(x=><FormRevisionEntry key={x.id} entry={x} role={role}/>)}
       </div>}
       {canSubmit&&<form className="form" onSubmit={(e:FormEvent)=>{e.preventDefault();
         void safeRun(async()=>{await mutate(base+'/form-submissions',{answers:{
