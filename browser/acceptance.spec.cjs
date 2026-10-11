@@ -195,6 +195,22 @@ test('four-role real-browser case, template, dependency and evidence journey',as
       await hrForm.getByRole('button',{name:'Load form history'}).click();
       await expect(hrForm).toContainText('Pending HR review');
       await hrForm.getByLabel('HR review note').fill('Synthetic form reviewed and accepted.');
+      // Temporary bounded diagnostic: distinguish stale browser responses,
+      // suppressed React updates and client exceptions. No form answers or
+      // passwords are logged.
+      const caseReads=[];
+      const pageErrors=[];
+      hr.on('pageerror',error=>pageErrors.push(error.name+': '+error.message.slice(0,180)));
+      hr.on('response',response=>{
+        if(response.request().method()!=='GET' ||
+           !response.url().includes('/api/v1/cases/'+caseId+'/tasks'))return;
+        void response.json().then(body=>caseReads.push({
+          status:response.status(),
+          version:body.case_version,
+          personalState:body.tasks?.find(t=>t.key==='personal_details')?.state,
+          cacheControl:response.headers()['cache-control']||''
+        })).catch(()=>caseReads.push({status:response.status(),parse:'failed'}));
+      });
       const [formApproval]=await Promise.all([
         hr.waitForResponse(response=>response.url().includes('/form-submissions/')&&
           response.url().endsWith('/review')&&response.request().method()==='POST'),
@@ -206,14 +222,34 @@ test('four-role real-browser case, template, dependency and evidence journey',as
         ': '+(approvalResult?.error?.code||'NO_ERROR_CODE')).toBe(201);
       // This journey explicitly proves a real browser read-after-write, not
       // just a separate Playwright API client's authoritative result.
-      await expect.poll(async()=>{
-        const ui=await hr.evaluate(()=>{
+      try{
+        await expect.poll(async()=>hr.evaluate(()=>{
           const p=[...document.querySelectorAll('[aria-label="Case tasks"] article.task')]
             .find(node=>node.querySelector('h4')?.textContent==='Personal Details');
           return p?.textContent?.includes('COMPLETED')||false;
+        }),{timeout:12000}).toBe(true);
+      }catch(e){
+        const htmlState=await hr.evaluate(()=>{
+          const card=[...document.querySelectorAll('[aria-label="Case tasks"] article.task')]
+            .find(node=>node.querySelector('h4')?.textContent==='Personal Details');
+          const region=document.querySelector('[aria-label="Case tasks"]');
+          const pending=card?.textContent?.includes('Pending HR review');
+          return {
+            cardPresent:!!card,cardCompleted:card?.textContent?.includes('COMPLETED'),
+            pending,caseProgress:region?.querySelector('.heading p')?.textContent,
+            alertCount:document.querySelectorAll('[role="alert"]').length,
+            visibleStatus:document.querySelector('[role="status"]')?.textContent?.slice(0,160),
+          };
         });
-        return ui;
-      },{timeout:12000}).toBe(true);
+        const fresh=await (await hr.request.get('/api/v1/cases/'+caseId+'/tasks')).json();
+        console.log('EOC_FORM_UI_DIAG '+JSON.stringify({
+          ackStatus:formApproval.status(),ackVersion:approvalResult.case_version,
+          serverVersion:fresh.case_version,
+          serverTaskState:fresh.tasks.find(t=>t.key==='personal_details')?.state,
+          htmlState,caseReads:caseReads.slice(-10),pageErrors:pageErrors.slice(-5),
+        }));
+        throw e;
+      }
       // Approval is not assumed merely from clicking the UI; require the
       // server's exact task state before checking the rendered card.
       await expect.poll(async()=>{

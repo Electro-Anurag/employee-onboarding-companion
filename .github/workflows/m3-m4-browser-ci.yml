@@ -97,7 +97,11 @@ jobs:
           print(f'Browser preflight PASS: {len(assets)} compiled JS/CSS assets returned')
           PY
           cd "$RUNNER_TEMP/m2-playwright"
-          ./node_modules/.bin/playwright test -c playwright.config.cjs
+          # Run the short cross-role evidence gate first. A failure stops here
+          # rather than wasting minutes on the independent elapsed-meeting test.
+          ./node_modules/.bin/playwright test -c playwright.config.cjs acceptance.spec.cjs
+          ./node_modules/.bin/playwright test -c playwright.config.cjs \
+            --grep-invert 'four-role real-browser case, template, dependency and evidence journey'
           # Test-only mutation control: remove one stale-refresh generation guard.
           # The first run consumes synthetic login throttle quotas (even successful
           # logins count). Reset only this disposable CI database's counters before
