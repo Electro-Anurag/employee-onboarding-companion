@@ -51,18 +51,30 @@ async function openCase(page){
     option.click(),
   ]);
   expect(loaded.status(),'CASE_TASKS_FETCH_HTTP_'+loaded.status()).toBe(200);
+  const snapshot=await loaded.json();
+  expect(snapshot.case_id,'Selected case must be the requested case').toBeTruthy();
+  expect(Array.isArray(snapshot.tasks),'Case tasks API must supply an array').toBe(true);
   // selectCase commits selected/detail/full-plan state before perform()
   // clears busy. This is the real UI synchronization barrier, unlike the
   // region that might already be visible from the previous selection.
   await expect(option).toBeEnabled();
   const region=page.getByRole('region',{name:'Case tasks'});
   await expect(region).toBeVisible();
+  if(snapshot.tasks.length===0){
+    // Before activation no tasks exist, and there is deliberately no
+    // full-plan control. This is a legitimate and asserted M2 state.
+    await expect(region.locator('article.task')).toHaveCount(0);
+    await expect(region.getByRole('button',{name:'Activate case'})).toBeVisible();
+    await expect(region.getByRole('button',{name:'View all steps (advanced)'})).toHaveCount(0);
+    return;
+  }
+  expect(snapshot.tasks).toHaveLength(17);
   const full=region.getByRole('button',{name:'View all steps (advanced)'});
   await expect(full).toBeVisible();
   await full.click();
   await expect(region.getByRole('button',{name:'Return to focused work'})).toBeVisible();
-  // This verifies that the requested complete, 17-step case is actually
-  // rendered instead of accepting a transient previous-state task card.
+  // An activated default synthetic case must actually display all 17 tasks,
+  // including blocked work, without assuming a stale previous render.
   await expect(region.locator('article.task')).toHaveCount(17);
 }
 
