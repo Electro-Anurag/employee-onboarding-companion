@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
-import App from './App';
+import App,{preferNewerCase} from './App';
 import {FormRevisionEntry} from './EvidenceWorkflows';
 
 describe('M2 authenticated workspace UI boundaries', () => {
@@ -49,5 +49,20 @@ describe('simple and truthful first screen',()=>{
     expect(html).toContain('Know what needs doing');
     expect(html).not.toContain('Record version-specific acknowledgement');
     expect(html).not.toContain('Confirm simulated IT outcome');
+  });
+});
+
+describe('case response ordering under overlapping form-review refresh',()=>{
+  const old={case_id:'one',case_version:3,tasks:[{state:'IN_PROGRESS'}]};
+  const accepted={case_id:'one',case_version:4,tasks:[{state:'COMPLETED'}]};
+  it('cannot regress completed evidence to an earlier in-flight response',()=>{
+    expect(preferNewerCase(accepted,old)).toBe(accepted);
+    expect(preferNewerCase(old,accepted)).toBe(accepted);
+  });
+  it('allows same-version refresh and distinct selected cases',()=>{
+    const same={...accepted,tasks:[{state:'COMPLETED',note:'fresh'}]};
+    expect(preferNewerCase(accepted,same)).toBe(same);
+    const different={case_id:'two',case_version:1,tasks:[]};
+    expect(preferNewerCase(accepted,different)).toBe(different);
   });
 });

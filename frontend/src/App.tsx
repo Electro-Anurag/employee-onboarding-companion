@@ -36,6 +36,14 @@ type ExceptionRecord = {id:string;task_id:string;task_title:string;task_owner_ro
 type InboxRow = {id:string;case_id:string;task_id:string;summary:string;
   rule_code:string;created_at:string;read_at:string|null;status:string};
 
+/** Older overlapping GET responses must never erase an accepted newer version. */
+export function preferNewerCase<T extends {case_id:string;case_version:number}>(
+  previous:T|null,next:T):T{
+  if(previous?.case_id===next.case_id && previous.case_version>next.case_version)
+    return previous;
+  return next;
+}
+
 export default function App(){
   const [me,setMe]=useState<Me|null>(null);
   const [csrf,setCsrf]=useState('');
@@ -162,7 +170,10 @@ export default function App(){
       nextOwners=Object.fromEntries(entries);
     }
     if(identityEpoch.current!==generation)return;
-    setCases(nextCases.results);setWork(nextWork.results);
+    setCases(previous=>nextCases.results.map(next=>{
+      const current=previous.find(row=>row.id===next.id);
+      return current&&current.version>next.version?current:next;
+    }));setWork(nextWork.results);
     setTemplates(nextTemplates);setOwners(nextOwners);
   }
   useEffect(()=>{
@@ -252,12 +263,18 @@ export default function App(){
   }
   async function reloadCase(caseId:string,identity:Me){
     const generation=identityEpoch.current;
+    const selection=aiRequestEpoch.current;
     await refresh(identity);
-    if(identityEpoch.current!==generation)return;
+    if(identityEpoch.current!==generation||aiRequestEpoch.current!==selection)return;
     const result=await request<TaskPayload>('/api/v1/cases/'+caseId+'/tasks');
-    if(identityEpoch.current!==generation)return;
-    setDetail(result);
-    setSelected(old=>old&&old.id===caseId?{...old,version:result.case_version,status:result.case_status}:old);
+    if(identityEpoch.current!==generation||aiRequestEpoch.current!==selection)return;
+    // A prior request (for example, Load form history) may resolve after an
+    // approval response. Never allow its older snapshot to overwrite the
+    // authoritative completed task or case progress.
+    setDetail(previous=>preferNewerCase(previous,result));
+    setSelected(previous=>previous&&previous.id===caseId&&
+      previous.version<=result.case_version?
+      {...previous,version:result.case_version,status:result.case_status}:previous);
   }
   async function previewJoiningDate(){
     if(!selected||!detail||!newJoiningDate)return;
