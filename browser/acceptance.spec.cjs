@@ -195,7 +195,23 @@ test('four-role real-browser case, template, dependency and evidence journey',as
       await hrForm.getByRole('button',{name:'Load form history'}).click();
       await expect(hrForm).toContainText('Pending HR review');
       await hrForm.getByLabel('HR review note').fill('Synthetic form reviewed and accepted.');
-      await hrForm.getByRole('button',{name:'Accept revision and complete task'}).click();
+      const [formApproval]=await Promise.all([
+        hr.waitForResponse(response=>response.url().includes('/form-submissions/')&&
+          response.url().endsWith('/review')&&response.request().method()==='POST'),
+        hrForm.getByRole('button',{name:'Accept revision and complete task'}).click(),
+      ]);
+      const approvalResult=await formApproval.json();
+      expect(formApproval.status(),
+        'FORM_HR_APPROVAL_HTTP_'+formApproval.status()+
+        ': '+(approvalResult?.error?.code||'NO_ERROR_CODE')).toBe(201);
+      // Approval is not assumed merely from clicking the UI; require the
+      // server's exact task state before checking the rendered card.
+      await expect.poll(async()=>{
+        const response=await hr.request.get('/api/v1/cases/'+caseId+'/tasks');
+        expect(response.status()).toBe(200);
+        const current=await response.json();
+        return current.tasks.find(t=>t.key==='personal_details')?.state;
+      },{timeout:12000}).toBe('COMPLETED');
       await expect(taskCard(hr,'Personal Details')).toContainText('COMPLETED');
       await expect(hr.getByText('2/17 mandatory tasks completed')).toBeVisible();
       await expect(taskCard(hr,'Workspace Access')).toContainText('PREREQUISITE_INCOMPLETE');
