@@ -70,6 +70,22 @@ def activate(request,case_id):
     return command(execute)
 
 @require_GET
+def dashboard(request,case_id):
+    """HR-only current-state counts; never sends a mutation or provider call."""
+    from backend.onboarding.dashboard import case_dashboard
+    try:
+        response=JsonResponse(case_dashboard(request.user,case_id))
+        response['Cache-Control']='private, no-store'
+        return response
+    except (CommandFailure,PermissionDenied) as exc:
+        if isinstance(exc,CommandFailure) and exc.status==409:
+            return error(exc.code,409)
+        return error('NOT_FOUND',404)
+    except DatabaseError as exc:
+        return transient_db_response(exc,preflight=True)
+
+
+@require_GET
 def closeout_readiness(request,case_id):
     """Human-readable, HR-only readiness; closeout still checks transactionally."""
     from backend.onboarding.closeout import preview_closeout
