@@ -1,0 +1,23 @@
+name: EOC hosted public read-only smoke
+on:
+  push:
+    branches: ['feature/eoc-completion-development']
+    paths:
+      - '.github/workflows/eoc-hosted-public-smoke.yml'
+      - 'scripts/hosted_public_smoke.py'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  public-hosted-smoke:
+    runs-on: [self-hosted, linux, ARM64, eoc-mac-ci]
+    timeout-minutes: 10
+    steps:
+      - name: Check out smoke checker
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Read-only hosted HTTPS and authorization smoke against deployed SHA
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m py_compile scripts/hosted_public_smoke.py
+          python3 scripts/hosted_public_smoke.py
