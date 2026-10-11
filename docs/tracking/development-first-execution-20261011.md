@@ -69,3 +69,11 @@ Exact code/test SHA `00a9219c82529cb71ae627982877f50f3b4b762a`; focused [CI run 
 4. Consolidated exact-SHA integration/browser/security qualification, free-only deployment, hosted J01–J05, video and submission. Preserve and resolve all deferred failures.
 
 Do not auto-run the three expensive CI workflows on each development commit. Never claim exact-HEAD release qualification from old passing workflows.
+
+## M6 canonical claim-to-evidence candidate (focused verification, not real model GO)
+
+Implementation source commit `84c4cd448e974d98450893dcb953103f8f51480e`; test-fixture correction and **exact tested source SHA** `be72be322ce6e15258f5da574f5ce5686d2d0871`. The validator now admits only exact server-derived authorized task/eligible-action/blocker/exception/policy-edition facts, with source binding, current snapshot and fixed abstention. It rejects arbitrary answer/limitation/clarification/escalation prose and prohibits unverified conflict claims. This is a deliberate conservative reduction of model prose; it does not satisfy full semantic question relevance or policy-content question answering.
+
+**Self-hosted Ubuntu ARM64 focused CI PASS:** [38133071154](https://github.com/Electro-Anurag/employee-onboarding-companion/actions/runs/38133071154): 24 existing PostgreSQL AI tests, 4 offline evaluation/adversarial tests, 20 React tests, TypeScript/Vite production build, Django checks/migrations all PASS. Developer-labeled 12-case fixture: 4/4 supported admitted, **0/7 unsupported admitted**, 7/7 unsupported rejected, 1/1 abstentions admitted, **CANDIDATE_ONLY**. Earlier run [38133019704](https://github.com/Electro-Anurag/employee-onboarding-companion/actions/runs/38133019704) at `84c4cd4…` FAILED from a malformed new test harness; corrected without weakening any negative assertions at `be72be322ce6e15258f5da574f5ce5686d2d0871`. Do not aggregate these cases into external-model accuracy or claim semantic release GO. M6 live inference, independent evaluation, hosted J04 are still BLOCKED. M3–M4 Conduct Ack browser FAIL remains OPEN.
+
+Tracking estimate remains **63/100 earned, 37/100 pending** (non-audited engineering estimate, ±10–15 points); no hosted J01–J05 passes. See [release-test-gates-20261011.md](release-test-gates-20261011.md) for continuously retained T01–T25 gates.

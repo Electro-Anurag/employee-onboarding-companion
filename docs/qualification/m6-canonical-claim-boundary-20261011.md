@@ -24,3 +24,7 @@ independent semantic evaluation. It does not qualify a real external model,
 performance, private-data boundaries, usability or hosted J04. No actual
 provider call or deployment was authorized. This conservative interface
 may abstain on legitimate questions not covered by exact canonical facts.
+
+## Focused verification at exact source revision
+
+Corrected code/test commit: `be72be322ce6e15258f5da574f5ce5686d2d0871` (parent implementation `84c4cd448e974d98450893dcb953103f8f51480e`). Ubuntu ARM64 self-hosted [workflow 38133071154](https://github.com/Electro-Anurag/employee-onboarding-companion/actions/runs/38133071154) completed SUCCESS: 24 PostgreSQL AI contract tests, 4 semantic/adversarial tests, 20 React tests, and Vite/TypeScript build passed. Offline labeled examples: 4/4 supported admitted, 0/7 unsupported admitted, 1/1 fixed abstention admitted, verdict **CANDIDATE_ONLY**. Previous run 38133019704 failed in test scaffolding; corrected test fixture and rerun passed. These results do not admit any real provider or hosted journey.
