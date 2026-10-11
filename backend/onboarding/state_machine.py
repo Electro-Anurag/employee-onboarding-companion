@@ -110,6 +110,7 @@ def summary_task(t,member,case):
             actions.append('ATTEST_MANAGER_PREPARATION')
     return {'id':str(t.pk),'key':t.key,'kind':t.kind,'title':t.title,
         'required':t.required,'state':effective_state,'owner_role':t.owner_role,
+        'position':t.template_task.position,
         'available_at':t.available_at.isoformat(),'due_at':t.due_at.isoformat(),
         'overdue':t.execution_state not in ('COMPLETED','CANCELLED') and timezone.now()>t.due_at,
         'blocked_reason_codes':effective_blockers,'started_at':t.work_started_at.isoformat() if t.work_started_at else None,

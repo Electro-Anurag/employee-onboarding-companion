@@ -1201,3 +1201,28 @@ def test_m3_manager_completion_requires_same_attesting_actor_after_all_migration
         Task.objects.filter(pk=task.pk).update(
             execution_state='COMPLETED',completed_at=timezone.now())
     assert TaskCompletion.objects.get(task=task).completed_by_id==people['MANAGER'][0].pk
+
+@pytest.mark.django_db(transaction=True)
+def test_case_tasks_api_includes_exact_published_order_and_prerequisite_ids(world):
+    from backend.onboarding.api_m2 import tasks as _tasks
+    org,p=world
+    v=published(world)
+    result,_=create(world,v)
+    case=OnboardingCase.objects.get(pk=result['case_id'])
+    activate_case(actor=p['HR'][0],case_id=case.pk,key=uuid.uuid4(),expected_version=1)
+    client=Client()
+    client.force_login(p['HR'][0])
+    session=client.session
+    import time
+    session['m1_session_started']=time.time()
+    session.save()
+    response=client.get(f'/api/v1/cases/{case.pk}/tasks')
+    assert response.status_code==200,response.content
+    rows=response.json()['tasks']
+    assert len(rows)==17
+    assert [row['position'] for row in rows]==list(range(17))
+    by_key={row['key']:row for row in rows}
+    assert by_key['equipment_setup']['prerequisite_task_ids']==sorted([
+        by_key['identity_document']['id'],by_key['personal_details']['id']])
+    assert by_key['personal_details']['prerequisite_task_ids']==[]
+    assert by_key['equipment_setup']['state']=='BLOCKED'

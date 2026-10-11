@@ -1,12 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
 import './App.css';
 import EvidenceWorkflows from './EvidenceWorkflows';
+import {workflowPresentation} from './workflowPresentation';
 
 type Me = { display_name:string;role:'HR'|'IT'|'MANAGER'|'EMPLOYEE';user_id:string;capabilities?:{manage_templates:boolean;coordinate_ownership:boolean} };
 type Progress = { mandatory_total:number;mandatory_completed:number;mandatory_remaining:number;percent:number };
 type Case = {id:string; status:string;joining_date:string;employee_name:string;version:number;progress?:Progress};
 type Task = {id:string;key:string;kind:string;title:string;state:string;owner_role:string;
-  due_at:string;available_at:string;blocked_reason_codes:string[];allowed_actions:string[];required:boolean};
+  due_at:string;available_at:string;position:number;prerequisite_task_ids:string[];
+  blocked_reason_codes:string[];allowed_actions:string[];required:boolean};
 type Template = {id:string;version_id:string;name:string;key:string;version:number;revision:number;
   state:'DRAFT'|'PUBLISHED';tasks?:unknown[];dependencies?:unknown[];content_hash:string};
 type Owner = {id:string;name:string};
@@ -47,6 +49,7 @@ export default function App(){
   const [editor,setEditor]=useState('');
   const [selected,setSelected]=useState<Case|null>(null);
   const [detail,setDetail]=useState<TaskPayload|null>(null);
+  const [focusedTaskId,setFocusedTaskId]=useState<string|null>(null);
   const [employeeId,setEmployeeId]=useState('');
   const [itId,setItId]=useState('');
   const [managerId,setManagerId]=useState('');
@@ -90,7 +93,7 @@ export default function App(){
     setExceptions([]);setExceptionsLoaded(false);setExceptionTask('');
     setGuidance(null);setAiAnswer(null);setAiQuestion('');setExceptionNote('');setExceptionAssignees({});
     setRecoveryOwner({});setRecoveryReason('');
-    setTemplate(null);setEditor('');setSelected(null);setDetail(null);
+    setTemplate(null);setEditor('');setSelected(null);setDetail(null);setFocusedTaskId(null);
     setEmployeeId('');setItId('');setManagerId('');setTemplateId('');setJoiningDate('');
     setNewJoiningDate('');setDateChangeReason('');setDatePreview(null);
     setAttestTask(null);setPlan('');setBuddy('');setStation(false);setNote('');
@@ -238,6 +241,7 @@ export default function App(){
       const result=await request<TaskPayload>('/api/v1/cases/'+c.id+'/tasks');
       if(identityEpoch.current!==generation||aiRequestEpoch.current!==aiSwitch)return;
       setSelected(c);setDetail(result);setTab('cases');setAttestTask(null);
+      setFocusedTaskId(null);
       setExceptions([]);setExceptionsLoaded(false);setExceptionTask('');
       setGuidance(null);setAiAnswer(null);setAiQuestion('');setDatePreview(null);
       datePreviewGeneration.current+=1;
@@ -536,6 +540,10 @@ export default function App(){
       setMessage('Case persisted in CREATED. Select it to activate when ready.');
     });
   }
+  const workflow=detail?workflowPresentation(detail.tasks):null;
+  const activeTaskIndex=workflow?
+    Math.max(0,workflow.current.findIndex(task=>task.id===focusedTaskId)):0;
+  const activeTask=workflow?.current[activeTaskIndex]||null;
   return <main className="shell">
     <header className="topbar"><div><span className="eyebrow">Aster Vale Labs — synthetic demo</span><h1>Onboarding Companion</h1>
       <p>Persistent role-scoped onboarding workflows, evidence-based handoffs and reminders. Real model answers require an explicitly configured provider.</p></div>
@@ -611,7 +619,27 @@ export default function App(){
                 </>}
               </section>}
             {detail.tasks.length===0&&<p>Tasks will be instantiated only after successful activation.</p>}
-            <div className="task-list">{detail.tasks.map(t=><article key={t.id} className="task">
+            {workflow&&detail.tasks.length>0&&<section className="subpanel" aria-label="Focused current work">
+              <div className="heading">
+                <div>
+                  <h4>Current work — one step at a time</h4>
+                  <p className="meta">{workflow.current.length} currently eligible ·
+                    {' '}{workflow.completed.length} completed ·
+                    {' '}{workflow.futureCount} future steps hidden until prerequisites and dates permit
+                  </p>
+                </div>
+                {workflow.current.length>1&&<div className="task-actions" role="group" aria-label="Choose current step">
+                  <button className="quiet" disabled={busy||activeTaskIndex===0}
+                    onClick={()=>setFocusedTaskId(workflow.current[activeTaskIndex-1].id)}>
+                    Previous step</button>
+                  <span className="meta">Step {activeTaskIndex+1} of {workflow.current.length}</span>
+                  <button className="quiet" disabled={busy||activeTaskIndex===workflow.current.length-1}
+                    onClick={()=>setFocusedTaskId(workflow.current[activeTaskIndex+1].id)}>
+                    Next step</button>
+                </div>}
+              </div>
+              {!activeTask&&<p>No steps currently eligible. Completed evidence remains below; the server controls when future work unlocks.</p>}
+              <div className="task-list">{(activeTask?[activeTask]:[]).map(t=><article key={t.id} className="task">
               <div><h4>{t.title}</h4><span className="meta">{t.kind} · {t.owner_role} · {t.state}</span>
                 <p className="meta">Due: {new Date(t.due_at).toLocaleString()} {t.required?'· Required':'· Optional'}</p>
                 {!!t.blocked_reason_codes.length&&<p className="block">Blocked: {t.blocked_reason_codes.join(', ')}</p>}
@@ -634,6 +662,25 @@ export default function App(){
                 <button disabled={busy||!station} type="submit">Submit recorded evidence</button>
               </form>}
             </article>)}</div>
+            </section>}
+            {workflow&&workflow.completed.length>0&&<section className="subpanel"
+              aria-label="Completed onboarding steps">
+              <h4>Approved and completed steps ({workflow.completed.length})</h4>
+              <p className="meta">Immutable accepted evidence remains accessible.
+                Completion is based on server-verified evidence, not a visual checkbox.</p>
+              <div className="task-list">{workflow.completed.map(t=><article key={t.id} className="task">
+                <div><strong>{t.title}</strong>
+                  <p className="meta">{t.kind} · {t.owner_role} · COMPLETED</p>
+                  <details><summary>Review completed evidence</summary>
+                    {(t.kind==='FORM'||t.kind==='DOCUMENT'||t.kind==='TRAINING'||t.kind==='POLICY_ACK'||t.kind==='ACTIVITY'||t.kind==='INTRODUCTION'||t.kind==='CHECK_IN'||t.kind==='ACCESS'||t.kind==='EQUIPMENT'||t.kind==='EQUIPMENT_RECEIPT')&&
+                      <EvidenceWorkflows key={me.user_id+':'+t.id} task={t} caseId={detail.case_id}
+                        role={me.role} read={path=>request(path)} mutate={mutateEvidence}
+                        refreshCase={()=>reloadCase(detail.case_id,me)}
+                        uploadDocument={uploadDocument} uploadSecureDocument={uploadSecureDocument}/>}
+                  </details>
+                </div>
+              </article>)}</div>
+            </section>}
             <section className="subpanel" aria-label="Case companion guidance">
               <div className="heading"><h4>Current blocker and next-action guidance</h4>
                 <button className="quiet" disabled={busy}

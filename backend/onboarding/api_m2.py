@@ -11,7 +11,7 @@ from backend.common.http import error,InputError,json_payload,required_uuid,tran
 from backend.onboarding import views as m1
 from backend.onboarding import commands
 from backend.onboarding.services import CommandFailure,get_authorized_case,scoped_cases
-from backend.onboarding.models import Task
+from backend.onboarding.models import Task,TaskDependency
 from backend.onboarding.state_machine import summary_task,case_progress
 
 @csrf_protect
@@ -95,10 +95,17 @@ def day_one(request,case_id):
 def tasks(request,case_id):
     try:
         member,case=get_authorized_case(request.user,case_id)
-        qs=Task.objects.filter(case=case).select_related('owner_assignment').order_by('due_at','key')[:100]
+        qs=list(Task.objects.filter(case=case).select_related(
+            'owner_assignment','template_task').order_by('template_task__position','key')[:100])
+        edges=TaskDependency.objects.filter(case=case).values_list('predecessor_id','successor_id')
+        parents={str(t.pk):[] for t in qs}
+        for predecessor,successor in edges:
+            if str(successor) in parents:
+                parents[str(successor)].append(str(predecessor))
         return JsonResponse({'case_id':str(case.pk),'case_status':case.status,
             'case_version':case.version,'progress':case_progress(case),
-            'tasks':[summary_task(t,member,case) for t in qs]})
+            'tasks':[{**summary_task(t,member,case),
+                      'prerequisite_task_ids':sorted(parents[str(t.pk)])} for t in qs]})
     except CommandFailure as exc:return error(exc.code,exc.status)
     except PermissionDenied:return error('UNAUTHENTICATED',401)
     except DatabaseError as exc:return transient_db_response(exc,preflight=True)
