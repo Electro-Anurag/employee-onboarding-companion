@@ -26,3 +26,7 @@ until the owner's self-hosted runner is available. This does not replace the ful
 M3–M4 four-role Chromium suite or hosted J01–J05. No new Run ID, PASS or
 root-cause claim exists until actual successful execution and investigation
 of any observed failure.
+
+## GitHub scheduling observation
+
+The exact diagnostic code committed at `71ce39459e53445696a950ed3cdafc5c04b68fba` caused [self-hosted run 38146978776](https://github.com/Electro-Anurag/employee-onboarding-companion/actions/runs/38146978776), observed `QUEUED`. The new JavaScript file was syntax-parsed locally only, not executed. Historical T02 browser FAIL persists; a passing focused test, if it later occurs, will not alone clear full four-role acceptance.
