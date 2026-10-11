@@ -152,8 +152,15 @@ def test_offline_policy_http_response_is_scoped_unchanged_and_not_a_model(
     source = next(p for p in ctx['policies'] if p['source_id'].startswith(
         'POLICY:' + conduct_task['id'] + ':'))
     url = '/api/v1/cases/' + str(case.pk) + '/companion/answer'
+    # Exercise the real authentication/session boundary. force_login alone
+    # deliberately lacks the m1_session_started marker and SessionGuard
+    # invalidates it; a 404 there says nothing about policy permissions.
     client = Client()
-    client.force_login(employee)
+    login = client.post('/api/v1/auth/login', data=json.dumps({
+        'email': employee.email,
+        'password': 'VerifiedStrongPassword!2026',
+    }), content_type='application/json')
+    assert login.status_code == 200, login.content
     response = client.post(url, data=json.dumps(
         {'question':'What is the conduct policy?'}),
         content_type='application/json')
@@ -165,8 +172,14 @@ def test_offline_policy_http_response_is_scoped_unchanged_and_not_a_model(
     assert body['answer']['citations'] == [source['source_id']]
     assert body['answer']['answer'].endswith(source['text'])
     assert not AuditEvent.objects.filter(event_type='AI_MODEL_ATTEMPT').exists()
-    client.force_login(actors['MANAGER'][0])
-    denied = client.post(url,data=json.dumps(
+    manager = actors['MANAGER'][0]
+    manager_client = Client()
+    manager_login = manager_client.post('/api/v1/auth/login', data=json.dumps({
+        'email': manager.email,
+        'password': 'VerifiedStrongPassword!2026',
+    }), content_type='application/json')
+    assert manager_login.status_code == 200, manager_login.content
+    denied = manager_client.post(url,data=json.dumps(
         {'question':'What is the conduct policy?'}),
         content_type='application/json')
     assert denied.status_code == 200

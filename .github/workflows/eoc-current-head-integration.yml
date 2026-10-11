@@ -4,6 +4,7 @@ on:
     branches: ['feature/eoc-completion-development']
     paths:
       - '.github/workflows/eoc-current-head-integration.yml'
+      - 'backend/ai/tests/test_offline_policy.py'
   workflow_dispatch:
 permissions:
   contents: read
