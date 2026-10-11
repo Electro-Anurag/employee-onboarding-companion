@@ -3,6 +3,7 @@ import './App.css';
 import EvidenceWorkflows from './EvidenceWorkflows';
 import CaseDashboard,{type CaseDashboardData} from './CaseDashboard';
 import PortfolioOverview,{type PortfolioCase,type PortfolioPage} from './PortfolioOverview';
+import AnswerEvidence,{type ModelAnswer} from './AnswerEvidence';
 import {workflowPresentation} from './workflowPresentation';
 
 type Me = { display_name:string;email:string;role:'HR'|'IT'|'MANAGER'|'EMPLOYEE';user_id:string;capabilities?:{manage_templates:boolean;coordinate_ownership:boolean} };
@@ -33,8 +34,7 @@ type Guidance = {mode:'DETERMINISTIC_ONLY';ai_model_used:false;
   open_exceptions:{id:string;task_title:string;cause:string;episode:number;
     status:string;assignee_role:string|null}[];limitations:string[]};
 type CompanionAnswer = {mode:string;ai_model_used:boolean;error_code?:string;model?:string;
-  guidance?:Guidance;answer?:{answer_type:string;answer:string;citations:string[];
-    recommended_actions:string[];blockers:string[];limitations:string[]}};
+  guidance?:Guidance;answer?:ModelAnswer};
 type ExceptionRecord = {id:string;task_id:string;task_title:string;task_owner_role:string;
   cause:string;episode:number;
   status:'OPEN'|'ASSIGNED'|'RESOLVED'|'CLOSED'|'SUPERSEDED';assignee_role:string|null;
@@ -836,16 +836,9 @@ export default function App(){
                </div>
                <p className="meta">External model inference is opt-in and requires an approved
                  provider/API configuration. The response cannot approve or change any task.</p>
-               {aiAnswer?.ai_model_used&&aiAnswer.answer&&<div className="subpanel">
-                 <strong>Model-generated, source-validated answer ({aiAnswer.answer.answer_type})</strong>
-                 <p>{aiAnswer.answer.answer}</p>
-                 <p className="meta">Model: {aiAnswer.model} · Source identifiers:
-                   {' '}{aiAnswer.answer.citations.length?aiAnswer.answer.citations.join(', '):'None'}</p>
-                 {!!aiAnswer.answer.recommended_actions.length&&<p className="meta">
-                   Eligible next-action IDs: {aiAnswer.answer.recommended_actions.join(', ')}
-                 </p>}
-                 {aiAnswer.answer.limitations.map((x,i)=><p className="meta" key={i}>{x}</p>)}
-               </div>}
+               {aiAnswer?.ai_model_used&&aiAnswer.answer&&<AnswerEvidence
+                 answer={aiAnswer.answer} model={aiAnswer.model||'configured provider'}
+                 currentVersion={detail.case_version} tasks={detail.tasks}/>} 
                {aiAnswer&&!aiAnswer.ai_model_used&&<p className="meta">
                  No model answer was produced ({aiAnswer.error_code}).
                  Current-state deterministic guidance is displayed below.

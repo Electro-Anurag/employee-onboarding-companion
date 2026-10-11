@@ -4,6 +4,9 @@ on:
     branches: ['feature/eoc-completion-development']
     paths:
       - 'backend/ai/**'
+      - 'frontend/src/AnswerEvidence.tsx'
+      - 'frontend/src/AnswerEvidence.test.tsx'
+      - 'frontend/src/App.tsx'
       - '.github/workflows/eoc-m6-focused.yml'
   workflow_dispatch:
 permissions:
@@ -47,3 +50,12 @@ jobs:
           uv run python manage.py migrate --noinput
       - name: M6 adversarial answer and provider contract tests
         run: uv run pytest -q backend/ai/tests/test_inference.py backend/ai/tests/test_context.py backend/ai/tests/test_provenance.py
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+      - name: M6 provenance presentation and frontend build
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run test
+          npm run build
