@@ -47,6 +47,14 @@ Backend source `9b44ad0184298ef7d5420a7145d17af2540e433e`; React interface + tes
 
 **Focused CI PASS:** [run 38130736087](https://github.com/Electro-Anurag/employee-onboarding-companion/actions/runs/38130736087) at exact SHA `fb59c4543e673a6b00f801c472a59d2c3af17385`: 5 PostgreSQL tests passed (4 nonfatal warnings), 17 React tests passed and Vite build succeeded. No full/browser/hosted security qualification or production release claim.
 
+## M6 task-specific provenance and human-readable evidence (focused qualification)
+
+Backend `9a87b516c587d4ec30ca587999432556a16295a8` and focused-CI test registration `7d0571f2ad177b62000049f3cbce12bb02e2b519`: the model output validator now rejects a proposed action or blocker whose specific underlying task is absent from the cited `TASK:<task_id>` sources. Partial answers require a nonblank limitation. Real PostgreSQL adversarial scenarios include forged-but-valid unrelated citations, blocked-task provenance, cross-role policy citation, stale case versions, and audited fallback with no completion mutation. **Focused backend PASS:** [38131207102](https://github.com/Electro-Anurag/employee-onboarding-companion/actions/runs/38131207102), 24 Python/PostgreSQL tests passed.
+
+React source `2a71b39bb560ee60dc961dfde23dbb72cc958e9f`: the model answer now presents recognizable task/policy labels alongside exact evidence IDs; stale answers for a previous case version are suppressed; limitations of evidence-ID checking versus semantic factuality are explicitly explained. **Exact-SHA focused M6 PASS:** [38131450646](https://github.com/Electro-Anurag/employee-onboarding-companion/actions/runs/38131450646), 24 PostgreSQL tests passed, 20 React tests passed, Vite production build passed. **Exact-SHA focused M7 frontend regression PASS:** [38131450498](https://github.com/Electro-Anurag/employee-onboarding-companion/actions/runs/38131450498), 5 PostgreSQL tests, 20 React tests and production build passed.
+
+These results are deterministic contract and presentation verification only. A correctly referenced task can still be attached to unsupported arbitrary prose. No real external AI provider called; semantic entailment, adversarial natural-language grounding, prompt injection resilience, human acceptance, browser/hosted J04, cost/latency and accessibility remain open. No deployment or billing implied.
+
 ## Next implementation order
 
 1. M5 reminder and escalation recovery, worker outage/multi-worker evidence and handoff edge cases.
