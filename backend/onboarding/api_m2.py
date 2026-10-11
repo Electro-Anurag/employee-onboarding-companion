@@ -81,7 +81,7 @@ def portfolio(request):
             except (TypeError,ValueError,AttributeError):
                 return error('INVALID_PORTFOLIO_CURSOR',422)
         raw=request.GET.get('limit','25')
-        if not raw.isascii() or not raw.isdecimal():
+        if len(raw)>2 or not raw.isascii() or not raw.isdecimal():
             return error('INVALID_PORTFOLIO_LIMIT',422)
         result=portfolio_page(request.user,after=after,limit=int(raw))
         response=JsonResponse(result)

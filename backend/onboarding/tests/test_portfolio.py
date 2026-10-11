@@ -7,7 +7,7 @@ from django.test import Client
 from django.utils import timezone
 from backend.accounts.models import User,Membership
 from backend.audit.models import AuditEvent
-from backend.onboarding.commands import create_case
+from backend.onboarding.commands import create_case,activate_case
 from backend.onboarding.models import OnboardingCase
 from backend.onboarding.tests.test_m2_workflow import world,published,create
 from backend.onboarding.portfolio import portfolio_page
@@ -37,6 +37,10 @@ def test_current_hr_portfolio_is_cursor_paginated_and_read_only(world):
         template_version_id=version,joining_date=timezone.localdate()+timedelta(days=20),
         owner_ids={'IT':actors['IT'][1].pk,'MANAGER':actors['MANAGER'][1].pk},
         key=uuid.uuid4())
+    # A CREATED case has no activated task snapshot. Only the first case
+    # acquires its 17 mandatory tasks; never invent progress on the second.
+    activate_case(actor=actors['HR'][0],case_id=uuid.UUID(first['case_id']),
+                  key=uuid.uuid4(),expected_version=1)
     before=AuditEvent.objects.count()
     client=session_client(actors['HR'][0])
     path='/api/v1/portfolio'
@@ -54,8 +58,12 @@ def test_current_hr_portfolio_is_cursor_paginated_and_read_only(world):
     assert last['next_cursor'] is None
     seen={data['results'][0]['case_id'],last['results'][0]['case_id']}
     assert seen=={first['case_id'],second['case_id']}
-    assert all(p['progress']['mandatory_total']==17 for p in
-               (data['results'][0],last['results'][0]))
+    by_id={row['case_id']:row for row in (
+        data['results'][0],last['results'][0])}
+    assert by_id[first['case_id']]['progress']['mandatory_total']==17
+    assert by_id[first['case_id']]['status']=='PRE_JOINING'
+    assert by_id[second['case_id']]['progress']['mandatory_total']==0
+    assert by_id[second['case_id']]['status']=='CREATED'
     assert AuditEvent.objects.count()==before
     assert client.post(path,data='{}',content_type='application/json').status_code==405
     assert client.get(path+'?limit=0').status_code==422
