@@ -114,7 +114,11 @@ def test_rotation_rejects_wrong_role_and_missing_synthetic_user(monkeypatch):
     with pytest.raises(CommandError):
         _rotate()
     Membership.objects.filter(user=users["HR"]).update(role="HR")
-    users["IT"].delete()
+    # Do not delete a user protected by FK membership/audit constraints.
+    # Renaming the synthetic fixture identity proves exact allowlist checks.
+    User.objects.filter(pk=users["IT"].pk).update(
+        email="it-legacy@hosted-onboarding-demo.invalid"
+    )
     with pytest.raises(CommandError):
         _rotate()
     for role in ("HR", "EMPLOYEE", "MANAGER"):
