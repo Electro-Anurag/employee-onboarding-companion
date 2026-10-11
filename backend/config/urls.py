@@ -29,6 +29,7 @@ urlpatterns = [
     path('api/v1/auth/password-reset-tokens',auth.issue_reset),
     path('api/v1/auth/password-reset-tokens/redeem',auth.redeem_reset),
     path('api/v1/cases',m2.cases_collection),
+    path('api/v1/portfolio',m2.portfolio),
     path('api/v1/cases/<uuid:case_id>',cases.case_detail),
     path('api/v1/cases/<uuid:case_id>/assignments',cases.assignment),
     path('api/v1/owners',m2.available_owners),

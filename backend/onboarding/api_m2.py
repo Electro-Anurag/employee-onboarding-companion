@@ -70,6 +70,33 @@ def activate(request,case_id):
     return command(execute)
 
 @require_GET
+def portfolio(request):
+    """Versioned, private current-HR portfolio page; no cross-org analytics."""
+    from uuid import UUID
+    from backend.onboarding.portfolio import portfolio_page
+    try:
+        after=request.GET.get('after')
+        if after:
+            try: after=UUID(after)
+            except (TypeError,ValueError,AttributeError):
+                return error('INVALID_PORTFOLIO_CURSOR',422)
+        raw=request.GET.get('limit','25')
+        if not raw.isascii() or not raw.isdecimal():
+            return error('INVALID_PORTFOLIO_LIMIT',422)
+        result=portfolio_page(request.user,after=after,limit=int(raw))
+        response=JsonResponse(result)
+        response['Cache-Control']='private, no-store'
+        return response
+    except CommandFailure as exc:
+        if exc.status==422:return error(exc.code,422)
+        return error('NOT_FOUND',404)
+    except PermissionDenied:
+        return error('NOT_FOUND',404)
+    except DatabaseError as exc:
+        return transient_db_response(exc,preflight=True)
+
+
+@require_GET
 def dashboard(request,case_id):
     """HR-only current-state counts; never sends a mutation or provider call."""
     from backend.onboarding.dashboard import case_dashboard
