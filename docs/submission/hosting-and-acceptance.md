@@ -9,9 +9,10 @@ synthetic-demo-only and is not a production security certification.
 
 ## Deployment boundary
 
-The checked-in `render.yaml` proposes a Django/React Docker web service, a
-private Render PostgreSQL database and a PostgreSQL-backed Procrastinate
-`control` worker. The document upload/scanning path deliberately stays
+The checked-in `render.yaml` provisions **only** a free Django/React Docker
+web service and private free PostgreSQL. The optional full architecture,
+including the paid Procrastinate `control` worker, is kept separately in
+`render.full.yaml` and is **not enabled**. The document upload/scanning path deliberately stays
 disabled without separate S3, ClamAV, retention, access controls and a
 qualified secure-hosting review. **Do not upload real employee or ID documents.**
 

@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-SCRIPT = Path(__file__).resolve().parents[3] / "start_web.sh"
+SCRIPT = Path(__file__).resolve().parents[2] / "start_web.sh"
 
 
 def _mock_binary(path, *, fail_seed=False):
