@@ -70,3 +70,15 @@ def reconcile_reminders_periodic(timestamp: int):
         from django.db import transaction
         with transaction.atomic():
             defer_atomic(reconcile_current_reminders,after=result['next_cursor'])
+
+
+@app.periodic(cron="*/5 * * * *")
+@app.task(name="m5.retry_stalled_control", queue="control",
+          queueing_lock="m5_retry_stalled_control_singleton")
+async def recover_stalled_m5_control(timestamp: int):
+    """Another live worker can recover dead-worker M5 control jobs.
+
+    No worker = no periodic service; this does not grant a hosted SLA.
+    """
+    from backend.jobs.recovery import retry_stalled_m5
+    await retry_stalled_m5(app.job_manager)
