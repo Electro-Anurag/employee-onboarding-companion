@@ -22,8 +22,10 @@ def test_m6_authorized_context_validated_no_writes_or_invented_citations(world):
     assert context['sources'] and all(x.startswith('TASK:') for x in context['sources'])
     assert 'employee_email' not in str(context)
     assert 'document_bytes' not in str(context)
-    payload={'answer_type':'SUPPORTED','answer':'The assigned owner can begin the currently ready work.',
-        'citations':[context['sources'][0]],'recommended_actions':[],
+    first=context['tasks'][0]
+    payload={'answer_type':'SUPPORTED',
+        'answer':first['title']+' is assigned to '+first['owner_role']+'.',
+        'citations':['TASK:'+first['id']],'recommended_actions':[],
         'blockers':[],'clarification':None,'escalation_draft':None,'limitations':[]}
     assert validate_answer(payload,context,actor=actors['MANAGER'][0],case_id=case.pk)['answer_type']=='SUPPORTED'
     with pytest.raises(UnsafeAIAnswer,match='UNSUPPORTED_CITATIONS'):

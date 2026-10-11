@@ -5,10 +5,89 @@ from backend.onboarding.services import get_authorized_case
 TYPES=frozenset({'SUPPORTED','PARTIAL','UNSUPPORTED','CONFLICT'})
 TEXT_RE=re.compile(r'[\x00-\x08\x0b\x0c\x0e-\x1f]')
 
+# These strings are composed by this trusted server boundary, not inferred
+# from arbitrary model prose. The model may select an exact fact, not invent it.
+SAFE_ABSTENTION = 'The available authorized sources do not establish that claim.'
+SAFE_LIMITATION = 'No verified fact supports the requested claim.'
+PARTIAL_LIMITATION = 'This answer covers only the cited fact, not the entire question.'
+
 
 class UnsafeAIAnswer(ValueError):
     pass
 
+
+
+def _has_grounded_fact(payload, context):
+    """Exact canonical fact admission, not fuzzy matching or NLP entailment.
+
+    One sentence, one source, and at most one task-specific action/blocker.
+    Each accepted field comes from the currently authorized server snapshot.
+    """
+    if len(payload['citations']) != 1:
+        return False
+    source = payload['citations'][0]
+    answer = payload['answer']
+    actions = payload['recommended_actions']
+    blockers = payload['blockers']
+    if actions and blockers:
+        return False
+    for task in context['tasks']:
+        if source != 'TASK:' + task['id']:
+            continue
+        if not actions and not blockers:
+            facts = {
+                task['title'] + ' is assigned to ' + task['owner_role'] + '.',
+                task['title'] + ' is ' + task['state'] + '.',
+            }
+            if task['due_at'] is not None:
+                facts.add(task['title'] + ' is due ' + str(task['due_at']) + '.')
+            if answer in facts:
+                return True
+        if len(actions) == 1 and not blockers:
+            return (answer == 'The action is currently eligible for ' +
+                    task['title'] + '.' and
+                    any(a['id'] == actions[0] and a['task_id'] == task['id']
+                        for a in context['eligible_actions']))
+        if len(blockers) == 1 and not actions:
+            return (answer == task['title'] + ' is currently blocked.' and
+                    task['state'] == 'BLOCKED' and
+                    any(b['id'] == blockers[0] and b['task_id'] == task['id']
+                        for b in context['blockers']))
+        return False
+    if actions or blockers:
+        return False
+    for policy in context['policies']:
+        if (source == policy['source_id'] and
+                answer == 'Assigned policy edition ' + str(policy['version']) +
+                ' is available for review.'):
+            return True
+    for exception in context['open_exceptions']:
+        if (source == exception['id'] and
+                answer == 'Exception episode ' + str(exception['episode']) +
+                ' is ' + exception['status'] + '.'):
+            return True
+    return False
+
+
+def _validate_claim_boundary(payload, context):
+    """No freeform generated text is published, including optional fields."""
+    if payload['clarification'] is not None or payload['escalation_draft'] is not None:
+        raise UnsafeAIAnswer('UNVERIFIED_GENERATED_PROSE')
+    kind = payload['answer_type']
+    if kind in ('SUPPORTED', 'PARTIAL'):
+        expected_limits = [] if kind == 'SUPPORTED' else [PARTIAL_LIMITATION]
+        if payload['limitations'] != expected_limits:
+            raise UnsafeAIAnswer('UNVERIFIED_LIMITATION')
+        if not _has_grounded_fact(payload, context):
+            raise UnsafeAIAnswer('UNSUPPORTED_ANSWER_CLAIM')
+        return
+    if (kind != 'UNSUPPORTED' or payload['answer'] != SAFE_ABSTENTION or
+            payload['citations'] or payload['blockers'] or
+            payload['recommended_actions'] or
+            payload['limitations'] != [SAFE_LIMITATION]):
+        # A CONFLICT classification requires independent source-conflict
+        # verification, which is not implemented; it cannot be admitted yet.
+        raise UnsafeAIAnswer('UNVERIFIED_ABSTENTION')
 
 def validate_answer(payload,context,*,actor,case_id):
     # Auth and revision refreshed at publication, not merely at prompt time.
@@ -73,6 +152,7 @@ def validate_answer(payload,context,*,actor,case_id):
             raise UnsafeAIAnswer('UNSUPPORTED_ACTION_CLAIM')
         if not payload['limitations'] or any(not x.strip() for x in payload['limitations']):
             raise UnsafeAIAnswer('ABSTENTION_LIMITATION_REQUIRED')
+    _validate_claim_boundary(payload, context)
     # This function only returns validated *text/candidate identifiers*.
     # It cannot call existing mutations, accept approvals or send messages.
     return {**payload,'case_version':context['case_version'],

@@ -25,8 +25,8 @@ def m6_case(world):
 def _synthetic_answer(ctx):
     return {
         'answer_type': 'SUPPORTED',
-        'answer': 'Read the assigned synthetic conduct policy and complete eligible acknowledgements.',
-        'citations': [next(x for x in ctx['sources'] if x.startswith('POLICY:'))],
+        'answer': 'Assigned policy edition '+str(ctx['policies'][0]['version'])+' is available for review.',
+        'citations': [ctx['policies'][0]['source_id']],
         'recommended_actions': [], 'blockers': [],
         'clarification': None, 'escalation_draft': None, 'limitations': [],
     }

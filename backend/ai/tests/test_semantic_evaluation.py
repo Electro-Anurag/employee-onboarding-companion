@@ -9,7 +9,8 @@ import uuid
 import pytest
 from backend.ai.context import authorized_context
 from backend.ai.evaluation import evaluate_labeled_decisions
-from backend.ai.validator import validate_answer,UnsafeAIAnswer
+from backend.ai.validator import (validate_answer, UnsafeAIAnswer,
+                                  SAFE_ABSTENTION, SAFE_LIMITATION)
 from backend.onboarding.commands import activate_case
 from backend.onboarding.models import OnboardingCase
 from backend.onboarding.tests.test_m2_workflow import world,published,create
@@ -77,8 +78,8 @@ def test_m6_developer_labeled_semantic_baseline_reports_real_admission_stop(worl
         ("invented_id","UNSUPPORTED",payload(
             "This case has verified evidence.",["TASK:nonexistent"])),
         ("safe_abstention","ABSTENTION",payload(
-            "The approved case sources do not establish a cash bonus.",[],
-            kind="UNSUPPORTED",limitations=["No approved source for that claim."])),
+            SAFE_ABSTENTION,[],
+            kind="UNSUPPORTED",limitations=[SAFE_LIMITATION])),
     ]
     decisions=[]
     for case_id,gold,candidate in examples:
@@ -89,17 +90,16 @@ def test_m6_developer_labeled_semantic_baseline_reports_real_admission_stop(worl
             admitted=False
         decisions.append((case_id,gold,admitted))
     report=evaluate_labeled_decisions(decisions)
-    # Explicitly freeze the known risk rather than celebrating a green test.
+    # New conservative exact-fact admission only; these labels remain developer-authored.
     assert report["case_count"]==len(examples)
     assert report["supported_admitted"]==4
-    assert report["unsupported_admitted"]==4  # false facts citing real IDs
-    assert report["unsupported_rejected"]==3  # structurally detectable
+    assert report["unsupported_admitted"]==0
+    assert report["unsupported_rejected"]==7
     assert report["abstention_admitted"]==1
-    assert report["admission"]=="STOP"
-    assert {x["case_id"] for x in report["findings"]}=={
-        "false_owner","false_state","false_due","invented_bonus"}
+    assert report["admission"]=="CANDIDATE_ONLY"
+    assert report["findings"]==[]
     # CI log only prints synthetic verdict IDs and counts, never private text.
-    print("M6_SEMANTIC_ADMISSION_BASELINE="+json.dumps(report,sort_keys=True))
+    print("M6_CANONICAL_CLAIM_ADMISSION_CANDIDATE="+json.dumps(report,sort_keys=True))
 
 
 def test_m6_semantic_scorer_rejects_bad_rows_and_never_issues_release_go():

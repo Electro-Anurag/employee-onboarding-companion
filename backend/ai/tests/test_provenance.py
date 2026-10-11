@@ -28,16 +28,27 @@ def active_case(world):
 
 def proposed(ctx,*,citations=None,actions=None,blockers=None,kind='SUPPORTED',
              limitations=None):
+    citations = citations if citations is not None else [ctx['sources'][0]]
+    actions = actions if actions is not None else []
+    blockers = blockers if blockers is not None else []
+    if actions:
+        action=next(a for a in ctx['eligible_actions'] if a['id']==actions[0])
+        task=next(t for t in ctx['tasks'] if t['id']==action['task_id'])
+        answer='The action is currently eligible for '+task['title']+'.'
+    elif blockers:
+        blocker=next(b for b in ctx['blockers'] if b['id']==blockers[0])
+        task=next(t for t in ctx['tasks'] if t['id']==blocker['task_id'])
+        answer=task['title']+' is currently blocked.'
+    else:
+        task=next(t for t in ctx['tasks'] if 'TASK:'+t['id'] in citations) if any(
+            'TASK:'+t['id'] in citations for t in ctx['tasks']) else ctx['tasks'][0]
+        answer=task['title']+' is assigned to '+task['owner_role']+'.'
     return {
-        'answer_type':kind,
-        'answer':'Synthetic example: use the referenced task evidence.',
-        'citations':citations if citations is not None else [ctx['sources'][0]],
-        'recommended_actions':actions if actions is not None else [],
-        'blockers':blockers if blockers is not None else [],
+        'answer_type':kind,'answer':answer,'citations':citations,
+        'recommended_actions':actions,'blockers':blockers,
         'clarification':None,'escalation_draft':None,
         'limitations':limitations if limitations is not None else [],
     }
-
 
 @pytest.mark.django_db(transaction=True)
 def test_actions_require_citation_to_their_own_task_not_any_valid_source(active_case):
@@ -81,7 +92,7 @@ def test_partial_answers_explain_limits_and_preserve_valid_sources(active_case,m
     bad=proposed(ctx,kind='PARTIAL',limitations=missing)
     with pytest.raises(UnsafeAIAnswer,match='PARTIAL_LIMITATION_REQUIRED'):
         validate_answer(bad,ctx,actor=user,case_id=case.pk)
-    good={**bad,'limitations':['The available sources do not cover every question.']}
+    good={**bad,'limitations':['This answer covers only the cited fact, not the entire question.']}
     assert validate_answer(good,ctx,actor=user,case_id=case.pk)[
         'answer_type']=='PARTIAL'
 
