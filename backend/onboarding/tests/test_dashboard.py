@@ -1,5 +1,6 @@
 """Read-only, HR-isolated mandatory case dashboard on real PostgreSQL."""
 import uuid
+import time
 import pytest
 from django.test import Client
 from backend.accounts.models import Membership,User
@@ -58,6 +59,9 @@ def test_m7_case_dashboard_http_scoped_to_current_hr_only(world):
                   key=uuid.uuid4(),expected_version=1)
     path=f'/api/v1/cases/{case.pk}/dashboard'
     hr=Client();hr.force_login(actors['HR'][0])
+    session=hr.session
+    session['m1_session_started']=time.time()
+    session.save()
     ok=hr.get(path)
     assert ok.status_code==200,ok.content
     assert ok['Cache-Control']=='private, no-store'
@@ -65,7 +69,13 @@ def test_m7_case_dashboard_http_scoped_to_current_hr_only(world):
     assert ok.json()['progress']['mandatory_total']==17
     assert hr.post(path,data='{}',content_type='application/json').status_code==405
     manager=Client();manager.force_login(actors['MANAGER'][0])
+    manager_session=manager.session
+    manager_session['m1_session_started']=time.time()
+    manager_session.save()
     employee=Client();employee.force_login(actors['EMPLOYEE'][0])
+    employee_session=employee.session
+    employee_session['m1_session_started']=time.time()
+    employee_session.save()
     assert manager.get(path).status_code==404
     assert employee.get(path).status_code==404
     assert hr.get(f'/api/v1/cases/{uuid.uuid4()}/dashboard').status_code==404
