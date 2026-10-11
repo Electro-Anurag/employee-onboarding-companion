@@ -105,7 +105,6 @@ async def recover(job_id):
         result = await retry_stalled_m5(
             app.job_manager, stale_seconds=30)
     assert result["recovered"] >= 1, result
-    assert state(job_id) == "todo"
 
 
 def main():
@@ -129,6 +128,7 @@ def main():
     # The same 30-second minimum is enforced by the implementation.
     time.sleep(33)
     asyncio.run(recover(job))
+    assert state(job) == "todo"
     env.pop("M5_CI_CRASH_AFTER_RECONCILE")
     second = launch(env)
     try:
