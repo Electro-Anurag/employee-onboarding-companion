@@ -62,7 +62,7 @@ def test_exact_canonical_facts_and_adversarial_fabrications(world):
                limits=[SAFE_LIMITATION]),
     ]
     for index, item in enumerate(bogus):
-        with pytest.raises(UnsafeAIAnswer), index:
+        with pytest.raises(UnsafeAIAnswer):
             validate_answer(item, ctx, actor=user, case_id=case.pk)
     abstain = packet(SAFE_ABSTENTION, [], kind="UNSUPPORTED",
                      limits=[SAFE_LIMITATION])
@@ -72,6 +72,7 @@ def test_exact_canonical_facts_and_adversarial_fabrications(world):
                      limits=[PARTIAL_LIMITATION])
     assert validate_answer(partial, ctx, actor=user,
                            case_id=case.pk)["answer_type"] == "PARTIAL"
+    case.refresh_from_db()
     case.version += 1
     case.save(update_fields=["version"])
     with pytest.raises(UnsafeAIAnswer, match="STALE_OR_UNAUTHORIZED_CONTEXT"):
