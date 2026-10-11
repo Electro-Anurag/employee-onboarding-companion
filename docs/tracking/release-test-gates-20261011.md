@@ -50,3 +50,7 @@ This tracker is continued from the canonical 11 October handoff. PASS@SHA applie
 | **Total** | **100** | **63** | **37** |
 
 Estimate intentionally unchanged pending independently evaluated answer capability and integrated real-browser/hosted gates. No scope reduction: PRD v1.1 28 requirements, four roles, ten exceptions, J01–J05. Next development targets full M6 useful policy answers from server-authorized facts (without paraphrasing unverified prose), M5/M7 remaining functional flows; then consolidated T02/T03/T04/T08/T17/T18. Do not deploy or spend without authorization.
+
+### Current pending M6 policy-quote test slice
+
+Exact implementation + test SHA: `6481876a2328f054eaedaf84db1bcc0b2471ebdc`; [focused run 38146123757](https://github.com/Electro-Anurag/employee-onboarding-companion/actions/runs/38146123757) **QUEUED** as last inspected. Intermediate run 38146056504 at `7e580a40…` QUEUED and not sufficient. New full-edition policy quotation is not qualified until CI concludes successfully, and passing it would not close T12 independent relevance or T13 real-provider gates. Previous validated candidate at `be72be32…` remains 24 existing PostgreSQL + 4 adversarial/semantic + 20 React PASS. T01–T25 and 63/37 estimate unchanged; no deploy.

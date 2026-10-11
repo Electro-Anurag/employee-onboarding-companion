@@ -29,3 +29,7 @@ word modifications, partial deletions, extra financial claims, incorrect
 policy citations, model-authored escalation text, wrong role, stale context,
 overlong policy and HTML escaping. An exact-SHA CI result is required before
 calling this focused implementation tested.
+
+## Observed CI scheduling state
+
+Final code/test SHA `6481876a2328f054eaedaf84db1bcc0b2471ebdc`. [Focused run 38146123757](https://github.com/Electro-Anurag/employee-onboarding-companion/actions/runs/38146123757) queued during this continuation; no test conclusion yet. The only passing M6 run currently inspected belongs to the earlier `be72be32…` boundary. Do not assert the quoted-policy feature is validated or production-ready before exact-SHA qualification. Independent answer relevance and model-source selection remain untested.
