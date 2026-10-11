@@ -5,6 +5,7 @@ import CaseDashboard,{type CaseDashboardData} from './CaseDashboard';
 import PortfolioOverview,{type PortfolioCase,type PortfolioPage} from './PortfolioOverview';
 import AnswerEvidence,{type ModelAnswer} from './AnswerEvidence';
 import {workflowPresentation} from './workflowPresentation';
+import {assignedPolicyShortcuts} from './policyShortcuts';
 
 type Me = { display_name:string;email:string;role:'HR'|'IT'|'MANAGER'|'EMPLOYEE';user_id:string;capabilities?:{manage_templates:boolean;coordinate_ownership:boolean} };
 type Progress = { mandatory_total:number;mandatory_completed:number;mandatory_remaining:number;percent:number };
@@ -357,10 +358,10 @@ export default function App(){
     if(identityEpoch.current!==generation)return;
     setGuidance(result);
   }
-  async function askCompanion(caseId:string){
+  async function askCompanion(caseId:string, presetQuestion?:string){
     const generation=identityEpoch.current;
     const aiGeneration=aiRequestEpoch.current;
-    const question=aiQuestion.trim();
+    const question=(presetQuestion??aiQuestion).trim();
     if(!question||question.length>400)return;
     setBusy(true);
     try{
@@ -829,10 +830,25 @@ export default function App(){
               </div>
               <p className="meta">Deterministic current-state guidance; no AI model call, external
                 provider, autonomous approval or message sending.</p>
+              {assignedPolicyShortcuts(me.role,detail.tasks).length>0&&
+                <div role="group" aria-label="Assigned policy shortcuts" className="subpanel">
+                  <strong>Read assigned policies</strong>
+                  <p className="meta">Exact, case-authorized synthetic editions. These shortcuts
+                    use verified source text, not an AI model.</p>
+                  <div className="actions">
+                    {assignedPolicyShortcuts(me.role,detail.tasks).map(item=>
+                      <button type="button" className="quiet" key={item.key}
+                        disabled={busy}
+                        onClick={()=>{
+                          setAiQuestion(item.question);
+                          void askCompanion(detail.case_id,item.question);
+                        }}>{item.label}</button>)}
+                  </div>
+                </div>}
               <div className="form">
                  <label>Ask about a synthetic policy or next action
                    <input value={aiQuestion} maxLength={400} onChange={e=>setAiQuestion(e.target.value)}
-                     placeholder="What conduct policy applies to me?"/>
+                     placeholder="Show the assigned conduct policy"/>
                  </label>
                  <button disabled={busy||!aiQuestion.trim()}
                    onClick={()=>void askCompanion(detail.case_id)}>Ask read-only companion</button>
