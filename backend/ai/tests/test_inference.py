@@ -9,6 +9,7 @@ from backend.onboarding.tests.test_m2_workflow import world, published, create
 from backend.ai.context import authorized_context
 from backend.ai.answers import answer_question
 from backend.ai.provider import infer
+from backend.ai.validator import validate_answer,UnsafeAIAnswer
 
 
 @pytest.fixture
@@ -127,3 +128,50 @@ def test_m6_provider_request_boundaries_and_exact_text_extraction(monkeypatch):
     result, usage = infer({'sources': [], 'tasks': [], 'policies': []}, 'Unknown policy?')
     assert result['answer_type'] == 'UNSUPPORTED'
     assert usage['response_id'] == 'resp_synthetic'
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize('malformed',[[],{},['SUPPORTED'],3,None])
+def test_m6_unhashable_or_invalid_answer_type_is_rejected_not_server_error(m6_case,malformed):
+    case,actors=m6_case
+    ctx=authorized_context(actors['EMPLOYEE'][0],case.pk)
+    data={**_synthetic_answer(ctx),'answer_type':malformed}
+    with pytest.raises(UnsafeAIAnswer,match='INVALID_ANSWER_TYPE'):
+        validate_answer(data,ctx,actor=actors['EMPLOYEE'][0],case_id=case.pk)
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize('kind,answer,limitations,expected',[
+    ('SUPPORTED','   ',[],'INVALID_ANSWER_TEXT'),
+    ('UNSUPPORTED','Unable to verify.',[],'ABSTENTION_LIMITATION_REQUIRED'),
+    ('CONFLICT','Source conflict.',[],'ABSTENTION_LIMITATION_REQUIRED'),
+    ('UNSUPPORTED','Unable to verify.',[' '],'ABSTENTION_LIMITATION_REQUIRED'),
+])
+def test_m6_empty_or_unsupported_answer_requires_meaningful_abstention(
+        m6_case,kind,answer,limitations,expected):
+    case,actors=m6_case
+    ctx=authorized_context(actors['EMPLOYEE'][0],case.pk)
+    data={**_synthetic_answer(ctx),'answer_type':kind,
+          'answer':answer,'limitations':limitations,
+          'citations':[] if kind!='SUPPORTED' else _synthetic_answer(ctx)['citations']}
+    with pytest.raises(UnsafeAIAnswer,match=expected):
+        validate_answer(data,ctx,actor=actors['EMPLOYEE'][0],case_id=case.pk)
+
+
+@pytest.mark.django_db(transaction=True)
+def test_m6_malformed_model_output_fails_closed_and_records_sanitized_audit(monkeypatch,m6_case):
+    case,actors=m6_case
+    monkeypatch.setenv('EOC_AI_PROVIDER','OPENAI')
+    monkeypatch.setenv('OPENAI_API_KEY','offline-synthetic-test-not-a-secret')
+    def malformed(_context,_question):
+        return {'answer_type':{'unexpected':['SUPPORTED']}}, {
+            'model':'gpt-4o-mini','response_id':'offline',
+            'input_tokens':12,'output_tokens':8}
+    monkeypatch.setattr('backend.ai.answers.infer',malformed)
+    result=answer_question(actors['EMPLOYEE'][0],case.pk,'Is this policy approved?')
+    assert result['mode']=='DETERMINISTIC_FALLBACK'
+    assert result['ai_model_used'] is False
+    assert result['error_code']=='MODEL_OUTPUT_REJECTED'
+    assert AuditEvent.objects.filter(event_type='AI_MODEL_ATTEMPT').count()==1
+    assert AuditEvent.objects.filter(event_type='AI_MODEL_FAILED').count()==1
+    assert not AuditEvent.objects.filter(event_type='AI_MODEL_VALIDATED').exists()

@@ -22,9 +22,10 @@ def validate_answer(payload,context,*,actor,case_id):
               'blockers','clarification','escalation_draft','limitations'}
     if not isinstance(payload,dict) or set(payload)!=required:
         raise UnsafeAIAnswer('INVALID_OUTPUT_SHAPE')
-    if payload['answer_type'] not in TYPES:
+    if not isinstance(payload['answer_type'],str) or payload['answer_type'] not in TYPES:
         raise UnsafeAIAnswer('INVALID_ANSWER_TYPE')
-    if (not isinstance(payload['answer'],str) or len(payload['answer'])>2400
+    if (not isinstance(payload['answer'],str) or not payload['answer'].strip()
+            or len(payload['answer'])>2400
             or TEXT_RE.search(payload['answer'])):
         raise UnsafeAIAnswer('INVALID_ANSWER_TEXT')
     valid_sources=set(context['sources'])
@@ -51,8 +52,11 @@ def validate_answer(payload,context,*,actor,case_id):
         raise UnsafeAIAnswer('INVALID_LIMITATIONS')
     if payload['answer_type'] in ('SUPPORTED','PARTIAL') and not payload['citations']:
         raise UnsafeAIAnswer('CITATIONS_REQUIRED')
-    if payload['answer_type'] in ('UNSUPPORTED','CONFLICT') and payload['recommended_actions']:
-        raise UnsafeAIAnswer('UNSUPPORTED_ACTION_CLAIM')
+    if payload['answer_type'] in ('UNSUPPORTED','CONFLICT'):
+        if payload['recommended_actions']:
+            raise UnsafeAIAnswer('UNSUPPORTED_ACTION_CLAIM')
+        if not payload['limitations'] or any(not x.strip() for x in payload['limitations']):
+            raise UnsafeAIAnswer('ABSTENTION_LIMITATION_REQUIRED')
     # This function only returns validated *text/candidate identifiers*.
     # It cannot call existing mutations, accept approvals or send messages.
     return {**payload,'case_version':context['case_version'],
