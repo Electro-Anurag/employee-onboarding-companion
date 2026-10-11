@@ -73,6 +73,8 @@ def answer_question(actor, case_id, question):
     try:
         payload, usage = infer(context, question)
         validated = validate_answer(payload, context, actor=actor, case_id=case_id)
+        from backend.ai.relevance import ensure_question_relevance
+        ensure_question_relevance(question, validated, context)
     except (ProviderFailure, UnsafeAIAnswer) as exc:
         reason = ("MODEL_OUTPUT_REJECTED" if isinstance(exc, UnsafeAIAnswer)
                   else "PROVIDER_UNAVAILABLE")
