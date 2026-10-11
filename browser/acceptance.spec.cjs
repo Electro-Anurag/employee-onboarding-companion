@@ -261,8 +261,24 @@ test('four-role real-browser case, template, dependency and evidence journey',as
       await openCase(employee);
       const card=taskCard(employee,'Conduct Ack');
       await expect(card).toContainText('READY');
-      await card.getByRole('button',{name:'View assigned policy'}).click();
-      await expect(card.getByText('Assigned edition: synthetic-conduct-v1')).toBeVisible();
+      const [policyRead]=await Promise.all([
+        employee.waitForResponse(r=>r.url().includes('/assigned-policy')&&
+          r.request().method()==='GET'),
+        card.getByRole('button',{name:'View assigned policy'}).click(),
+      ]);
+      const policyResult=await policyRead.json();
+      expect(policyRead.status(),
+        'POLICY_READ_HTTP_'+policyRead.status()+': '+
+        (policyResult?.error?.code||'no-error-code')).toBe(200);
+      expect(policyResult.policy?.version).toBe('synthetic-conduct-v1');
+      try{
+        await expect(card.getByText('Assigned edition: synthetic-conduct-v1')).toBeVisible();
+      }catch(error){
+        const visibleCard=await card.innerText().catch(()=>'<card missing>');
+        const alerts=await employee.getByRole('alert').allInnerTexts();
+        throw Error('POLICY_UI_NOT_UPDATED: '+JSON.stringify({visibleCard,alerts})+
+          '; '+String(error));
+      }
       await expect(card).toContainText('not an employment agreement');
       await card.getByLabel(/I have read and explicitly acknowledge/).check();
       await card.getByRole('button',{name:'Record version-specific acknowledgement'}).click();
