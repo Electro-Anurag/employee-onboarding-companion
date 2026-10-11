@@ -3,7 +3,7 @@ import './App.css';
 import EvidenceWorkflows from './EvidenceWorkflows';
 import {workflowPresentation} from './workflowPresentation';
 
-type Me = { display_name:string;role:'HR'|'IT'|'MANAGER'|'EMPLOYEE';user_id:string;capabilities?:{manage_templates:boolean;coordinate_ownership:boolean} };
+type Me = { display_name:string;email:string;role:'HR'|'IT'|'MANAGER'|'EMPLOYEE';user_id:string;capabilities?:{manage_templates:boolean;coordinate_ownership:boolean} };
 type Progress = { mandatory_total:number;mandatory_completed:number;mandatory_remaining:number;percent:number };
 type Case = {id:string; status:string;joining_date:string;employee_name:string;version:number;progress?:Progress};
 type Task = {id:string;key:string;kind:string;title:string;state:string;owner_role:string;
@@ -50,6 +50,7 @@ export default function App(){
   const [selected,setSelected]=useState<Case|null>(null);
   const [detail,setDetail]=useState<TaskPayload|null>(null);
   const [focusedTaskId,setFocusedTaskId]=useState<string|null>(null);
+  const [showFullPlan,setShowFullPlan]=useState(false);
   const [employeeId,setEmployeeId]=useState('');
   const [itId,setItId]=useState('');
   const [managerId,setManagerId]=useState('');
@@ -93,7 +94,7 @@ export default function App(){
     setExceptions([]);setExceptionsLoaded(false);setExceptionTask('');
     setGuidance(null);setAiAnswer(null);setAiQuestion('');setExceptionNote('');setExceptionAssignees({});
     setRecoveryOwner({});setRecoveryReason('');
-    setTemplate(null);setEditor('');setSelected(null);setDetail(null);setFocusedTaskId(null);
+    setTemplate(null);setEditor('');setSelected(null);setDetail(null);setFocusedTaskId(null);setShowFullPlan(false);
     setEmployeeId('');setItId('');setManagerId('');setTemplateId('');setJoiningDate('');
     setNewJoiningDate('');setDateChangeReason('');setDatePreview(null);
     setAttestTask(null);setPlan('');setBuddy('');setStation(false);setNote('');
@@ -241,7 +242,7 @@ export default function App(){
       const result=await request<TaskPayload>('/api/v1/cases/'+c.id+'/tasks');
       if(identityEpoch.current!==generation||aiRequestEpoch.current!==aiSwitch)return;
       setSelected(c);setDetail(result);setTab('cases');setAttestTask(null);
-      setFocusedTaskId(null);
+      setFocusedTaskId(null);setShowFullPlan(false);
       setExceptions([]);setExceptionsLoaded(false);setExceptionTask('');
       setGuidance(null);setAiAnswer(null);setAiQuestion('');setDatePreview(null);
       datePreviewGeneration.current+=1;
@@ -533,20 +534,27 @@ export default function App(){
     event.preventDefault();
     if(!me)return;
     await perform(async()=>{
-      await request('/api/v1/cases','POST',{employee_id:employeeId,
-        template_version_id:templateId,joining_date:joiningDate,
-        owners:{IT:itId,MANAGER:managerId}});
+      await request('/api/v1/cases','POST',{employee_id:employeeChoice,
+        template_version_id:templateChoice,joining_date:joiningDate,
+        owners:{IT:itChoice,MANAGER:managerChoice}});
       await refresh(me);
       setMessage('Case persisted in CREATED. Select it to activate when ready.');
     });
   }
+  const publishedTemplates=templates.filter(t=>t.state==='PUBLISHED');
+  const templateChoice=templateId||(publishedTemplates.length===1?publishedTemplates[0].version_id:'');
+  const employeeChoice=employeeId||((owners.EMPLOYEE||[]).length===1?owners.EMPLOYEE[0].id:'');
+  const itChoice=itId||((owners.IT||[]).length===1?owners.IT[0].id:'');
+  const managerChoice=managerId||((owners.MANAGER||[]).length===1?owners.MANAGER[0].id:'');
+  const currentWork=work.filter(t=>t.state==='READY'||t.state==='IN_PROGRESS')
+    .sort((a,b)=>a.due_at.localeCompare(b.due_at)||a.title.localeCompare(b.title));
   const workflow=detail?workflowPresentation(detail.tasks):null;
   const activeTaskIndex=workflow?
     Math.max(0,workflow.current.findIndex(task=>task.id===focusedTaskId)):0;
   const activeTask=workflow?.current[activeTaskIndex]||null;
   return <main className="shell">
     <header className="topbar"><div><span className="eyebrow">Aster Vale Labs — synthetic demo</span><h1>Onboarding Companion</h1>
-      <p>Persistent role-scoped onboarding workflows, evidence-based handoffs and reminders. Real model answers require an explicitly configured provider.</p></div>
+      <p>Know what needs doing, by whom, and what comes next.</p></div>
       {me&&<button className="quiet" disabled={busy} onClick={()=>void signOut()}>Sign out</button>}
     </header>
     {!me?<section className="panel login"><h2>Sign in</h2>
@@ -559,7 +567,7 @@ export default function App(){
       <aside className="sidebar panel"><strong>{me.display_name}</strong><p>Role: {me.role}</p>
         <nav aria-label="Workspace">
           <button className={tab==='cases'?'selected':'quiet'} onClick={()=>setTab('cases')}>Cases ({cases.length})</button>
-          <button className={tab==='work'?'selected':'quiet'} onClick={()=>setTab('work')}>My work ({work.length})</button>
+          <button className={tab==='work'?'selected':'quiet'} onClick={()=>setTab('work')}>My work ({currentWork.length})</button>
           <button className={tab==='inbox'?'selected':'quiet'} onClick={()=>setTab('inbox')}>In-app inbox</button>
           {me.role==='HR'&&<button className={tab==='templates'?'selected':'quiet'} onClick={()=>setTab('templates')}>Templates ({templates.length})</button>}
         </nav>
@@ -622,13 +630,10 @@ export default function App(){
             {workflow&&detail.tasks.length>0&&<section className="subpanel" aria-label="Focused current work">
               <div className="heading">
                 <div>
-                  <h4>Current work — one step at a time</h4>
-                  <p className="meta">{workflow.current.length} currently eligible ·
-                    {' '}{workflow.completed.length} completed ·
-                    {' '}{workflow.futureCount} future steps hidden until prerequisites and dates permit
-                  </p>
+                  <h4>{showFullPlan?'All workflow steps':'Next steps'}</h4>
+                  <p className="meta">{workflow.current.length} available · {workflow.completed.length} done · {workflow.futureCount} upcoming</p>
                 </div>
-                {workflow.current.length>1&&<div className="task-actions" role="group" aria-label="Choose current step">
+                {!showFullPlan&&workflow.current.length>1&&<div className="task-actions" role="group" aria-label="Choose current step">
                   <button className="quiet" disabled={busy||activeTaskIndex===0}
                     onClick={()=>setFocusedTaskId(workflow.current[activeTaskIndex-1].id)}>
                     Previous step</button>
@@ -638,8 +643,12 @@ export default function App(){
                     Next step</button>
                 </div>}
               </div>
-              {!activeTask&&<p>No steps currently eligible. Completed evidence remains below; the server controls when future work unlocks.</p>}
-              <div className="task-list">{(activeTask?[activeTask]:[]).map(t=><article key={t.id} className="task">
+              <button className="quiet" disabled={busy}
+                onClick={()=>{setShowFullPlan(v=>!v);setAttestTask(null);}}>
+                {showFullPlan?'Return to focused work':'View all steps (advanced)'}
+              </button>
+              {!activeTask&&!showFullPlan&&<p>No work ready yet. Upcoming work unlocks after prerequisites and dates permit.</p>}
+              <div className="task-list">{(showFullPlan?detail.tasks:(activeTask?[activeTask]:[])).map(t=><article key={t.id} className="task">
               <div><h4>{t.title}</h4><span className="meta">{t.kind} · {t.owner_role} · {t.state}</span>
                 <p className="meta">Due: {new Date(t.due_at).toLocaleString()} {t.required?'· Required':'· Optional'}</p>
                 {!!t.blocked_reason_codes.length&&<p className="block">Blocked: {t.blocked_reason_codes.join(', ')}</p>}
@@ -651,7 +660,8 @@ export default function App(){
               </div>
               {(t.kind==='FORM'||t.kind==='DOCUMENT'||t.kind==='TRAINING'||t.kind==='POLICY_ACK'||t.kind==='ACTIVITY'||t.kind==='INTRODUCTION'||t.kind==='CHECK_IN'||t.kind==='ACCESS'||t.kind==='EQUIPMENT'||t.kind==='EQUIPMENT_RECEIPT')&&
                 <EvidenceWorkflows key={me.user_id+':'+t.id} task={t} caseId={detail.case_id}
-                  role={me.role} read={path=>request(path)} mutate={mutateEvidence}
+                  role={me.role} prefillName={me.display_name} prefillEmail={me.email}
+                  read={path=>request(path)} mutate={mutateEvidence}
                   refreshCase={()=>reloadCase(detail.case_id,me)}
                   uploadDocument={uploadDocument} uploadSecureDocument={uploadSecureDocument}/>}
               {attestTask===t.id&&<form className="form attest" onSubmit={e=>void attest(e)}>
@@ -663,25 +673,25 @@ export default function App(){
               </form>}
             </article>)}</div>
             </section>}
-            {workflow&&workflow.completed.length>0&&<section className="subpanel"
+            {!showFullPlan&&workflow&&workflow.completed.length>0&&<details className="subpanel"
               aria-label="Completed onboarding steps">
-              <h4>Approved and completed steps ({workflow.completed.length})</h4>
-              <p className="meta">Immutable accepted evidence remains accessible.
-                Completion is based on server-verified evidence, not a visual checkbox.</p>
+              <summary>Completed steps ({workflow.completed.length})</summary>
               <div className="task-list">{workflow.completed.map(t=><article key={t.id} className="task">
                 <div><strong>{t.title}</strong>
                   <p className="meta">{t.kind} · {t.owner_role} · COMPLETED</p>
                   <details><summary>Review completed evidence</summary>
                     {(t.kind==='FORM'||t.kind==='DOCUMENT'||t.kind==='TRAINING'||t.kind==='POLICY_ACK'||t.kind==='ACTIVITY'||t.kind==='INTRODUCTION'||t.kind==='CHECK_IN'||t.kind==='ACCESS'||t.kind==='EQUIPMENT'||t.kind==='EQUIPMENT_RECEIPT')&&
                       <EvidenceWorkflows key={me.user_id+':'+t.id} task={t} caseId={detail.case_id}
-                        role={me.role} read={path=>request(path)} mutate={mutateEvidence}
+                        role={me.role} prefillName={me.display_name} prefillEmail={me.email}
+                  read={path=>request(path)} mutate={mutateEvidence}
                         refreshCase={()=>reloadCase(detail.case_id,me)}
                         uploadDocument={uploadDocument} uploadSecureDocument={uploadSecureDocument}/>}
                   </details>
                 </div>
               </article>)}</div>
-            </section>}
-            <section className="subpanel" aria-label="Case companion guidance">
+            </details>}
+            <details role="region" className="subpanel" aria-label="Case companion guidance">
+              <summary>Guidance and policy assistant</summary>
               <div className="heading"><h4>Current blocker and next-action guidance</h4>
                 <button className="quiet" disabled={busy}
                   onClick={()=>void perform(()=>loadGuidance(detail.case_id))}>
@@ -737,8 +747,9 @@ export default function App(){
                   </p>)}
                 </div>)}
               </>}
-            </section>
-            <section className="subpanel" aria-label="Case exceptions">
+            </details>
+            <details role="region" className="subpanel" aria-label="Case exceptions">
+              <summary>Exceptions and recovery</summary>
               <div className="heading"><h4>Exception recovery</h4>
                 <button className="quiet" disabled={busy}
                   onClick={()=>void perform(()=>loadExceptions(detail.case_id))}>Load current exceptions</button>
@@ -831,12 +842,14 @@ export default function App(){
                   Open exception with current-state verification
                 </button>
               </form>
-            </section>
-            <p className="meta">Separate real S3 processing requires explicitly configured private buckets and a scanner; do not upload genuine employee data to the demo. Training completion requires server grading; meetings use versioned scheduling and organizer-recorded attendance. External calendar notifications remain unimplemented.</p>
+            </details>
+            <details className="meta"><summary>Evaluation limits</summary><p>
+              Synthetic only: secure PDF intake, external AI and automatic background reminders
+              are disabled on this free hosting plan.</p></details>
           </section>}
         </section>}
         {tab==='work'&&<section className="panel"><h2>My assigned tasks</h2>
-          {!work.length?<p>No currently assigned tasks.</p>:<div className="task-list">{work.map(t=><article className="task" key={t.id}>
+          {!currentWork.length?<p>No tasks currently need your action. Future steps stay in the case plan.</p>:<div className="task-list">{currentWork.map(t=><article className="task" key={t.id}>
             <div><strong>{t.employee_name} — {t.title}</strong><p className="meta">{t.state} · {t.owner_role} · {t.kind}</p>
               {!!t.blocked_reason_codes.length&&<p className="block">{t.blocked_reason_codes.join(', ')}</p>}</div>
             <button disabled={busy} onClick={()=>{const c=cases.find(x=>x.id===t.case_id);if(c)void selectCase(c);}}>Open case</button>
@@ -846,8 +859,7 @@ export default function App(){
           <div className="heading"><h2>Reminders and handoffs</h2>
             <button className="quiet" disabled={busy} onClick={()=>void perform(loadInbox)}>Refresh inbox</button>
           </div>
-          <p className="meta">Persisted in-app reminders only. There is no email or calendar delivery.
-            Reminders are reconciled against current assignments and task state.</p>
+          <details className="meta"><summary>Delivery details</summary><p>In-app only; email and calendar delivery are not enabled.</p></details>
           {!inboxLoaded&&<p>Loading authorized reminders…</p>}
           {inboxLoaded&&!inbox.length&&<p>No current reminders assigned to you.</p>}
           <div className="task-list">{inbox.map(item=><article className="task" key={item.id}>
@@ -870,7 +882,7 @@ export default function App(){
             {t.name} — v{t.version} {t.state} (revision {t.revision})
           </button>)}</div>
           {template&&<section className="subpanel"><h3>{template.name} v{template.version} — {template.state}</h3>
-            <p>Content SHA-256: <code>{template.content_hash||'Not published'}</code></p>
+            <details className="meta"><summary>Version integrity</summary><p>Content SHA-256: <code>{template.content_hash||'Not published'}</code></p></details>
             {template.state==='DRAFT'&&me.capabilities?.manage_templates?<><label>Draft tasks and dependency JSON
               <textarea className="json-editor" value={editor} onChange={e=>setEditor(e.target.value)}/>
             </label><div className="actions"><button disabled={busy} onClick={()=>void saveDraft()}>Save draft</button>
@@ -880,18 +892,18 @@ export default function App(){
           </section>}
         </section>}
         {me.role==='HR'&&tab==='cases'&&<section className="panel"><h2>Create an onboarding case</h2>
-          <p className="meta">Choose a published version, synthetic employee, IT and manager. HR ownership is assigned to your current account.</p>
+          <p className="meta">Choose a joining date. Available single choices are preselected; HR owns this case.</p>
           <form className="form" onSubmit={e=>void createCase(e)}>
-            <label>Published template<select required value={templateId} onChange={e=>setTemplateId(e.target.value)}><option value="">Select template</option>
-              {templates.filter(t=>t.state==='PUBLISHED').map(t=><option value={t.version_id} key={t.version_id}>{t.name} v{t.version}</option>)}</select></label>
-            <label>Employee<select required value={employeeId} onChange={e=>setEmployeeId(e.target.value)}><option value="">Select employee</option>
+            <label>Published template<select required value={templateChoice} onChange={e=>setTemplateId(e.target.value)}><option value="">Select template</option>
+              {publishedTemplates.map(t=><option value={t.version_id} key={t.version_id}>{t.name} v{t.version}</option>)}</select></label>
+            <label>Employee<select required value={employeeChoice} onChange={e=>setEmployeeId(e.target.value)}><option value="">Select employee</option>
               {(owners.EMPLOYEE||[]).map(x=><option key={x.id} value={x.id}>{x.name}</option>)}</select></label>
-            <label>IT owner<select required value={itId} onChange={e=>setItId(e.target.value)}><option value="">Select IT owner</option>
+            <label>IT owner<select required value={itChoice} onChange={e=>setItId(e.target.value)}><option value="">Select IT owner</option>
               {(owners.IT||[]).map(x=><option key={x.id} value={x.id}>{x.name}</option>)}</select></label>
-            <label>Manager<select required value={managerId} onChange={e=>setManagerId(e.target.value)}><option value="">Select manager</option>
+            <label>Manager<select required value={managerChoice} onChange={e=>setManagerId(e.target.value)}><option value="">Select manager</option>
               {(owners.MANAGER||[]).map(x=><option key={x.id} value={x.id}>{x.name}</option>)}</select></label>
             <label>Joining date<input type="date" required value={joiningDate} onChange={e=>setJoiningDate(e.target.value)}/></label>
-            <button type="submit" disabled={busy||!templateId||!employeeId||!itId||!managerId||!joiningDate}>Create case</button>
+            <button type="submit" disabled={busy||!templateChoice||!employeeChoice||!itChoice||!managerChoice||!joiningDate}>Create case</button>
           </form>
         </section>}
       </div>

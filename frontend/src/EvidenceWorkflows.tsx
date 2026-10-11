@@ -51,8 +51,8 @@ export function FormRevisionEntry({entry,role}:{entry:FormEntry;role:Role}){
   </div>;
 }
 
-export default function EvidenceWorkflows({task,caseId,role,read,mutate,refreshCase,uploadDocument,uploadSecureDocument}:{
-  task:Task;caseId:string;role:Role;
+export default function EvidenceWorkflows({task,caseId,role,prefillName,prefillEmail,read,mutate,refreshCase,uploadDocument,uploadSecureDocument}:{
+  task:Task;caseId:string;role:Role;prefillName:string;prefillEmail:string;
   read:(path:string)=>Promise<unknown>;
   mutate:(path:string,body:unknown)=>Promise<void>;
   refreshCase:()=>Promise<void>;
@@ -63,8 +63,8 @@ export default function EvidenceWorkflows({task,caseId,role,read,mutate,refreshC
   const [operation,setOperation]=useState<ITOperation|null>(null);
   const [busy,setBusy]=useState(false);
   const [error,setError]=useState('');
-  const [preferredName,setPreferredName]=useState('');
-  const [contactEmail,setContactEmail]=useState('');
+  const [preferredName,setPreferredName]=useState(role==='EMPLOYEE'?prefillName:'');
+  const [contactEmail,setContactEmail]=useState(role==='EMPLOYEE'?prefillEmail:'');
   const [reviewNote,setReviewNote]=useState('');
   const [simulationNote,setSimulationNote]=useState('');
   const [simulationFailureCause,setSimulationFailureCause]=useState<
@@ -105,6 +105,13 @@ export default function EvidenceWorkflows({task,caseId,role,read,mutate,refreshC
   async function loadForms(){
     const r=await read(base+'/form-submissions') as FormList;
     setHistory(r.results);
+    if(role==='EMPLOYEE'){
+      const latest=r.results.at(-1);
+      if(latest?.review?.decision==='CHANGES_REQUESTED'){
+        setPreferredName(latest.answers.preferred_name||prefillName);
+        setContactEmail(latest.answers.contact_email||prefillEmail);
+      }
+    }
     // Loading history must also refresh the case version used by a subsequent
     // HR review; employee submissions can change it in another session.
     await refreshCase();
@@ -376,13 +383,14 @@ export default function EvidenceWorkflows({task,caseId,role,read,mutate,refreshC
   }
   if(task.kind==='POLICY_ACK'&&(role==='EMPLOYEE'||role==='HR')){
     return <section className="subpanel" aria-label="Assigned policy acknowledgement">
-      <h5>Case-assigned policy edition — synthetic text</h5>
+      <h5>Assigned policy</h5>
       <button className="quiet" disabled={busy} onClick={()=>void safeRun(loadPolicy)}>
         View assigned policy
       </button>
       {policy&&<div>
         <p className="meta">Assigned edition: {policy.policy.version}</p>
-        <p className="meta">SHA-256: <code>{policy.policy.content_sha256}</code></p>
+        <details className="meta"><summary>Version proof</summary>
+          <p>SHA-256: <code>{policy.policy.content_sha256}</code></p></details>
         <p>{policy.policy.text}</p>
         {policy.acknowledged&&<p className="meta">Acknowledged and stored as immutable evidence.</p>}
       </div>}

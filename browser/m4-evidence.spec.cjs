@@ -35,6 +35,8 @@ async function open(page){
   await expect(page.locator('.case-list').first().getByRole('button').first()).toBeVisible();
   await page.locator('.case-list').first().getByRole('button').first().click();
   await expect(page.getByRole('region',{name:'Case tasks'})).toBeVisible();
+  const full=page.getByRole('button',{name:'View all steps (advanced)'});
+  if(await full.isVisible())await full.click();
 }
 function dateInput(minutesAhead){
   const date=new Date(Date.now()+minutesAhead*60000);

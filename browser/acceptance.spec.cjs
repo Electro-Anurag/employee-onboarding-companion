@@ -41,6 +41,8 @@ async function openCase(page){
   await expect(caseButton(page)).toBeVisible();
   await caseButton(page).click();
   await expect(page.getByRole('region',{name:'Case tasks'})).toBeVisible();
+  const full=page.getByRole('button',{name:'View all steps (advanced)'});
+  if(await full.isVisible())await full.click();
 }
 
 test('four-role real-browser case, template, dependency and evidence journey',async({browser})=>{
@@ -99,6 +101,8 @@ test('four-role real-browser case, template, dependency and evidence journey',as
       await openCase(hr);
       await expect(hr.getByRole('region',{name:'Case tasks'}).locator('article.task')).toHaveCount(0);
       await hr.getByRole('button',{name:'Activate case'}).click();
+      await expect(hr.getByRole('region',{name:'Focused current work'}).locator('article.task')).toHaveCount(1);
+      await hr.getByRole('button',{name:'View all steps (advanced)'}).click();
       await expect(hr.getByRole('region',{name:'Case tasks'}).locator('article.task')).toHaveCount(17);
       await expect(taskCard(hr,'Manager Preparation')).toContainText('READY');
       await expect(taskCard(hr,'Workspace Access')).toContainText('PREREQUISITE_INCOMPLETE');

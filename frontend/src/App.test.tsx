@@ -42,3 +42,12 @@ describe('M3 form revision review visibility and escaping',()=>{
     }
   });
 });
+
+describe('simple and truthful first screen',()=>{
+  it('starts without any preapproved evidence or synthetic remote claim',()=>{
+    const html=renderToStaticMarkup(<App/>);
+    expect(html).toContain('Know what needs doing');
+    expect(html).not.toContain('Record version-specific acknowledgement');
+    expect(html).not.toContain('Confirm simulated IT outcome');
+  });
+});

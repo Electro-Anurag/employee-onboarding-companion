@@ -24,6 +24,8 @@ async function openCase(page){
   await page.getByRole('button',{name:/^Cases \(/}).click();
   await page.locator('.case-list').first().getByRole('button').first().click();
   await expect(page.getByRole('region',{name:'Case tasks'})).toBeVisible();
+  const full=page.getByRole('button',{name:'View all steps (advanced)'});
+  if(await full.isVisible())await full.click();
 }
 function card(page,title){
   return page.getByRole('region',{name:'Case tasks'}).locator('article.task')

@@ -7,3 +7,16 @@
 [aria-label="Completed onboarding steps"] .task {display:block}
 [aria-label="Completed onboarding steps"] details {margin-top:8px}
 [aria-label="Completed onboarding steps"] summary {cursor:pointer;color:#244879;font-weight:600}
+
+/* Default workflow is focused; diagnostic full plan requires deliberate disclosure. */
+[aria-label="Focused current work"]>.heading{margin-bottom:12px}
+[aria-label="Completed onboarding steps"]>summary,
+[aria-label="Case exceptions"]>summary,
+[aria-label="Case companion guidance"]>summary{cursor:pointer;font-weight:700}
+[aria-label="Completed onboarding steps"] .task{display:block}
+[aria-label="Completed onboarding steps"] details{margin-top:8px}
+[aria-label="Completed onboarding steps"] details summary{cursor:pointer;color:#244879}
+[aria-label="Focused current work"]>button.quiet{margin:10px 0 0}
+.form-revision .form-evidence-values{display:grid;gap:8px;max-width:480px;margin:10px 0}
+.form-evidence-values dt{font-size:.8rem;color:#59677b}
+.form-evidence-values dd{margin:0;overflow-wrap:anywhere;font-weight:600}

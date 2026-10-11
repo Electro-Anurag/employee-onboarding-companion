@@ -32,7 +32,7 @@ def me(request):
         member=safe_context(request)
         if member is None:
             return error('UNAUTHENTICATED',401)
-        return JsonResponse({'user_id':str(request.user.pk),'display_name':request.user.display_name,
+        return JsonResponse({'user_id':str(request.user.pk),'display_name':request.user.display_name,'email':request.user.email,
                              'role':member.role,'organization_id':str(member.organization_id),
                              'capabilities':{'manage_templates':bool(member.can_manage_templates),
                                              'coordinate_ownership':bool(member.can_coordinate_ownership)}})
