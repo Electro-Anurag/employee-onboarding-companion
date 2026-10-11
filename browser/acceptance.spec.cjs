@@ -38,12 +38,32 @@ function taskCard(page,title){
     .filter({has:page.getByRole('heading',{name:title,exact:true})});
 }
 async function openCase(page){
-  await page.getByRole('button',{name:/^Cases \(/}).click();
-  await expect(caseButton(page)).toBeVisible();
-  await caseButton(page).click();
-  await expect(page.getByRole('region',{name:'Case tasks'})).toBeVisible();
-  const full=page.getByRole('button',{name:'View all steps (advanced)'});
-  if(await full.isVisible())await full.click();
+  // The previous visit can already have a visible full-task region. Clicking
+  // the same case again performs an asynchronous GET that resets full-plan
+  // mode. Waiting only for the pre-existing region permitted a race: the
+  // full plan was toggled before selectCase() finished, then reset to focus.
+  await page.getByRole('button',{name:/^Cases \\(/}).click();
+  const option=caseButton(page);
+  await expect(option).toBeVisible();
+  const [loaded]=await Promise.all([
+    page.waitForResponse(r=>r.url().includes('/api/v1/cases/')&&
+      r.url().endsWith('/tasks')&&r.request().method()==='GET'),
+    option.click(),
+  ]);
+  expect(loaded.status(),'CASE_TASKS_FETCH_HTTP_'+loaded.status()).toBe(200);
+  // selectCase commits selected/detail/full-plan state before perform()
+  // clears busy. This is the real UI synchronization barrier, unlike the
+  // region that might already be visible from the previous selection.
+  await expect(option).toBeEnabled();
+  const region=page.getByRole('region',{name:'Case tasks'});
+  await expect(region).toBeVisible();
+  const full=region.getByRole('button',{name:'View all steps (advanced)'});
+  await expect(full).toBeVisible();
+  await full.click();
+  await expect(region.getByRole('button',{name:'Return to focused work'})).toBeVisible();
+  // This verifies that the requested complete, 17-step case is actually
+  // rendered instead of accepting a transient previous-state task card.
+  await expect(region.locator('article.task')).toHaveCount(17);
 }
 
 test('four-role real-browser case, template, dependency and evidence journey',async({browser})=>{

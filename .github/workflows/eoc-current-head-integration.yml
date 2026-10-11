@@ -5,6 +5,7 @@ on:
     paths:
       - '.github/workflows/eoc-current-head-integration.yml'
       - 'backend/ai/tests/test_offline_policy.py'
+      - 'browser/acceptance.spec.cjs'
   workflow_dispatch:
 permissions:
   contents: read
