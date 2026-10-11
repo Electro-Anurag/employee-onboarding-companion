@@ -1,0 +1,68 @@
+name: EOC T02 focused policy-card browser diagnostic
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  focused-policy-card:
+    runs-on: [self-hosted, linux, ARM64, eoc-mac-ci]
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17@sha256:2d2b8998d31037bf721cfdf764d76ba74171b4fab3431b7f72c27c56ddbdf9e3
+        env:
+          POSTGRES_USER: onboarding
+          POSTGRES_PASSWORD: ci-temporary-only
+          POSTGRES_DB: onboarding_m0
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 3s --health-timeout 3s --health-retries 15
+    env:
+      DJANGO_SECRET_KEY: ci-only-no-production-secret-not-used-outside-runner
+      DJANGO_DEBUG: '1'
+      DJANGO_ALLOWED_HOSTS: 127.0.0.1,localhost
+      POSTGRES_HOST: localhost
+      POSTGRES_PORT: '5432'
+      POSTGRES_DB: onboarding_m0
+      POSTGRES_USER: onboarding
+      POSTGRES_PASSWORD: ci-temporary-only
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e
+        with:
+          python-version: '3.13'
+          version: '0.12.23'
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+      - name: Install locked dependencies and build real React bundle
+        run: |
+          uv lock --check
+          uv sync --locked
+          (cd frontend && npm ci && npm run build)
+          uv run python manage.py migrate --noinput
+      - name: Focused synthetic Chromium Conduct Ack reproduction
+        run: |
+          set -euo pipefail
+          umask 077
+          export M2_BROWSER_CREDENTIAL_FILE="$RUNNER_TEMP/eoc-t02-synthetic-roles.txt"
+          uv run python manage.py seed_m2_demo --confirm-synthetic --include-second-hr > "$M2_BROWSER_CREDENTIAL_FILE"
+          mkdir -p "$RUNNER_TEMP/eoc-t02-browser"
+          cp browser/playwright.config.cjs browser/m3-policy-card-focused.spec.cjs "$RUNNER_TEMP/eoc-t02-browser/"
+          npm --prefix "$RUNNER_TEMP/eoc-t02-browser" install --no-save --package-lock=false --ignore-scripts @playwright/test@1.64.0
+          "$RUNNER_TEMP/eoc-t02-browser/node_modules/.bin/playwright" install chromium
+          uv run python manage.py runserver --nostatic --noreload 127.0.0.1:8000 > "$RUNNER_TEMP/eoc-t02-server.log" 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true; rm -f "$M2_BROWSER_CREDENTIAL_FILE"' EXIT
+          ready=0
+          for attempt in $(seq 1 45); do
+            if curl -fsS -o /dev/null http://127.0.0.1:8000/health/ready; then ready=1; break; fi
+            sleep 1
+          done
+          if [ "$ready" != 1 ]; then
+            tail -60 "$RUNNER_TEMP/eoc-t02-server.log"
+            exit 1
+          fi
+          cd "$RUNNER_TEMP/eoc-t02-browser"
+          ./node_modules/.bin/playwright test -c playwright.config.cjs m3-policy-card-focused.spec.cjs
