@@ -20,3 +20,12 @@
 .form-revision .form-evidence-values{display:grid;gap:8px;max-width:480px;margin:10px 0}
 .form-evidence-values dt{font-size:.8rem;color:#59677b}
 .form-evidence-values dd{margin:0;overflow-wrap:anywhere;font-weight:600}
+
+/* Calm defaults; only genuine errors and short success feedback occupy the footer edge. */
+.status{max-width:300px;width:max-content;margin:8px 0 8px auto;
+  padding:6px 10px;font-size:.79rem;box-shadow:none}
+.status:empty{display:none}
+footer{margin-top:12px}
+details>summary{cursor:pointer;font-weight:600;color:#244879}
+details>summary h2{display:inline;font-size:1.02rem;margin:0}
+details[open]>summary{margin-bottom:12px}

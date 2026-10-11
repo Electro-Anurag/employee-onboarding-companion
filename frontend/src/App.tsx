@@ -64,7 +64,7 @@ export default function App(){
   const [buddy,setBuddy]=useState('');
   const [station,setStation]=useState(false);
   const [note,setNote]=useState('');
-  const [message,setMessage]=useState('Sign in to access assigned onboarding work.');
+  const [message,setMessage]=useState('');
   const [busy,setBusy]=useState(false);
   const [tab,setTab]=useState<'cases'|'work'|'templates'|'inbox'>('cases');
   const [inbox,setInbox]=useState<InboxRow[]>([]);
@@ -201,7 +201,7 @@ export default function App(){
     try{
       await workflow();
       if(identityEpoch.current===generation)
-        setMessage('Saved successfully. All status updates come from the server.');
+        setMessage('Saved');
     }catch(e){
       if(identityEpoch.current===generation)
         setMessage('Operation not completed: '+(e instanceof Error?e.message:String(e)));
@@ -595,10 +595,9 @@ export default function App(){
                   onClick={()=>void closeout()}>Confirm final onboarding closeout</button>
               </div>}
             {detail.case_status==='PRE_JOINING'&&me.role==='HR'&&
-              <section className="subpanel" aria-label="Joining date reschedule">
-                <h4>Change joining date — preview before approval</h4>
-                <p className="meta">Current joining date: {selected.joining_date}. Untouched tasks are
-                  rescheduled from the published template; started and completed evidence stays historical.</p>
+              <details role="region" className="subpanel" aria-label="Joining date reschedule">
+                <summary>Change joining date</summary>
+                <p className="meta">Current: {selected.joining_date}. Existing evidence remains preserved.</p>
                 <label>Proposed joining date
                   <input aria-label="Proposed joining date" type="date"
                     value={newJoiningDate} onChange={e=>{
@@ -625,7 +624,7 @@ export default function App(){
                     datePreview.case_version!==detail.case_version}
                     onClick={()=>void commitJoiningDate()}>Approve and commit previewed date change</button>
                 </>}
-              </section>}
+              </details>}
             {detail.tasks.length===0&&<p>Tasks will be instantiated only after successful activation.</p>}
             {workflow&&detail.tasks.length>0&&<section className="subpanel" aria-label="Focused current work">
               <div className="heading">
@@ -883,16 +882,22 @@ export default function App(){
           </button>)}</div>
           {template&&<section className="subpanel"><h3>{template.name} v{template.version} — {template.state}</h3>
             <details className="meta"><summary>Version integrity</summary><p>Content SHA-256: <code>{template.content_hash||'Not published'}</code></p></details>
-            {template.state==='DRAFT'&&me.capabilities?.manage_templates?<><label>Draft tasks and dependency JSON
-              <textarea className="json-editor" value={editor} onChange={e=>setEditor(e.target.value)}/>
-            </label><div className="actions"><button disabled={busy} onClick={()=>void saveDraft()}>Save draft</button>
-              <button disabled={busy} onClick={()=>void publish()}>Validate and publish</button></div></>
+            {template.state==='DRAFT'&&me.capabilities?.manage_templates?<>
+               <button disabled={busy} onClick={()=>void publish()}>Validate and publish</button>
+               <details className="subpanel"><summary>Edit task JSON (advanced)</summary>
+                 <label>Draft tasks and dependency JSON
+                   <textarea className="json-editor" value={editor} onChange={e=>setEditor(e.target.value)}/>
+                 </label>
+                 <button disabled={busy} onClick={()=>void saveDraft()}>Save JSON edits</button>
+               </details>
+             </>
              :<><p>{template.state==='PUBLISHED'?'Published versions are immutable. Active cases retain their original snapshot.':'This draft is read-only for your current role capability.'}</p>
                {template.state==='PUBLISHED'&&me.capabilities?.manage_templates&&<button disabled={busy} onClick={()=>void clone()}>Create next version draft</button>}</>}
           </section>}
         </section>}
-        {me.role==='HR'&&tab==='cases'&&<section className="panel"><h2>Create an onboarding case</h2>
-          <p className="meta">Choose a joining date. Available single choices are preselected; HR owns this case.</p>
+        {me.role==='HR'&&tab==='cases'&&<section className="panel"><details open={cases.length===0}>
+          <summary><h2>Create an onboarding case</h2></summary>
+          <p className="meta">Single available choices are preselected. Confirm the joining date.</p>
           <form className="form" onSubmit={e=>void createCase(e)}>
             <label>Published template<select required value={templateChoice} onChange={e=>setTemplateId(e.target.value)}><option value="">Select template</option>
               {publishedTemplates.map(t=><option value={t.version_id} key={t.version_id}>{t.name} v{t.version}</option>)}</select></label>
@@ -905,10 +910,10 @@ export default function App(){
             <label>Joining date<input type="date" required value={joiningDate} onChange={e=>setJoiningDate(e.target.value)}/></label>
             <button type="submit" disabled={busy||!templateChoice||!employeeChoice||!itChoice||!managerChoice||!joiningDate}>Create case</button>
           </form>
-        </section>}
+        </details></section>}
       </div>
     </div>}
     <p aria-live="polite" role="status" className="status">{message}</p>
-    <footer><small>Local/CI synthetic demonstration. This is not a hosted production system and does not process real employee data.</small></footer>
+    <footer><small>Synthetic evaluation only — do not upload real employee data.</small></footer>
   </main>;
 }

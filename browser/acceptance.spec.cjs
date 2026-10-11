@@ -139,7 +139,8 @@ test('four-role real-browser case, template, dependency and evidence journey',as
       await expect(manager.getByText('1/17 mandatory tasks completed')).toBeVisible();
       await expect(taskCard(manager,'Team Introduction')).not.toContainText('PREREQUISITE_INCOMPLETE');
       await expect(taskCard(manager,'Workspace Access')).toContainText('PREREQUISITE_INCOMPLETE');
-      await expect(manager.getByText(/Separate real S3 processing requires explicitly configured private buckets and a scanner/)).toBeVisible();
+      await manager.getByText('Evaluation limits',{exact:true}).click();
+      await expect(manager.getByText(/secure PDF intake, external AI and automatic background reminders/)).toBeVisible();
       await expect(taskCard(manager,'Manager Preparation').getByRole('button',{name:'Complete preparation'})).toHaveCount(0);
     });
 
@@ -147,8 +148,10 @@ test('four-role real-browser case, template, dependency and evidence journey',as
       await it.reload();
       await expect(it.getByRole('button',{name:'Cases (1)'})).toBeVisible();
       await it.getByRole('button',{name:/^My work \(/}).click();
-      await expect(it.getByText('Equipment Setup')).toBeVisible();
-      await expect(it.getByText('Workspace Access')).toBeVisible();
+      await expect(it.getByText(/No tasks currently need your action/)).toBeVisible();
+      const blockedWork=(await (await it.request.get('/api/v1/cases/'+caseId+'/tasks')).json()).tasks;
+      expect(blockedWork.find(t=>t.key==='equipment_setup').state).toBe('BLOCKED');
+      expect(blockedWork.find(t=>t.key==='workspace_access').state).toBe('BLOCKED');
       await openCase(it);
       await expect(taskCard(it,'Manager Preparation').getByRole('button',{name:'Complete preparation'})).toHaveCount(0);
       await expect(taskCard(it,'Workspace Access')).toContainText('PREREQUISITE_INCOMPLETE');
@@ -308,6 +311,7 @@ test('four-role real-browser case, template, dependency and evidence journey',as
       await item.click();
       await expect(hr.getByRole('heading',{name:/Employee First Month.*PUBLISHED/})).toBeVisible();
       await hr.getByRole('button',{name:'Create next version draft'}).click();
+      await hr.getByText('Edit task JSON (advanced)',{exact:true}).click();
       await expect(hr.locator('textarea.json-editor')).toBeVisible();
       await hr.locator('textarea.json-editor').fill('OLD_HR_PRIVATE_DRAFT_CONTENT');
       // Clone's own refresh must finish BEFORE installing the held-response

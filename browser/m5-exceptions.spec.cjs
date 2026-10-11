@@ -36,7 +36,11 @@ async function openCase(page,employee='M5 Synthetic Employee'){
   const full=page.getByRole('button',{name:'View all steps (advanced)'});
   if(await full.isVisible())await full.click();
   const ex=page.getByText('Exceptions and recovery',{exact:true});
-  if(await ex.isVisible())await ex.click();
+  if(!(await page.getByRole('button',{name:'Load current exceptions'}).isVisible()))
+    await ex.click();
+  const join=page.getByText('Change joining date',{exact:true});
+  if(await join.isVisible()&&!(await page.getByLabel('Proposed joining date').isVisible()))
+    await join.click();
 }
 const panel=page=>page.getByRole('region',{name:'Case exceptions'});
 const card=(page,title)=>page.getByRole('region',{name:'Case tasks'})

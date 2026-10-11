@@ -46,6 +46,8 @@ def test_real_session_csrf_four_roles_and_logout(environment):
         assert c.post('/api/v1/auth/login',data='{}',content_type='application/json').status_code==403
         token=login_as(c,role)
         r=c.get('/api/v1/auth/me');assert r.status_code==200 and r.json()['role']==role
+        assert r.json()['email']==users[role].email
+        assert 'password' not in r.json()
         assert c.get('/api/v1/cases').status_code==200
         assert c.get(f'/api/v1/cases/{case.pk}').status_code==200
         assert post(c,'/api/v1/auth/logout',{},token).status_code==200
