@@ -127,6 +127,7 @@ jobs:
         if: success()
         run: |
           echo "CURRENT_HEAD_POSTGRESQL_REACT_CHROMIUM_CANDIDATE_PASS@$GITHUB_SHA"
-          echo 'This is NOT real S3/ClamAV interruption, worker kill/restart,'
+          echo 'Worker kill/restart and actual periodic scheduling: separate focused M5 CI 38178074575 PASS.'
+          echo 'This full integration run is NOT real S3/ClamAV interruption,'
           echo 'independent security or semantic review, actual model provider,'
           echo 'a current hosted deployment or hosted J01-J05 qualification.'
