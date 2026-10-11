@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import './App.css';
 import EvidenceWorkflows from './EvidenceWorkflows';
 import CaseDashboard,{type CaseDashboardData} from './CaseDashboard';
+import PortfolioOverview,{type PortfolioCase,type PortfolioPage} from './PortfolioOverview';
 import {workflowPresentation} from './workflowPresentation';
 
 type Me = { display_name:string;email:string;role:'HR'|'IT'|'MANAGER'|'EMPLOYEE';user_id:string;capabilities?:{manage_templates:boolean;coordinate_ownership:boolean} };
@@ -55,6 +56,7 @@ export default function App(){
   const [email,setEmail]=useState('');
   const [password,setPassword]=useState('');
   const [cases,setCases]=useState<Case[]>([]);
+  const [portfolio,setPortfolio]=useState<PortfolioPage|null>(null);
   const [work,setWork]=useState<WorkspaceTask[]>([]);
   const [templates,setTemplates]=useState<Template[]>([]);
   const [owners,setOwners]=useState<Record<string,Owner[]>>({});
@@ -81,7 +83,7 @@ export default function App(){
   const [note,setNote]=useState('');
   const [message,setMessage]=useState('');
   const [busy,setBusy]=useState(false);
-  const [tab,setTab]=useState<'cases'|'work'|'templates'|'inbox'>('cases');
+  const [tab,setTab]=useState<'cases'|'work'|'templates'|'inbox'|'portfolio'>('cases');
   const [inbox,setInbox]=useState<InboxRow[]>([]);
   const [inboxLoaded,setInboxLoaded]=useState(false);
   const [exceptions,setExceptions]=useState<ExceptionRecord[]>([]);
@@ -104,7 +106,7 @@ export default function App(){
     identityEpoch.current+=1;
     aiRequestEpoch.current+=1;
     datePreviewGeneration.current+=1;
-    setCases([]);setWork([]);setTemplates([]);setOwners({});
+    setCases([]);setWork([]);setTemplates([]);setOwners({});setPortfolio(null);
     setInbox([]);setInboxLoaded(false);
     setExceptions([]);setExceptionsLoaded(false);setExceptionTask('');
     setGuidance(null);setAiAnswer(null);setAiQuestion('');setExceptionNote('');setExceptionAssignees({});
@@ -254,6 +256,29 @@ export default function App(){
       const token=await fetch('/api/v1/auth/csrf',{credentials:'same-origin'});
       if(token.ok)setCsrf((await token.json()).csrf_token);
     });
+  }
+  async function loadPortfolio(after?:string){
+    if(!me||me.role!=='HR')return;
+    const generation=identityEpoch.current;
+    setBusy(true);
+    try{
+      const path='/api/v1/portfolio'+(after?'?after='+encodeURIComponent(after):'');
+      const result=await request<PortfolioPage>(path);
+      if(identityEpoch.current!==generation)return;
+      setPortfolio(previous=>after&&previous?
+        {...result,page_count:previous.results.length+result.results.length,
+          results:[...previous.results,...result.results]}:result);
+    }catch(e){
+      if(identityEpoch.current===generation)
+        setMessage('Portfolio unavailable: '+(e instanceof Error?e.message:String(e)));
+    }finally{
+      if(identityEpoch.current===generation)setBusy(false);
+    }
+  }
+  function openPortfolioCase(item:PortfolioCase){
+    void selectCase({id:item.case_id,employee_name:item.employee_name,
+      joining_date:item.joining_date,status:item.status,version:item.case_version,
+      progress:item.progress});
   }
   async function selectCase(c:Case){
     const generation=identityEpoch.current;
@@ -631,11 +656,22 @@ export default function App(){
           <button className={tab==='cases'?'selected':'quiet'} onClick={()=>setTab('cases')}>Cases ({cases.length})</button>
           <button className={tab==='work'?'selected':'quiet'} onClick={()=>setTab('work')}>My work ({currentWork.length})</button>
           <button className={tab==='inbox'?'selected':'quiet'} onClick={()=>setTab('inbox')}>In-app inbox</button>
+          {me.role==='HR'&&<button className={tab==='portfolio'?'selected':'quiet'}
+            onClick={()=>{setTab('portfolio');void loadPortfolio();}}>HR portfolio</button>}
           {me.role==='HR'&&<button className={tab==='templates'?'selected':'quiet'} onClick={()=>setTab('templates')}>Templates ({templates.length})</button>}
         </nav>
         <button className="quiet" disabled={busy} onClick={()=>void perform(async()=>{await refresh(me);if(selected)await reloadCase(selected.id,me);})}>Refresh</button>
       </aside>
       <div className="content">
+        {tab==='portfolio'&&me.role==='HR'&&(
+          portfolio?<PortfolioOverview snapshot={portfolio} busy={busy}
+            onRefresh={()=>void loadPortfolio()}
+            onMore={()=>{if(portfolio.next_cursor)void loadPortfolio(portfolio.next_cursor);}}
+            onOpen={openPortfolioCase}/>:
+          <section className="panel"><h2>My assigned onboarding cases</h2>
+            <p>Loading the currently authorized portfolio.</p>
+            <button disabled={busy} onClick={()=>void loadPortfolio()}>Retry portfolio</button>
+          </section>)}
         {tab==='cases'&&<section className="panel"><h2>Authorized cases</h2>
           {!cases.length&&<p>No cases assigned yet.</p>}
           <div className="case-list">{cases.map(c=><button key={c.id} disabled={busy}
