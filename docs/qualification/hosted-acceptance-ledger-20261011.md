@@ -61,17 +61,15 @@ Dashboard and apply the environment before further redeployments.
 After the service is healthy and the flag is disabled, the owner may run:
 
 ```bash
-gh api repos/Electro-Anurag/employee-onboarding-companion/contents/scripts/hosted_role_verify.py \
-  -f ref=feature/eoc-completion-development --jq .content | base64 -d > /tmp/eoc-hosted-role-verify.py
+gh api 'repos/Electro-Anurag/employee-onboarding-companion/contents/scripts/hosted_role_verify.py?ref=feature/eoc-completion-development' \
+  --jq '.content' | base64 -d > /tmp/eoc-hosted-role-verify.py
 chmod 600 /tmp/eoc-hosted-role-verify.py
 python3 /tmp/eoc-hosted-role-verify.py
 rm -f /tmp/eoc-hosted-role-verify.py
 ```
 
-The CLI `gh api` **GET** must use a URL query string `?ref=...` rather than
-a POST-form flag if the user's GitHub CLI converts `-f` into POST.
-Use:
-`gh api 'repos/Electro-Anurag/employee-onboarding-companion/contents/scripts/hosted_role_verify.py?ref=feature/eoc-completion-development' --jq .content`.
+This is a read-only `gh api` GET for the script; never supply private
+password values as command arguments, flags, shell history or CI environment.
 
 If any role fails, inspect only the role/status code, confirm the private
 existing-account credential and role presence; do not automatically retry
