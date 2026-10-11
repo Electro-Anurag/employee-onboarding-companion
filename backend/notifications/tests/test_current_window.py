@@ -1,6 +1,7 @@
 """M5 stale inbox entries are hidden without relying on a live worker."""
 from datetime import timedelta
 import pytest
+from backend.onboarding.tests.test_m2_workflow import world
 from backend.notifications.models import ReminderIntent,Notification
 from backend.notifications.services import reconcile_case
 from backend.notifications.views import _visible

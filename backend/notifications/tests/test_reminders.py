@@ -1,5 +1,6 @@
 """M5 initial true PostgreSQL recipient/replay/reminder contract."""
 from datetime import timedelta
+from types import SimpleNamespace
 import json
 import uuid
 import pytest
@@ -25,7 +26,7 @@ def signed_in(user):
 
 
 @pytest.mark.django_db(transaction=True)
-def test_reminder_current_owner_duplicate_outage_and_resolution(world):
+def test_reminder_current_owner_duplicate_outage_and_resolution(world,monkeypatch):
     _,actors=world
     made,_=create(world,published(world))
     case=OnboardingCase.objects.get(pk=made['case_id'])
@@ -53,6 +54,11 @@ def test_reminder_current_owner_duplicate_outage_and_resolution(world):
     assert reconcile_batch(now=later,limit=1)['processed']==1
 
     client=signed_in(actors['MANAGER'][0])
+    # Reconciliation above deliberately advances the synthetic schedule.
+    # Read at that same virtual instant; real-time inbox reads should
+    # correctly hide these future-dated reminder identities.
+    monkeypatch.setattr('backend.notifications.views.timezone',
+                        SimpleNamespace(now=lambda: later))
     resp=client.get('/api/v1/notifications')
     assert resp.status_code==200 and resp.json()['delivery']=='IN_APP_ONLY'
     current=[row for row in resp.json()['results'] if row['task_id']==str(task.pk)]
