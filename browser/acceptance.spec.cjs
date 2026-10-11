@@ -227,7 +227,7 @@ test('four-role real-browser case, template, dependency and evidence journey',as
       })).toHaveCount(0);
       await completed.locator('summary').first().click();
       const personal=completed.locator('article.task').filter({
-        has:completed.getByText('Personal Details',{exact:true}),
+        hasText:'Personal Details',
       });
       await expect(personal).toContainText('COMPLETED');
       await personal.getByText('Review completed evidence',{exact:true}).click();
