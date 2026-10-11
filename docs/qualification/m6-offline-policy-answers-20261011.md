@@ -43,3 +43,7 @@ The preexisting mocked provider contract tests now use **nonmatching**
 questions and continue testing the opt-in transport; their PASS would not
 establish natural-language relevance. New exact-SHA CI qualification is
 required before considering this functionality verified.
+
+## Implementation and CI identity
+
+Final exact feature/test SHA `4aeeac2214b43f7f2a6b8c564c44642854d1139b` updates the M6 focused workflow to include the new PostgreSQL policy reader and HTTP tests; [run 38147857389](https://github.com/Electro-Anurag/employee-onboarding-companion/actions/runs/38147857389) is queued. Source review and a local isolated strict-regex check were performed, but no installed full-repository runtime execution was available in this chat. Any later PASS must be tied to this exact SHA or a newer inspected SHA. No real external model calls, hosted changes or worker deployments were initiated.
