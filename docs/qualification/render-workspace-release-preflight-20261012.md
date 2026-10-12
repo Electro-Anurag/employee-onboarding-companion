@@ -58,3 +58,7 @@ This document **supersedes only the outdated current-live-SHA claim** in the his
 ## Current decision
 
 **Deployment, billing/worker, DB-plan change, storage provisioning, credential rotation and provider inference remain NOT AUTHORIZED by this read-only workspace inspection.** Release STOP. Current authenticated hosted journeys remain unqualified. Do not claim “finished” merely because local CI passed.
+
+## PostgreSQL 18 compatibility engineering action
+
+- [Run `38232520864`](https://github.com/Electro-Anurag/employee-onboarding-companion/actions/runs/38232520864) at `01eca42ff06be4b210c7d132f0b2efe330a1c6fa` is **PENDING**. The dedicated workflow tests current schema + full backend suite and four populated historical installations on isolated PostgreSQL 18 matching Render's major version. It neither verifies nor accesses private Render rows, backups or configuration. Do not use this as migration-approval for the existing free DB until true database preservation and exact-state review are separately established.
