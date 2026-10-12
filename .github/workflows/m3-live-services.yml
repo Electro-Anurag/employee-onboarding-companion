@@ -152,7 +152,7 @@ jobs:
               raise RuntimeError('Actual ClamAV daemon with recent definitions unavailable: '+last_reason)
           PY
       - name: Live S3 and ClamAV malware, clean promotion and HR review
-        run: uv run pytest -q -rP backend/documents/tests/test_s3_live.py
+        run: uv run pytest -q backend/documents/tests/test_s3_live.py
       - name: Report scanner container status on any failure
         if: failure()
         run: |

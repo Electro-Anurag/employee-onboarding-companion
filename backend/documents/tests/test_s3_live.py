@@ -404,27 +404,14 @@ asyncio.run(recover(int(sys.argv[1])))
         key=uuid.uuid4(),expected_version=4)
     assert accepted['result']['task_completion']=='COMPLETED'
     assert TaskCompletion.objects.filter(task=task,evidence_type='SECURE_DOCUMENT').count()==1
-    # Diagnose the observed Django test database teardown warning. Only
-    # PostgreSQL session metadata is logged, never query text or credentials.
+    # Assert that an interrupted scan/retry test does not leave an idle
+    # async recovery-controller session blocking PostgreSQL test teardown.
+    # This isolated transaction=True test DB belongs only to this workflow.
     with connection.cursor() as cursor:
         cursor.execute("""
-            SELECT pid, state, backend_type, application_name, client_port
+            SELECT COUNT(*)
             FROM pg_stat_activity
             WHERE datname=current_database() AND pid<>pg_backend_pid()
-            ORDER BY pid
         """)
-        sessions=cursor.fetchall()
-    print('M3_POST_WORKER_PG_SESSIONS='+repr(sessions),flush=True)
-    # Identify only local test DB TCP socket ownership. No process arguments,
-    # SQL text, environment or credentials are emitted.
-    try:
-        socket_list=subprocess.run(['ss','-tnpH'],check=False,
-                                   capture_output=True,text=True,timeout=5)
-        owners=[]
-        for session in sessions:
-            client_port=session[-1]
-            owners.extend(line for line in socket_list.stdout.splitlines()
-                          if client_port and ':'+str(client_port) in line)
-        print('M3_POST_WORKER_SOCKET_OWNERS='+repr(owners),flush=True)
-    except (OSError,subprocess.TimeoutExpired):
-        print('M3_POST_WORKER_SOCKET_OWNERS=UNAVAILABLE',flush=True)
+        remaining=cursor.fetchone()[0]
+    assert remaining==0,'M3 worker recovery left PostgreSQL sessions open'
