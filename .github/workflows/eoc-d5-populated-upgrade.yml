@@ -61,8 +61,22 @@ jobs:
         run: |
           set -euo pipefail
           for scenario in matching mismatched legacy_matching legacy_mismatched; do
-            psql -v ON_ERROR_STOP=1 -h localhost -U onboarding -d onboarding_m0 \
-              -c "CREATE DATABASE ci_m4_upgrade_${scenario}"
+            # Use locked psycopg instead of assuming psql exists on ARM64 host.
+            uv run python - "$scenario" <<'PY'
+          import os,sys,psycopg
+          from psycopg import sql
+          scenario=sys.argv[1]
+          assert scenario in ('matching','mismatched','legacy_matching','legacy_mismatched')
+          dbname='ci_m4_upgrade_'+scenario
+          with psycopg.connect(
+              dbname=os.environ['POSTGRES_DB'],
+              host=os.environ['POSTGRES_HOST'],
+              port=int(os.environ['POSTGRES_PORT']),
+              user=os.environ['POSTGRES_USER'],
+              password=os.environ['POSTGRES_PASSWORD'],
+              autocommit=True) as conn:
+              conn.execute(sql.SQL('CREATE DATABASE {}').format(sql.Identifier(dbname)))
+          PY
             POSTGRES_DB="ci_m4_upgrade_${scenario}" \
               M4_MANAGER_UPGRADE_SCENARIO="$scenario" \
               uv run python -m scripts.m4_manager_upgrade_qualification
