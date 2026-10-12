@@ -1,3 +1,5 @@
+> **Superseding competition instructions received 12 October 2026:** Final submission on **12 October 2026** explicitly demands a **YouTube demo watch URL**, a reviewer-accessible personal GitHub source link, detailed technical design and diagrams, setup/deployment, code explanations, assumptions, and comprehensive unit tests. Hosting is **optional under this latest rubric** ("If Hosted" include its URL). Do not use the earlier below wording "YouTube optional" as current submission guidance. Internal F01–F28, E01–E10 and J01–J05 remain product/verification targets, but **complete hosted J01–J05 acceptance is not an explicit latest-rubric elimination item**. Do not claim real AI merely because mocked tests pass. See [submission-day AI and evidence packet](SUBMISSION_DAY_AI_AND_EVIDENCE_20261012.md). No automatic public release/upload authorized.
+
 # Employee Onboarding Companion — final senior evaluation delivery contract
 
 **Owner direction, 12 October 2026 — supersedes earlier production-release assumptions for assignment submission.**
