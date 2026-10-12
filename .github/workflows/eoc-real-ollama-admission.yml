@@ -1,0 +1,83 @@
+name: EOC owner-opt-in REAL Ollama admission (PostgreSQL ARM64)
+on:
+  # `workflow_dispatch` also works when registered on GitHub's default
+  # branch. For this development-only file, an explicit trigger-file commit
+  # is the reliable branch-level alternative.
+  workflow_dispatch:
+  push:
+    branches: ['feature/eoc-completion-development']
+    paths:
+      - '.github/workflows/eoc-real-ollama-admission.yml'
+      - 'docs/submission/real_ollama_trigger.txt'
+permissions:
+  contents: read
+concurrency:
+  group: eoc-owner-opt-in-real-ollama
+  cancel-in-progress: false
+jobs:
+  real-ollama-synthetic-admission:
+    # A normal source push MUST NOT run the real-model integration. A user
+    # explicitly opts in with a marker-file commit prefixed "eval(real-ai):".
+    if: ${{ github.event_name == 'workflow_dispatch' || startsWith(github.event.head_commit.message, 'eval(real-ai):') }}
+    runs-on: [self-hosted, linux, ARM64, eoc-mac-ci]
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:17@sha256:2d2b8998d31037bf721cfdf764d76ba74171b4fab3431b7f72c27c56ddbdf9e3
+        env:
+          POSTGRES_USER: onboarding
+          POSTGRES_PASSWORD: ci-temporary-only
+          POSTGRES_DB: onboarding_m0
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 3s --health-timeout 3s --health-retries 15
+    env:
+      DJANGO_SECRET_KEY: ci-synthetic-real-ollama-only
+      DJANGO_DEBUG: '0'
+      DJANGO_ALLOWED_HOSTS: localhost,127.0.0.1,testserver
+      POSTGRES_HOST: localhost
+      POSTGRES_PORT: '5432'
+      POSTGRES_DB: onboarding_m0
+      POSTGRES_USER: onboarding
+      POSTGRES_PASSWORD: ci-temporary-only
+      EOC_AI_PROVIDER: OLLAMA_LOCAL
+      EOC_OLLAMA_MODEL: gpt-oss:20b
+      EOC_RUN_REAL_OLLAMA_TEST: '1'
+      OPENAI_API_KEY: ''
+      DATABASE_URL: ''
+    steps:
+      - name: Checkout immutable admitted source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Setup locked uv and Python
+        uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e
+        with:
+          python-version: '3.13'
+          version: '0.12.23'
+      - name: Verify SSH-reverse-forwarded Mac Ollama loopback and model
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "EOC_REAL_MODEL_QUALIFICATION_SHA=$GITHUB_SHA"
+          echo "Endpoint is fixed to 127.0.0.1:11434; no public Ollama exposure."
+          curl --fail --silent --show-error --max-time 7 \
+            http://127.0.0.1:11434/api/version \
+            | python3 -c 'import json,sys; r=json.load(sys.stdin); assert r.get("version"), "No real Ollama server version"; print("LOOPBACK_OLLAMA_VERSION="+r["version"])'
+          curl --fail --silent --show-error --max-time 8 \
+            http://127.0.0.1:11434/api/tags \
+            | python3 -c 'import json,sys; r=json.load(sys.stdin); names=[x.get("name") for x in r.get("models",[])]; assert "gpt-oss:20b" in names, "gpt-oss:20b must be installed on the tunnel endpoint"; print("EXISTING_GPT_OSS_MODEL_CONFIRMED")'
+      - name: Install project dependencies and verify isolated PostgreSQL
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv lock --check
+          uv sync --locked
+          uv run python manage.py check
+          uv run python manage.py migrate --noinput
+      - name: REAL Ollama three-question synthetic admission
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run pytest -q -s backend/ai/tests/test_ollama_live_synthetic.py
+          echo "EOC_REAL_OLLAMA_THREE_QUESTION_ADMISSION_PASS@$GITHUB_SHA"
+          echo "This demonstrates local-model inference over the private SSH reverse tunnel; not hosted Render AI."
