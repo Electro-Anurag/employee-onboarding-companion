@@ -390,3 +390,14 @@ def test_live_m3_real_content_worker_hard_exit_redelivery(world):
         key=uuid.uuid4(),expected_version=4)
     assert accepted['result']['task_completion']=='COMPLETED'
     assert TaskCompletion.objects.filter(task=task,evidence_type='SECURE_DOCUMENT').count()==1
+    # Diagnose the observed Django test database teardown warning. Only
+    # PostgreSQL session metadata is logged, never query text or credentials.
+    with connection.cursor() as cursor:
+        cursor.execute("""
+            SELECT pid, state, backend_type, application_name
+            FROM pg_stat_activity
+            WHERE datname=current_database() AND pid<>pg_backend_pid()
+            ORDER BY pid
+        """)
+        sessions=cursor.fetchall()
+    print('M3_POST_WORKER_PG_SESSIONS='+repr(sessions),flush=True)
