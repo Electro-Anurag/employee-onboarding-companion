@@ -1,3 +1,43 @@
+> **Update 12 October 2026 — Mac PostgreSQL STOP, proven log boundary:** `postgresql@17` Homebrew installation on macOS 27 lacks `dict_snowball.so` and `plpgsql.so`; `initdb` cannot complete. **Do not rerun the Mac `scripts/run_evaluation_real_ai.sh` or repair symlinks further.** Model `gpt-oss:20b` works on Mac Ollama 0.35.1. Use [the owner-opt-in ARM64 PostgreSQL real-model gate](../../.github/workflows/eoc-real-ollama-admission.yml) with **an SSH reverse tunnel on loopback** from macOS Ollama to the already-qualified private Ubuntu ARM64 self-hosted runner. This preserves real model inference on Mac and database/application execution on Ubuntu, with no Docker, Postgres service, or paid model on Mac. No model PASS has yet been observed. The earlier Docker/Homebrew command below is kept for historical reproducibility only.
+
+## Current preferred owner-executed real-AI route (no Mac PostgreSQL)
+
+**One-time prerequisite:** the owner's existing SSH login into Ubuntu runner as `ecoci` must work from the Mac. The SSH server must permit remote TCP forwarding; the port `11434` must be unused on Ubuntu. All traffic remains over SSH; Ollama is served on macOS `127.0.0.1:11434` and exposed only as Ubuntu `127.0.0.1:11434`, never on a public interface. Keep the Mac running and awake for the qualification.
+
+In **Mac Terminal A**, open the tunnel using the exact hostname/SSH option normally used to log into Ubuntu; if the hostname `eco-ci` is resolvable, the command is:
+
+```bash
+ssh -o ExitOnForwardFailure=yes -N \\
+  -R 127.0.0.1:11434:127.0.0.1:11434 \\
+  ecoci@eco-ci
+```
+
+The shell appears idle while the SSH tunnel is open. Leave it open. With a second Mac Terminal verify through the same SSH destination:
+
+```bash
+ssh ecoci@eco-ci \\
+  'curl -fsS --max-time 10 http://127.0.0.1:11434/api/version'
+```
+
+If the SSH host is not `eco-ci` use the actual existing private SSH destination; **do not** expose Ollama on `0.0.0.0` or open internet ports. If SSH forwarding fails, stop and report the exact error.
+
+In **Mac Terminal B**, inside this GitHub repository and after `git pull --ff-only`, explicitly trigger the owner-only job (creates a text marker but no secrets):
+
+```bash
+cd ~/eoc-ai-demo
+git pull --ff-only
+date -u '+%Y-%m-%dT%H:%M:%SZ' > docs/submission/real_ollama_trigger.txt
+git add docs/submission/real_ollama_trigger.txt
+git commit -m 'eval(real-ai): run owner-approved SSH-tunneled Ollama admission'
+git push origin feature/eoc-completion-development
+```
+
+Only a commit touching the marker with the `eval(real-ai):` prefix runs the true inference test on self-hosted Ubuntu CI. The workflow file creation itself does NOT initiate paid/real model calls. The job uses its own ephemeral PostgreSQL 17 service, fixed Ollama loopback `11434`, `gpt-oss:20b`, and the same `backend/ai/tests/test_ollama_live_synthetic.py` gate. Inspect GitHub Actions workflow **EOC owner-opt-in REAL Ollama admission (PostgreSQL ARM64)** and retain the run URL and exact source SHA. PASS is valid only when the real test says `EOC_REAL_OLLAMA_THREE_QUESTION_ADMISSION_PASS@` and the log shows at least one `MODEL_VALIDATED` supported fact. Stop the tunnel with Ctrl+C afterward.
+
+**Model result is not yet observed.** If a supported question yields only deterministic fallback, report a genuine failed qualification and investigate provider schema/relevance rather than claiming AI success.
+
+---
+
 # 12 October 2026 — mandatory AI and submission evidence packet
 
 **Status: DRAFT / NOT SUBMITTED.** This file implements the owner's latest written competition instructions. **Submission cutoff: 12 October 2026; specific cutoff hour/timezone unknown. YouTube demo URL is MANDATORY. Hosting URL is OPTIONAL (if hosted, include it).** Do not submit an invented YouTube URL, fabricated metrics or a private GitHub link inaccessible to reviewers.
