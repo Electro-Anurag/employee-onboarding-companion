@@ -1,7 +1,7 @@
 name: EOC M6 focused AI contract qualification
 on:
   push:
-    branches: ['feature/eoc-completion-development']
+    branches: ['feature/eoc-completion-development', 'feature/eoc-postsubmission-completion']
     paths:
       - 'backend/ai/**'
       - 'frontend/src/AnswerEvidence.tsx'
