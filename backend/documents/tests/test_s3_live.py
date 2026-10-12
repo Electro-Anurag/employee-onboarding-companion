@@ -261,6 +261,47 @@ def test_live_clean_copy_committed_before_db_failure_is_reused_exactly(world):
 
 
 @pytest.mark.django_db(transaction=True)
+def test_live_private_quarantine_and_clean_versions_deny_anonymous_get(world):
+    """Real MinIO object versions must not be readable without S3 credentials."""
+    import boto3
+    from botocore import UNSIGNED
+    from botocore.config import Config
+    from botocore.exceptions import ClientError
+    from backend.documents.real_models import SecureUpload,StoredQuarantineObject
+    _,actors=world
+    made,_=create(world,published(world))
+    case=OnboardingCase.objects.get(pk=made['case_id'])
+    activate_case(actor=actors['HR'][0],case_id=case.pk,
+                  key=uuid.uuid4(),expected_version=1)
+    task=Task.objects.get(case=case,key='identity_document')
+    raw=generated_pdf()
+    intent,_=prepare(actor=actors['EMPLOYEE'][0],case_id=case.pk,task_id=task.pk,
+                     sha256=hashlib.sha256(raw).hexdigest(),size=len(raw),
+                     filename='private_access.pdf',key=uuid.uuid4(),expected_version=2)
+    upload_id=uuid.UUID(intent['result']['upload_id'])
+    receive(actor=actors['EMPLOYEE'][0],case_id=case.pk,task_id=task.pk,
+            upload_id=upload_id,raw=raw,key=uuid.uuid4(),expected_version=3)
+    assert scan_one(upload_id)=={'outcome':'CLEAN','state':'AWAITING_HR_REVIEW'}
+    upload=SecureUpload.objects.get(pk=upload_id)
+    stored=StoredQuarantineObject.objects.get(upload=upload)
+    clean=SecureCleanObject.objects.get(upload=upload)
+    signed=storage.client()
+    q,c=storage.buckets(signed)
+    assert storage.download(clean)==raw
+    anonymous=boto3.client(
+        's3',endpoint_url=settings.M3_S3_ENDPOINT_URL,
+        region_name=settings.M3_S3_REGION,
+        config=Config(signature_version=UNSIGNED,s3={'addressing_style':'path'}))
+    for bucket,key,version in ((q,upload.object_key,stored.version_id),
+                               (c,clean.object_key,clean.version_id)):
+        with pytest.raises(ClientError) as denied:
+            anonymous.get_object(Bucket=bucket,Key=key,VersionId=version)
+        assert denied.value.response.get('ResponseMetadata',{}).get(
+            'HTTPStatusCode') in (403,404)
+    assert not TaskCompletion.objects.filter(task=task).exists()
+
+
+@pytest.mark.django_db(transaction=True)
 def test_live_m3_real_content_worker_hard_exit_redelivery(world):
     """Actual worker dies after committed clean evidence, before ACK; retry is idempotent."""
     import asyncio
