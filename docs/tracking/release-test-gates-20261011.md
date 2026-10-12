@@ -294,3 +294,31 @@ Historical evidence must not be re-labelled.
   close T17 independent security, T19 release approval or T20–T24 hosted
   acceptance. Hosted J01–J05 remains 0/5; delivery remains 70/30 estimated,
   subject to remaining D4–D6 and release gates.
+
+
+### Final D3 isolated-source closure evidence — 12 October, exact SHA
+
+- Current final D3 test/CI hygiene commit
+  [`4cda23d3d7da07d98104e3d51f05f273c232baaf`](https://github.com/Electro-Anurag/employee-onboarding-companion/commit/4cda23d3d7da07d98104e3d51f05f273c232baaf)
+  replaced temporary diagnostics with a durable assertion requiring no
+  additional PostgreSQL sessions after real killed-worker recovery. This
+  is **test-only** compared with previously qualified application code
+  `d2cad8f206e661d668d35893dd3eb784dc42fc31`.
+- [Live self-hosted ARM64 38197120380](https://github.com/Electro-Anurag/employee-onboarding-companion/actions/runs/38197120380):
+  **SUCCESS at 4cda23d — 6/6 genuine versioned MinIO + ClamAV PASS,
+  0 pytest teardown warnings**. No real employee data or paid infrastructure.
+  The earlier idle-session warning is **CLOSED within this isolated test**:
+  recovery control runs in a separate short-lived process, and the
+  assertion detects a future extra Postgres session.
+- [Full self-hosted integration 38196770341](https://github.com/Electro-Anurag/employee-onboarding-companion/actions/runs/38196770341):
+  **SUCCESS at a92f2f0** (immediately preceding test-only cleanup guard).
+  The [final 4cda23d integrated run 38197120335](https://github.com/Electro-Anurag/employee-onboarding-companion/actions/runs/38197120335)
+  remained **IN_PROGRESS in the PostgreSQL regression step** at this
+  tracker snapshot; exact-SHA final integrated PASS cannot be claimed
+  before its conclusion.
+- **Scope of closure:** currently tested D3 source-level real-service behaviors
+  are qualified and the demonstrated test teardown defect is corrected.
+  This is not evidence of hosted secure-document operation, independent
+  security certification or completed PRD J02. T03/T05 retain **hosted/
+  release gates**, T17/T19–T25 remain unqualified, and hosted J01–J05
+  remain 0/5. Overall delivery estimate remains conservatively 70/30.
