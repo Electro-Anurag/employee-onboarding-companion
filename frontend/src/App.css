@@ -29,3 +29,20 @@ footer{margin-top:12px}
 details>summary{cursor:pointer;font-weight:600;color:#244879}
 details>summary h2{display:inline;font-size:1.02rem;margin:0}
 details[open]>summary{margin-bottom:12px}
+
+/* D5 keyboard and mobile accessibility: skip past navigation and see focus.
+   Never hide focus outlines; preserve actual disabled-state constraints. */
+.skip-link{position:absolute;left:12px;top:8px;z-index:1000;
+  padding:10px 14px;border-radius:8px;color:#fff;background:#163d70;
+  transform:translateY(-160%);text-decoration:underline}
+.skip-link:focus{transform:translateY(0)}
+:where(a,button,input,select,textarea,summary):focus-visible{
+  outline:3px solid #b05d00;outline-offset:3px}
+#main-content{min-width:0;scroll-margin-top:16px}
+@media(max-width:480px){
+  .shell{padding:12px}
+  .panel{padding:14px}
+  .subpanel{padding:12px}
+  .topbar h1{font-size:1.5rem}
+  .sidebar nav button{flex:1 1 auto}
+}

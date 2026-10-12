@@ -74,3 +74,15 @@ describe('approved evidence remains authoritative',()=>{
     expect(preferNewerCase(accepted,earlier).tasks[0].state).toBe('COMPLETED');
   });
 });
+
+describe('D5 semantic navigation and keyboard entry points',()=>{
+  it('offers a skip link and exactly one login main landmark',()=>{
+    const markup=renderToStaticMarkup(<App/>);
+    expect(markup).toContain('href="#main-content"');
+    expect(markup).toContain('Skip to main content');
+    expect(markup).toContain('<main id="main-content"');
+    expect(markup.match(/<main\b/g)).toHaveLength(1);
+    expect(markup.indexOf('<header')).toBeLessThan(markup.indexOf('<main'));
+    expect(markup).toContain('tabindex="-1"');
+  });
+});

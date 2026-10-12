@@ -643,30 +643,31 @@ export default function App(){
   const activeTaskIndex=workflow?
     Math.max(0,workflow.current.findIndex(task=>task.id===focusedTaskId)):0;
   const activeTask=workflow?.current[activeTaskIndex]||null;
-  return <main className="shell">
+  return <div className="shell">
+    <a className="skip-link" href="#main-content">Skip to main content</a>
     <header className="topbar"><div><span className="eyebrow">Aster Vale Labs — synthetic demo</span><h1>Onboarding Companion</h1>
       <p>Know what needs doing, by whom, and what comes next.</p></div>
       {me&&<button className="quiet" disabled={busy} onClick={()=>void signOut()}>Sign out</button>}
     </header>
-    {!me?<section className="panel login"><h2>Sign in</h2>
+    {!me?<main id="main-content" tabIndex={-1} className="panel login"><h2>Sign in</h2>
       <form onSubmit={e=>void signIn(e)} className="form">
         <label>Email<input type="email" required autoComplete="username" value={email} onChange={e=>setEmail(e.target.value)}/></label>
         <label>Password<input type="password" required autoComplete="current-password" value={password} onChange={e=>setPassword(e.target.value)}/></label>
         <button type="submit" disabled={busy||!csrf}>Sign in</button>
-      </form></section>:
+      </form></main>:
     <div className="layout">
       <aside className="sidebar panel"><strong>{me.display_name}</strong><p>Role: {me.role}</p>
         <nav aria-label="Workspace">
-          <button className={tab==='cases'?'selected':'quiet'} onClick={()=>setTab('cases')}>Cases ({cases.length})</button>
-          <button className={tab==='work'?'selected':'quiet'} onClick={()=>setTab('work')}>My work ({currentWork.length})</button>
-          <button className={tab==='inbox'?'selected':'quiet'} onClick={()=>setTab('inbox')}>In-app inbox</button>
-          {me.role==='HR'&&<button className={tab==='portfolio'?'selected':'quiet'}
+          <button aria-pressed={tab==='cases'} className={tab==='cases'?'selected':'quiet'} onClick={()=>setTab('cases')}>Cases ({cases.length})</button>
+          <button aria-pressed={tab==='work'} className={tab==='work'?'selected':'quiet'} onClick={()=>setTab('work')}>My work ({currentWork.length})</button>
+          <button aria-pressed={tab==='inbox'} className={tab==='inbox'?'selected':'quiet'} onClick={()=>setTab('inbox')}>In-app inbox</button>
+          {me.role==='HR'&&<button aria-pressed={tab==='portfolio'} className={tab==='portfolio'?'selected':'quiet'}
             onClick={()=>{setTab('portfolio');void loadPortfolio();}}>HR portfolio</button>}
-          {me.role==='HR'&&<button className={tab==='templates'?'selected':'quiet'} onClick={()=>setTab('templates')}>Templates ({templates.length})</button>}
+          {me.role==='HR'&&<button aria-pressed={tab==='templates'} className={tab==='templates'?'selected':'quiet'} onClick={()=>setTab('templates')}>Templates ({templates.length})</button>}
         </nav>
         <button className="quiet" disabled={busy} onClick={()=>void perform(async()=>{await refresh(me);if(selected)await reloadCase(selected.id,me);})}>Refresh</button>
       </aside>
-      <div className="content">
+      <main id="main-content" tabIndex={-1} className="content">
         {tab==='portfolio'&&me.role==='HR'&&(
           portfolio?<PortfolioOverview snapshot={portfolio} busy={busy}
             onRefresh={()=>void loadPortfolio()}
@@ -678,7 +679,7 @@ export default function App(){
           </section>)}
         {tab==='cases'&&<section className="panel"><h2>Authorized cases</h2>
           {!cases.length&&<p>No cases assigned yet.</p>}
-          <div className="case-list">{cases.map(c=><button key={c.id} disabled={busy}
+          <div className="case-list">{cases.map(c=><button key={c.id} aria-pressed={selected?.id===c.id} disabled={busy}
               className={selected?.id===c.id?'selected':'quiet'} onClick={()=>void selectCase(c)}>
               <span><strong>{c.employee_name}</strong> <small>{c.status}</small></span>
               <span>Joining {c.joining_date} · v{c.version}</span>
@@ -1051,9 +1052,9 @@ export default function App(){
             <button type="submit" disabled={busy||!templateChoice||!employeeChoice||!itChoice||!managerChoice||!joiningDate}>Create case</button>
           </form>
         </details></section>}
-      </div>
+      </main>
     </div>}
     <p aria-live="polite" role="status" className="status">{message}</p>
     <footer><small>Synthetic evaluation only — do not upload real employee data.</small></footer>
-  </main>;
+  </div>;
 }
