@@ -2,6 +2,9 @@
 
 # Employee Onboarding Companion
 
+**Senior evaluator quick start:** [Walkthrough, evidence and limitations](docs/submission/EVALUATOR_START_HERE.md) · [local four-role screen capture](docs/submission/evaluator-walkthrough-20261012.md) · [optional local real-model adapter](docs/submission/local-ollama-evaluation-20261012.md).
+
+
 **Status (12 October 2026): ongoing development and hosted partial evaluation, NOT production release GO.** The existing Free Render web service is LIVE at application SHA `ec781ab7362da10648eea496b1402b8c317dcd4c`; newer source and documentation commits are NOT deployed. Four-role authentication and synthetic partial HR/Employee workflows were demonstrated. Hosted J01–J05 remain 0/5 full PASS.
 
 Repository: private personal GitHub repo `Electro-Anurag/employee-onboarding-companion`.
