@@ -206,7 +206,7 @@ test('four-role real-browser case, template, dependency and evidence journey',as
       await expect(employee.getByRole('button',{name:'Cases (1)'})).toBeVisible();
       await expect(employee.getByRole('button',{name:/^My work \(/})).toBeVisible();
       await employee.getByRole('button',{name:/^My work \(/}).click();
-      await expect(employee.getByText('Identity Document')).toBeVisible();
+      await expect(employee.getByRole('heading',{name:'My assigned tasks'}).locator('..').getByText('Identity Document')).toBeVisible();
       await expect(employee.getByRole('button',{name:/Templates \(/})).toHaveCount(0);
       await openCase(employee);
       await expect(taskCard(employee,'Manager Preparation').getByRole('button',{name:'Complete preparation'})).toHaveCount(0);
