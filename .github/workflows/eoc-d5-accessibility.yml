@@ -1,0 +1,86 @@
+name: D5 real Chromium keyboard and mobile landmark qualification
+on:
+  push:
+    branches: ['feature/eoc-completion-development']
+    paths:
+      - '.github/workflows/eoc-d5-accessibility.yml'
+      - 'browser/d5-accessibility.spec.cjs'
+      - 'frontend/src/App.tsx'
+      - 'frontend/src/App.css'
+      - 'frontend/src/App.test.tsx'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: eoc-d5-accessibility
+  cancel-in-progress: false
+jobs:
+  keyboard-mobile:
+    runs-on: [self-hosted, linux, ARM64, eoc-mac-ci]
+    timeout-minutes: 24
+    services:
+      postgres:
+        image: postgres:17@sha256:2d2b8998d31037bf721cfdf764d76ba74171b4fab3431b7f72c27c56ddbdf9e3
+        env:
+          POSTGRES_USER: onboarding
+          POSTGRES_PASSWORD: ci-temporary-only
+          POSTGRES_DB: onboarding_m0
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 3s --health-timeout 3s --health-retries 15
+    env:
+      DJANGO_SECRET_KEY: ci-only-d5-accessibility
+      DJANGO_DEBUG: '1'
+      DJANGO_ALLOWED_HOSTS: localhost,127.0.0.1,testserver
+      EOC_AI_PROVIDER: DISABLED
+      OPENAI_API_KEY: ''
+      POSTGRES_HOST: localhost
+      POSTGRES_PORT: '5432'
+      POSTGRES_DB: onboarding_m0
+      POSTGRES_USER: onboarding
+      POSTGRES_PASSWORD: ci-temporary-only
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e
+        with:
+          python-version: '3.13'
+          version: '0.12.23'
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+      - name: Build the exact application source and migrate isolated PostgreSQL
+        run: |
+          set -euo pipefail
+          uv lock --check
+          uv sync --locked
+          uv run python manage.py check
+          uv run python manage.py makemigrations --check --dry-run
+          uv run python manage.py migrate --noinput
+          (cd frontend && npm ci && npm run test && npm run build)
+          git diff --exit-code -- uv.lock frontend/package-lock.json
+      - name: Actual Chromium keyboard and viewport qualification
+        run: |
+          set -euo pipefail
+          umask 077
+          export M2_BROWSER_CREDENTIAL_FILE="$RUNNER_TEMP/eoc-d5-access-roles.txt"
+          uv run python manage.py seed_m2_demo --confirm-synthetic > "$M2_BROWSER_CREDENTIAL_FILE"
+          mkdir -p "$RUNNER_TEMP/eoc-d5-access-chromium"
+          cp browser/playwright.config.cjs browser/d5-accessibility.spec.cjs "$RUNNER_TEMP/eoc-d5-access-chromium/"
+          npm --prefix "$RUNNER_TEMP/eoc-d5-access-chromium" install --no-save --package-lock=false --ignore-scripts @playwright/test@1.64.0
+          "$RUNNER_TEMP/eoc-d5-access-chromium/node_modules/.bin/playwright" install chromium
+          uv run python manage.py runserver --nostatic --noreload 127.0.0.1:8000 > "$RUNNER_TEMP/eoc-d5-access-server.log" 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true; rm -f "$M2_BROWSER_CREDENTIAL_FILE"' EXIT
+          ready=0
+          for attempt in $(seq 1 50); do
+            if curl -fsS -o /dev/null http://127.0.0.1:8000/health/ready; then ready=1; break; fi
+            sleep 1
+          done
+          if [ "$ready" != 1 ]; then
+            tail -65 "$RUNNER_TEMP/eoc-d5-access-server.log"
+            exit 1
+          fi
+          cd "$RUNNER_TEMP/eoc-d5-access-chromium"
+          ./node_modules/.bin/playwright test -c playwright.config.cjs d5-accessibility.spec.cjs
+          echo "EOC_D5_CHROMIUM_KEYBOARD_MOBILE_FOCUSED_PASS@$GITHUB_SHA"
