@@ -6,6 +6,8 @@ on:
       - '.github/workflows/eoc-current-head-integration.yml'
       - 'backend/ai/**'
       - 'backend/documents/**'
+      - 'backend/onboarding/services.py'
+      - 'backend/onboarding/tests/test_review_repairs.py'
       - 'browser/acceptance.spec.cjs'
       - 'render.yaml'
       - 'render.evaluation.yaml'

@@ -198,6 +198,10 @@ def reassign_owner(*,actor,case_id,role,new_member_id,reason,key,expected_versio
             return receipt.response,receipt.status_code
         if case.version!=expected_version:
             raise CommandFailure('STALE_VERSION',409)
+        # Idempotent earlier receipts were returned above. New owner changes
+        # must never mutate a terminal onboarding case or its audit history.
+        if case.status not in ('CREATED','PRE_JOINING','ACTIVE'):
+            raise CommandFailure('CASE_NOT_MUTABLE',409)
         if (new is None or not new.active or not new.available or new.role!=role
                 or new.organization_id!=case.organization_id
                 or not new.user.is_active):

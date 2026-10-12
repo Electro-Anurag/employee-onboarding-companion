@@ -180,3 +180,44 @@ def test_r3_member_identity_cannot_be_transferred_under_a_case(setup):
             Membership.objects.filter(pk=membership.pk).update(user=replacement)
     membership.refresh_from_db()
     assert membership.user_id==people['IT'][0].pk
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize('terminal_status',['COMPLETED','CANCELLED'])
+def test_terminal_case_blocks_new_owner_handoff_but_replays_prior_receipt(setup,terminal_status):
+    case,people,org=setup
+    backup=User.objects.create_user(
+        email='terminal.backup.'+terminal_status.lower()+'@cases.test',
+        password='AReallyStrongPassword!2026')
+    replacement=Membership.objects.create(user=backup,organization=org,role='IT')
+    first_key=uuid.uuid4()
+    first,status=reassign_owner(actor=people['HR'][0],case_id=case.pk,
+        role='IT',new_member_id=replacement.pk,
+        reason='Pre-closure validated available IT replacement',
+        key=first_key,expected_version=1)
+    assert status==200 and first['case_version']==2
+    # Controlled fixture closes the case without altering the already committed
+    # ownership receipt. Neither terminal state may admit a fresh owner mutation.
+    OnboardingCase.objects.filter(pk=case.pk).update(status=terminal_status)
+    replay,code=reassign_owner(actor=people['HR'][0],case_id=case.pk,
+        role='IT',new_member_id=replacement.pk,
+        reason='Pre-closure validated available IT replacement',
+        key=first_key,expected_version=1)
+    assert code==200 and replay==first
+    newcomer=User.objects.create_user(
+        email='terminal.second.'+terminal_status.lower()+'@cases.test',
+        password='AReallyStrongPassword!2026')
+    target=Membership.objects.create(user=newcomer,organization=org,role='IT')
+    with pytest.raises(CommandFailure) as exc:
+        reassign_owner(actor=people['HR'][0],case_id=case.pk,role='IT',
+            new_member_id=target.pk,reason='Improper post-closure reassignment',
+            key=uuid.uuid4(),expected_version=2)
+    assert exc.value.code=='CASE_NOT_MUTABLE'
+    case.refresh_from_db()
+    assert case.status==terminal_status and case.version==2
+    assert CaseAssignment.objects.filter(case=case,role='IT',
+        effective_to__isnull=True).count()==1
+    assert CaseAssignment.objects.get(case=case,role='IT',
+        effective_to__isnull=True).member_id==replacement.pk
+    assert AuditEvent.objects.filter(event_type='OWNER_REASSIGNED').count()==1
+    assert CommandReceipt.objects.filter(route='reassign-owner').count()==1
