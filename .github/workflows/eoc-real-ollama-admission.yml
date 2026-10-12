@@ -5,7 +5,7 @@ on:
   # is the reliable branch-level alternative.
   workflow_dispatch:
   push:
-    branches: ['feature/eoc-completion-development']
+    branches: ['feature/eoc-completion-development', 'feature/eoc-postsubmission-completion']
     paths:
       - '.github/workflows/eoc-real-ollama-admission.yml'
       - 'docs/submission/real_ollama_trigger.txt'
