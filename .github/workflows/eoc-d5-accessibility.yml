@@ -5,6 +5,7 @@ on:
     paths:
       - '.github/workflows/eoc-d5-accessibility.yml'
       - 'browser/d5-accessibility.spec.cjs'
+      - 'browser/d5-axe.spec.cjs'
       - 'frontend/src/App.tsx'
       - 'frontend/src/App.css'
       - 'frontend/src/App.test.tsx'
@@ -66,8 +67,8 @@ jobs:
           export M2_BROWSER_CREDENTIAL_FILE="$RUNNER_TEMP/eoc-d5-access-roles.txt"
           uv run python manage.py seed_m2_demo --confirm-synthetic > "$M2_BROWSER_CREDENTIAL_FILE"
           mkdir -p "$RUNNER_TEMP/eoc-d5-access-chromium"
-          cp browser/playwright.config.cjs browser/d5-accessibility.spec.cjs "$RUNNER_TEMP/eoc-d5-access-chromium/"
-          npm --prefix "$RUNNER_TEMP/eoc-d5-access-chromium" install --no-save --package-lock=false --ignore-scripts @playwright/test@1.64.0
+          cp browser/playwright.config.cjs browser/d5-accessibility.spec.cjs browser/d5-axe.spec.cjs "$RUNNER_TEMP/eoc-d5-access-chromium/"
+          npm --prefix "$RUNNER_TEMP/eoc-d5-access-chromium" install --no-save --package-lock=false --ignore-scripts @playwright/test@1.64.0 axe-core@4.11.3
           "$RUNNER_TEMP/eoc-d5-access-chromium/node_modules/.bin/playwright" install chromium
           uv run python manage.py runserver --nostatic --noreload 127.0.0.1:8000 > "$RUNNER_TEMP/eoc-d5-access-server.log" 2>&1 &
           server_pid=$!
@@ -82,5 +83,5 @@ jobs:
             exit 1
           fi
           cd "$RUNNER_TEMP/eoc-d5-access-chromium"
-          ./node_modules/.bin/playwright test -c playwright.config.cjs d5-accessibility.spec.cjs
-          echo "EOC_D5_CHROMIUM_KEYBOARD_MOBILE_FOCUSED_PASS@$GITHUB_SHA"
+          ./node_modules/.bin/playwright test -c playwright.config.cjs d5-accessibility.spec.cjs d5-axe.spec.cjs
+          echo "EOC_D5_CHROMIUM_KEYBOARD_MOBILE_AXE_AA_CANDIDATE_PASS@$GITHUB_SHA"
