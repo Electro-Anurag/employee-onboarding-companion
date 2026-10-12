@@ -26,7 +26,7 @@ The application may have more recent script/doc commits; **do not relabel these 
 
 ## 3. Generate *real* AI proof — blocking action
 
-On a machine with Docker, uv, Python, and an **already installed and serving** local Ollama model:
+On a Mac with uv, Python, Homebrew PostgreSQL 17 (or an already running local Docker daemon), and an **already installed and serving** local Ollama model:
 
 ```bash
 git switch feature/eoc-completion-development
@@ -35,7 +35,7 @@ ollama list
 EOC_OLLAMA_MODEL='gpt-oss:20b' bash scripts/run_evaluation_real_ai.sh
 ```
 
-Replace `gpt-oss:20b` with a **verified installed model name**, not a guessed model. The script intentionally refuses `DATABASE_URL`, paid-provider mode, uncommitted tracked changes, missing Ollama, or unavailable Docker; creates and destroys only a disposable PostgreSQL container, records the real test output privately under the local temporary directory, and never pulls an additional model automatically. Its runtime has not been qualified on the owner's machine.
+Replace `gpt-oss:20b` with a **verified installed model name**, not a guessed model. **Docker is optional**: if no functioning Docker daemon exists, first run `brew install postgresql@17`; the runner starts its own temporary SCRAM-authenticated loopback-only PostgreSQL 17 cluster and stops/deletes it automatically. With Docker it uses a disposable container instead. It refuses `DATABASE_URL`, paid-provider mode, uncommitted tracked changes or missing Ollama, records the real test output privately under a temporary evidence directory, and never pulls another model automatically. It does **not** use an existing PostgreSQL service/database. Its real-model runtime has not been qualified on the owner's machine.
 
 **Acceptance:** the real `backend/ai/tests/test_ollama_live_synthetic.py` test completes with explicit `MODEL_VALIDATED` + `ai_model_used=true` for at least one one-fact task answer with one citation, three logged model attempts, no mutating task completion, and safe handling of a bonus-guarantee question. If that question falls back, describe a **system-level refusal**, not a successful model-generated refusal. A passing test does not prove every policy question works or that hosted AI is enabled.
 
