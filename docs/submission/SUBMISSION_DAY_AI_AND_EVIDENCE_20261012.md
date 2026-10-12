@@ -7,15 +7,15 @@
 In **Mac Terminal A**, open the tunnel using the exact hostname/SSH option normally used to log into Ubuntu; if the hostname `eco-ci` is resolvable, the command is:
 
 ```bash
-ssh -o ExitOnForwardFailure=yes -N \\
-  -R 127.0.0.1:11434:127.0.0.1:11434 \\
+ssh -o ExitOnForwardFailure=yes -N \
+  -R 127.0.0.1:11434:127.0.0.1:11434 \
   ecoci@eco-ci
 ```
 
 The shell appears idle while the SSH tunnel is open. Leave it open. With a second Mac Terminal verify through the same SSH destination:
 
 ```bash
-ssh ecoci@eco-ci \\
+ssh ecoci@eco-ci \
   'curl -fsS --max-time 10 http://127.0.0.1:11434/api/version'
 ```
 
