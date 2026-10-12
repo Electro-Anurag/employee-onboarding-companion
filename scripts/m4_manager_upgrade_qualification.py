@@ -20,11 +20,13 @@ django.setup()
 from importlib import import_module
 from django.core.management import call_command
 from django.db.migrations.recorder import MigrationRecorder
+from django.db.migrations.executor import MigrationExecutor
 from django.db import connection,transaction
 from django.utils import timezone
 from backend.accounts.models import Organization,Membership,User
 from backend.templates.services import create_default,publish_template
-from backend.onboarding.commands import create_case,activate_case
+from backend.templates.models import TemplateTask
+from backend.onboarding.state_machine import scheduled_at
 from backend.onboarding.models import OnboardingCase,Task,ManagerAttestation,TaskCompletion
 
 # Intentionally stop before the additive provenance migration.
@@ -47,13 +49,41 @@ for role in ('HR','EMPLOYEE','IT','MANAGER'):
     users[role],members[role]=actor,member
 draft=create_default(actor=users['HR'])
 published=publish_template(actor=users['HR'],template_id=uuid.UUID(draft['id']),revision=1)
-made,_=create_case(actor=users['HR'],employee_id=members['EMPLOYEE'].pk,
-    template_version_id=uuid.UUID(published['version_id']),
-    joining_date=timezone.localdate()+timedelta(days=21),
-    owner_ids={'IT':members['IT'].pk,'MANAGER':members['MANAGER'].pk},key=uuid.uuid4())
-case=OnboardingCase.objects.get(pk=made['case_id'])
-activate_case(actor=users['HR'],case_id=case.pk,key=uuid.uuid4(),expected_version=1)
-task=Task.objects.get(case=case,key='manager_preparation')
+# A database frozen at 0018 MUST be populated with the historical model.
+# Current create_case() and current OnboardingCase ORM include schedule_revision,
+# introduced only in 0023; using them would fabricate an upgrade failure.
+historic=MigrationExecutor(connection).loader.project_state([
+    ('onboarding','0018_restore_activity_cancellation_authority')]).apps
+OldCase=historic.get_model('onboarding','OnboardingCase')
+OldAssignment=historic.get_model('onboarding','CaseAssignment')
+OldTask=historic.get_model('onboarding','Task')
+joining_date=timezone.localdate()+timedelta(days=21)
+tv_id=uuid.UUID(published['version_id'])
+template_task=TemplateTask.objects.get(version_id=tv_id,key='manager_preparation')
+with transaction.atomic():
+    case=OldCase.objects.create(organization_id=org.pk,
+        employee_id=members['EMPLOYEE'].pk,joining_date=joining_date,
+        template_version_id=tv_id,created_by_id=users['HR'].pk,status='CREATED')
+    assignments={}
+    for role in ('HR','IT','MANAGER'):
+        assignments[role]=OldAssignment.objects.create(case_id=case.pk,
+            role=role,member_id=members[role].pk,
+            effective_from=timezone.now(),assigned_by_id=members['HR'].pk,
+            reason='Historical synthetic owner assignment for migration test')
+    start_at=scheduled_at(joining_date,template_task.available_offset_days,
+        org.timezone,template_task.available_local_time)
+    due_at=scheduled_at(joining_date,template_task.due_offset_days,
+        org.timezone,template_task.due_local_time)
+    task=OldTask.objects.create(case_id=case.pk,template_task_id=template_task.pk,
+        key=template_task.key,kind=template_task.kind,title=template_task.title,
+        description=template_task.description,required=template_task.required,
+        applicable=True,owner_role='MANAGER',
+        owner_assignment_id=assignments['MANAGER'].pk,
+        evidence_spec=template_task.evidence_spec,available_at=start_at,due_at=due_at,
+        execution_state='IN_PROGRESS',work_started_at=timezone.now())
+    OldCase.objects.filter(pk=case.pk).update(status='PRE_JOINING',
+        version=2,activated_at=timezone.now())
+task=Task.objects.get(pk=task.pk)
 completed_by=users['MANAGER'] if scenario in ('matching','legacy_matching') else users['HR']
 with transaction.atomic():
     evidence=ManagerAttestation.objects.create(task=task,actor=users['MANAGER'],
@@ -111,7 +141,7 @@ if scenario in ('matching','legacy_matching'):
         ('notifications','0002_policy_version_escalation'),
     ):
         assert mandatory in applied, f'Current-source migration missing: {mandatory}'
-    case.refresh_from_db()
+    current_case=OnboardingCase.objects.get(pk=case.pk)
     task.refresh_from_db()
     preserved=TaskCompletion.objects.get(pk=completion.pk)
     assert preserved.task_id==task.pk
@@ -119,7 +149,7 @@ if scenario in ('matching','legacy_matching'):
     assert preserved.completed_by_id==users['MANAGER'].pk
     assert ManagerAttestation.objects.get(pk=evidence.pk).actor_id==users['MANAGER'].pk
     assert task.execution_state=='COMPLETED'
-    assert case.schedule_revision==0 and case.status=='PRE_JOINING'
+    assert current_case.schedule_revision==0 and current_case.status=='PRE_JOINING'
     with connection.cursor() as cur:
         cur.execute("SELECT tgname FROM pg_trigger WHERE tgname=%s",
             ['m5_case_date_revision_invariant'])
@@ -154,7 +184,7 @@ else:
         cur.execute('SELECT 1 FROM django_migrations WHERE app=%s AND name=%s',
             ['onboarding','0025_m5_case_date_commit_invariant'])
         assert cur.fetchone() is None
-    assert OnboardingCase.objects.get(pk=case.pk).status=='PRE_JOINING'
+    assert OldCase.objects.get(pk=case.pk).status=='PRE_JOINING'
     assert ManagerAttestation.objects.get(pk=evidence.pk).actor_id==users['MANAGER'].pk
     assert TaskCompletion.objects.get(pk=completion.pk).completed_by_id==users['HR'].pk
     label='LEGACY_0019_' if legacy else ''
