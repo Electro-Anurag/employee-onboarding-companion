@@ -304,13 +304,11 @@ def test_live_private_quarantine_and_clean_versions_deny_anonymous_get(world):
 @pytest.mark.django_db(transaction=True)
 def test_live_m3_real_content_worker_hard_exit_redelivery(world):
     """Actual worker dies after committed clean evidence, before ACK; retry is idempotent."""
-    import asyncio
     import subprocess
     import sys
     import time
     from pathlib import Path
     from django.db import connection
-    from procrastinate.contrib.django import app
     org,actors=world
     assert clamav_signature_provenance().startswith('ClamAV ')
     made,_=create(world,published(world))
@@ -363,14 +361,29 @@ def test_live_m3_real_content_worker_hard_exit_redelivery(world):
     assert not TaskCompletion.objects.filter(task=task).exists()
     assert job_status()=='doing'
     time.sleep(3)
-    async def recover():
-        async with app.open_async():
-            stalled=await app.job_manager.get_stalled_jobs(seconds_since_heartbeat=2)
-            selected=[job for job in stalled
-                if job.id==job_id and job.task_name=='m3.secure_document_scan']
-            assert len(selected)==1
-            await app.job_manager.retry_job(selected[0])
-    asyncio.run(recover())
+    # Restart/retry is an independent operator action, not an in-process
+    # connection-pool lifecycle inside pytest. The controller exits and closes
+    # every PostgreSQL socket before test database teardown.
+    controller_code="""
+import asyncio,sys,django
+django.setup()
+from procrastinate.contrib.django import app
+async def recover(job_id):
+    async with app.open_async():
+        stalled=await app.job_manager.get_stalled_jobs(seconds_since_heartbeat=2)
+        selected=[job for job in stalled
+            if job.id==job_id and job.task_name=='m3.secure_document_scan']
+        assert len(selected)==1, 'Expected exactly one stalled M3 scan'
+        await app.job_manager.retry_job(selected[0])
+asyncio.run(recover(int(sys.argv[1])))
+"""
+    controller_env=os.environ.copy()
+    controller_env['POSTGRES_DB']=connection.settings_dict['NAME']
+    controller_env['PGAPPNAME']='eoc_m3_recovery_controller'
+    controller=subprocess.run([sys.executable,'-c',controller_code,str(job_id)],
+        cwd=str(Path(__file__).resolve().parents[3]),env=controller_env,
+        capture_output=True,timeout=40)
+    assert controller.returncode==0,controller.stderr[-1200:].decode('utf-8','replace')
     assert job_status()=='todo'
     second=start_worker(False)
     try:
