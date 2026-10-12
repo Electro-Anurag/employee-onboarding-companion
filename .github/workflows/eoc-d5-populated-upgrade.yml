@@ -1,0 +1,72 @@
+name: D5 populated PostgreSQL migration history and fail-closed provenance
+on:
+  push:
+    branches: ['feature/eoc-completion-development']
+    paths:
+      - '.github/workflows/eoc-d5-populated-upgrade.yml'
+      - 'scripts/m4_manager_upgrade_qualification.py'
+      - 'backend/onboarding/migrations/**'
+      - 'backend/accounts/migrations/**'
+      - 'backend/templates/migrations/**'
+      - 'backend/audit/migrations/**'
+      - 'backend/notifications/migrations/**'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: eoc-d5-populated-migrations
+  cancel-in-progress: false
+jobs:
+  populated-history:
+    runs-on: [self-hosted, linux, ARM64, eoc-mac-ci]
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:17@sha256:2d2b8998d31037bf721cfdf764d76ba74171b4fab3431b7f72c27c56ddbdf9e3
+        env:
+          POSTGRES_USER: onboarding
+          POSTGRES_PASSWORD: ci-temporary-only
+          POSTGRES_DB: onboarding_m0
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 3s --health-timeout 3s --health-retries 15
+    env:
+      DJANGO_SECRET_KEY: ci-only-not-a-production-credential
+      DJANGO_DEBUG: '0'
+      DJANGO_ALLOWED_HOSTS: localhost,127.0.0.1,testserver
+      EOC_AI_PROVIDER: DISABLED
+      OPENAI_API_KEY: ''
+      POSTGRES_HOST: localhost
+      POSTGRES_PORT: '5432'
+      POSTGRES_DB: onboarding_m0
+      POSTGRES_USER: onboarding
+      POSTGRES_PASSWORD: ci-temporary-only
+      PGPASSWORD: ci-temporary-only
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e
+        with:
+          python-version: '3.13'
+          version: '0.12.23'
+      - name: Check locked dependencies and current migration source
+        run: |
+          set -euo pipefail
+          uv lock --check
+          uv sync --locked
+          uv run python -m compileall -q backend scripts/m4_manager_upgrade_qualification.py
+          uv run python manage.py check
+          uv run python manage.py makemigrations --check --dry-run
+      - name: Populate four historical installation histories and forward-migrate
+        run: |
+          set -euo pipefail
+          for scenario in matching mismatched legacy_matching legacy_mismatched; do
+            psql -v ON_ERROR_STOP=1 -h localhost -U onboarding -d onboarding_m0 \
+              -c "CREATE DATABASE ci_m4_upgrade_${scenario}"
+            POSTGRES_DB="ci_m4_upgrade_${scenario}" \
+              M4_MANAGER_UPGRADE_SCENARIO="$scenario" \
+              uv run python -m scripts.m4_manager_upgrade_qualification
+          done
+          echo "EOC_D5_FOUR_HISTORY_FORWARD_MIGRATION_PASS@$GITHUB_SHA"
+      - name: Confirm dependency lock was not modified
+        run: git diff --exit-code -- uv.lock frontend/package-lock.json

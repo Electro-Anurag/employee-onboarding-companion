@@ -99,8 +99,34 @@ if scenario in ('matching','legacy_matching'):
         cur.execute("SELECT pg_get_functiondef('public.m3_guard_manager_completion_actor()'::regprocedure)")
         assert 'att.actor_id=NEW.completed_by_id' in cur.fetchone()[0]
     assert TaskCompletion.objects.get(pk=completion.pk).completed_by_id==users['MANAGER'].pk
+    # New T06 D5 proof: continue the same populated 0018 history through all
+    # current migrations, including the M5 exception and deferred date guards.
+    # The historical attestation, completion and ownership must survive intact.
+    call_command('migrate',interactive=False,verbosity=0)
+    applied=MigrationRecorder(connection).applied_migrations()
+    for mandatory in (
+        ('onboarding','0020_audit_existing_manager_completion_provenance'),
+        ('onboarding','0023_m5_case_joining_date_revisions'),
+        ('onboarding','0025_m5_case_date_commit_invariant'),
+        ('notifications','0002_policy_version_escalation'),
+    ):
+        assert mandatory in applied, f'Current-source migration missing: {mandatory}'
+    case.refresh_from_db()
+    task.refresh_from_db()
+    preserved=TaskCompletion.objects.get(pk=completion.pk)
+    assert preserved.task_id==task.pk
+    assert preserved.manager_attestation_id==evidence.pk
+    assert preserved.completed_by_id==users['MANAGER'].pk
+    assert ManagerAttestation.objects.get(pk=evidence.pk).actor_id==users['MANAGER'].pk
+    assert task.execution_state=='COMPLETED'
+    assert case.schedule_revision==0 and case.status=='PRE_JOINING'
+    with connection.cursor() as cur:
+        cur.execute("SELECT tgname FROM pg_trigger WHERE tgname=%s",
+            ['m5_case_date_revision_invariant'])
+        assert cur.fetchone() is not None, 'Current M5 date guard not installed'
     label='LEGACY_0019_' if legacy else ''
     print(f'M4_MANAGER_UPGRADE_{label}MATCHING_PASS: immutable evidence preserved, 0020 installed')
+    print(f'D5_POPULATED_{label}FULL_FORWARD_MIGRATION_PASS: current schema, attestation and case preserved')
 else:
     try:
         call_command('migrate','onboarding','0020',interactive=False,verbosity=0)
@@ -123,6 +149,13 @@ else:
         cur.execute('SELECT 1 FROM django_migrations WHERE app=%s AND name=%s',
             ['onboarding','0019_restore_manager_actor_provenance'])
         assert (cur.fetchone() is not None)==legacy
+        # A blocked migration must not silently apply newer schema or repair
+        # contrary historical identity in either old installation history.
+        cur.execute('SELECT 1 FROM django_migrations WHERE app=%s AND name=%s',
+            ['onboarding','0025_m5_case_date_commit_invariant'])
+        assert cur.fetchone() is None
+    assert OnboardingCase.objects.get(pk=case.pk).status=='PRE_JOINING'
+    assert ManagerAttestation.objects.get(pk=evidence.pk).actor_id==users['MANAGER'].pk
     assert TaskCompletion.objects.get(pk=completion.pk).completed_by_id==users['HR'].pk
     label='LEGACY_0019_' if legacy else ''
     print(f'M4_MANAGER_UPGRADE_{label}MISMATCH_FAIL_CLOSED_PASS: evidence untouched, 0020 not installed')
