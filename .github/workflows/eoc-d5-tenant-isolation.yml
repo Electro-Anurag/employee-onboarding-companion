@@ -12,6 +12,7 @@ on:
       - 'backend/documents/real_views.py'
       - 'backend/ai/context.py'
       - 'backend/notifications/views.py'
+      - 'backend/notifications/tests/test_d5_outage_boundary.py'
   workflow_dispatch:
 permissions:
   contents: read
@@ -65,7 +66,8 @@ jobs:
             backend/onboarding/tests/test_d5_isolation_matrix.py \
             backend/onboarding/tests/test_authority_interleavings.py \
             backend/onboarding/tests/test_security.py \
-            backend/onboarding/tests/test_review_repairs.py
+            backend/onboarding/tests/test_review_repairs.py \
+            backend/notifications/tests/test_d5_outage_boundary.py
           echo "EOC_D5_TENANT_HTTP_CSRF_REASSIGNMENT_PASS@$GITHUB_SHA"
       - name: No drift in dependency lock
         run: git diff --exit-code -- uv.lock frontend/package-lock.json

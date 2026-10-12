@@ -1,6 +1,7 @@
 """Recipient-only inbox. Reading never grants case access or mutates status."""
 import uuid
-from django.db import transaction
+from django.db import transaction, DatabaseError
+from django.core.exceptions import PermissionDenied
 from django.db.models import F
 from django.http import JsonResponse
 from django.utils import timezone
@@ -8,6 +9,7 @@ from django.views.decorators.http import require_GET,require_POST
 from django.views.decorators.csrf import csrf_protect
 from backend.accounts.security import actor_context
 from backend.onboarding.services import get_authorized_case,CommandFailure
+from backend.common.http import transient_db_response
 from backend.notifications.models import Notification
 from backend.notifications.services import (_candidate,current_handoff_candidate,
     escalation_candidate,HANDOFF_RULES)
@@ -86,8 +88,11 @@ def inbox(request):
         response=JsonResponse({'results':results,'delivery':'IN_APP_ONLY'})
         response['Cache-Control']='private, no-store'
         return response
-    except (CommandFailure,ValueError):
+    except (CommandFailure,PermissionDenied,ValueError):
         return JsonResponse({'error':{'code':'NOT_FOUND'}},status=404)
+    except DatabaseError as exc:
+        # No mutating command was issued by the inbox read.
+        return transient_db_response(exc,preflight=True)
 
 
 @csrf_protect
@@ -109,5 +114,9 @@ def mark_read(request,notification_id):
             response=JsonResponse({'id':str(row.pk),'read_at':row.read_at.isoformat()})
             response['Cache-Control']='private, no-store'
             return response
-    except CommandFailure:
+    except (CommandFailure,PermissionDenied):
         return JsonResponse({'error':{'code':'NOT_FOUND'}},status=404)
+    except DatabaseError as exc:
+        # A failure at COMMIT could leave the idempotent read marker committed;
+        # never assert it rolled back or expose raw SQL/error text.
+        return transient_db_response(exc,indeterminate=True)
