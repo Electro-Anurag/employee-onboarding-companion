@@ -111,7 +111,7 @@ def read_paths(case):
         task("workspace_access", "/it-operation"),
         task("workspace_access", "/equipment-receipt/source"),
         task("security_training", "/training-module"),
-        task("code_of_conduct", "/assigned-policy"),
+        task("conduct_ack", "/assigned-policy"),
     ]
 
 
