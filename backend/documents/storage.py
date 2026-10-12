@@ -117,7 +117,28 @@ def promote(upload,quarantine_version):
     s3=client()
     q,clean=buckets(s3)
     key='clean/'+str(upload.task.case_id)+'/'+str(upload.id)+'.pdf'
+    from botocore.exceptions import ClientError
     try:
+        try:
+            prior=s3.head_object(Bucket=clean,Key=key)
+        except ClientError as exc:
+            # Only a definite absent object authorizes a new copy. Permission
+            # failures and indeterminate storage errors must never overwrite.
+            if (exc.response.get('ResponseMetadata',{}).get('HTTPStatusCode')!=404
+                    or exc.response.get('Error',{}).get('Code') not in
+                        ('404','NoSuchKey','NotFound')):
+                raise CommandFailure('CLEAN_LOOKUP_FAILED',503) from exc
+        else:
+            # Recover a copy that S3 committed before a web/worker crash or
+            # lost PostgreSQL transaction. Trust exact immutable version bytes,
+            # never an ETag, key existence or unverified object metadata.
+            vid=prior.get('VersionId')
+            if not vid or vid=='null':
+                raise CommandFailure('CLEAN_VERSION_MISSING',503)
+            raw=read_exact(clean,key,str(vid),upload.sha256)
+            if len(raw)!=upload.byte_length:
+                raise CommandFailure('OBJECT_INTEGRITY_FAILED',409)
+            return key,str(vid)
         result=s3.copy_object(Bucket=clean,Key=key,
             CopySource={'Bucket':q,'Key':upload.object_key,'VersionId':quarantine_version},
             Metadata={'sha256':upload.sha256},MetadataDirective='REPLACE',
@@ -125,7 +146,8 @@ def promote(upload,quarantine_version):
         vid=result.get('VersionId')
         if not vid or vid=='null':raise CommandFailure('CLEAN_VERSION_MISSING',503)
         # Exact-version read verifies copied bytes, not ETag (multipart ETags differ).
-        read_exact(clean,key,str(vid),upload.sha256)
+        raw=read_exact(clean,key,str(vid),upload.sha256)
+        if len(raw)!=upload.byte_length:raise CommandFailure('OBJECT_INTEGRITY_FAILED',409)
         return key,str(vid)
     except CommandFailure:raise
     except Exception as exc:raise CommandFailure('CLEAN_PROMOTION_FAILED',503) from exc

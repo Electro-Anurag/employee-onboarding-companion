@@ -265,6 +265,40 @@ def test_m3_generated_pdf_validator_rejects_bad_and_active_content():
     with pytest.raises(CommandFailure):
         validate_pdf(b'%PDF-1.4\\nNOT A PDF\\n%%EOF\\n'.replace(b'\\n',b'\n'))
 
+def test_storage_promote_recovers_only_verified_immutable_existing_clean_version():
+    from backend.documents import storage
+    raw=generated_pdf()
+    sha=hashlib.sha256(raw).hexdigest()
+    upload=SimpleNamespace(
+        id=uuid.uuid4(),task=SimpleNamespace(case_id=uuid.uuid4()),
+        object_key='quarantine/test/generated.pdf',sha256=sha,byte_length=len(raw))
+    s3=MagicMock()
+    s3.head_object.return_value={'VersionId':'existing-clean-v1'}
+    with (patch.object(storage,'client',return_value=s3),
+          patch.object(storage,'buckets',return_value=('private-q','private-clean')),
+          patch.object(storage,'read_exact',return_value=raw) as verified):
+        key,version=storage.promote(upload,'quarantine-v1')
+        assert version=='existing-clean-v1'
+        assert key.endswith(str(upload.id)+'.pdf')
+        verified.assert_called_once_with('private-clean',key,'existing-clean-v1',sha)
+        s3.copy_object.assert_not_called()
+    with (patch.object(storage,'client',return_value=s3),
+          patch.object(storage,'buckets',return_value=('private-q','private-clean')),
+          patch.object(storage,'read_exact',side_effect=CommandFailure('OBJECT_INTEGRITY_FAILED',409))):
+        with pytest.raises(CommandFailure) as failure:
+            storage.promote(upload,'quarantine-v1')
+        assert failure.value.code=='OBJECT_INTEGRITY_FAILED'
+        s3.copy_object.assert_not_called()
+    s3.head_object.side_effect=ClientError(
+        {'Error':{'Code':'AccessDenied'},'ResponseMetadata':{'HTTPStatusCode':403}},'HeadObject')
+    with (patch.object(storage,'client',return_value=s3),
+          patch.object(storage,'buckets',return_value=('private-q','private-clean'))):
+        with pytest.raises(CommandFailure) as failure:
+            storage.promote(upload,'quarantine-v1')
+        assert failure.value.code=='CLEAN_LOOKUP_FAILED'
+        s3.copy_object.assert_not_called()
+
+
 def test_storage_recovers_only_matching_precondition_conflict_and_exact_bytes():
     from backend.documents import storage
     payload=generated_pdf()

@@ -216,6 +216,51 @@ def test_live_clamav_daemon_pause_and_recovery_keeps_quarantine_unreleased(world
 
 
 @pytest.mark.django_db(transaction=True)
+def test_live_clean_copy_committed_before_db_failure_is_reused_exactly(world):
+    """Real clean S3 copy survives a failed finalization without creating a second version."""
+    from unittest.mock import patch
+    from backend.documents.real_models import SecureUpload,StoredQuarantineObject
+    _,actors=world
+    made,_=create(world,published(world))
+    case=OnboardingCase.objects.get(pk=made['case_id'])
+    activate_case(actor=actors['HR'][0],case_id=case.pk,
+                  key=uuid.uuid4(),expected_version=1)
+    task=Task.objects.get(case=case,key='identity_document')
+    raw=generated_pdf()
+    intent,_=prepare(actor=actors['EMPLOYEE'][0],case_id=case.pk,task_id=task.pk,
+                     sha256=hashlib.sha256(raw).hexdigest(),size=len(raw),
+                     filename='promotion_recovery.pdf',key=uuid.uuid4(),expected_version=2)
+    upload_id=uuid.UUID(intent['result']['upload_id'])
+    receive(actor=actors['EMPLOYEE'][0],case_id=case.pk,task_id=task.pk,
+            upload_id=upload_id,raw=raw,key=uuid.uuid4(),expected_version=3)
+    upload=SecureUpload.objects.get(pk=upload_id)
+    original_promotion=storage.promote
+    captured=[]
+    def lose_receipt_after_real_copy(upload,version):
+        captured.append(original_promotion(upload,version))
+        raise OSError('CI-only failure after real clean S3 commit')
+    with patch.object(storage,'promote',side_effect=lose_receipt_after_real_copy):
+        first=scan_one(upload_id)
+    assert first=={'outcome':'CLEAN','state':'PROMOTION_PENDING'}
+    assert len(captured)==1
+    assert not SecureCleanObject.objects.filter(upload_id=upload_id).exists()
+    assert SecureScanAttempt.objects.filter(upload_id=upload_id,outcome='CLEAN').count()==1
+    recovered=scan_one(upload_id)
+    assert recovered=={'outcome':'CLEAN','state':'AWAITING_HR_REVIEW'}
+    clean=SecureCleanObject.objects.get(upload_id=upload_id)
+    assert (clean.object_key,clean.version_id)==captured[0]
+    s3=storage.client()
+    _,bucket=storage.buckets(s3)
+    versions=s3.list_object_versions(Bucket=bucket,Prefix=clean.object_key)
+    exact=[v for v in versions.get('Versions',[]) if v['Key']==clean.object_key]
+    assert len(exact)==1 and exact[0]['VersionId']==clean.version_id
+    assert storage.download(clean)==raw
+    assert scan_one(upload_id)==recovered
+    assert SecureScanAttempt.objects.filter(upload_id=upload_id).count()==1
+    assert not TaskCompletion.objects.filter(task=task).exists()
+
+
+@pytest.mark.django_db(transaction=True)
 def test_live_m3_real_content_worker_hard_exit_redelivery(world):
     """Actual worker dies after committed clean evidence, before ACK; retry is idempotent."""
     import asyncio
