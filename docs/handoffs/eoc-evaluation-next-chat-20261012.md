@@ -1,3 +1,17 @@
+## Superseding latest full-integrated Chromium correction — 12 October 2026
+
+**This checkpoint supersedes the earlier full-integrated IN PROGRESS text in this document.** Original source `495276e307b22f3d24b6b23f09df8e654385f8e4` now has three exact-source PASS workflows, one browser-only failure:
+
+- [PostgreSQL 18 run 38256581292](https://github.com/Electro-Anurag/employee-onboarding-companion/actions/runs/38256581292) **SUCCESS, 271 Django PASS / 8 isolated-service skips and 4 populated migration histories PASS**, exact `495276e3`.
+- [M6 grounded relevance 38256581318](https://github.com/Electro-Anurag/employee-onboarding-companion/actions/runs/38256581318) **SUCCESS 69 PASS** and [M6 focused contract 38256581246](https://github.com/Electro-Anurag/employee-onboarding-companion/actions/runs/38256581246) **SUCCESS 36 backend, 6 separate, 29 React PASS**, same SHA.
+- [Full integration 38256581273](https://github.com/Electro-Anurag/employee-onboarding-companion/actions/runs/38256581273) **FAIL** at the final real Chromium test **AFTER** 271 Django PASS/8 skips, 29 React PASS, production Docker PASS, bundled UI loaded successfully. Concrete error: in `browser/acceptance.spec.cjs` test 'Employee sees assigned tasks' line 209, unspecific `employee.getByText('Identity Document')` matched two elements: one in new `EvaluationGuide` sidebar and one actual `My assigned tasks` entry. This was a **locator strictness regression**, not case state/authorization failure.
+- Corrected narrow assertion with a semantic heading-scoped employee work panel locator in [source commit `944d9768c77da63f5965a4644107efff68e81471`](https://github.com/Electro-Anurag/employee-onboarding-companion/commit/944d9768c77da63f5965a4644107efff68e81471). Does not modify source app behavior, dependency logic or privacy.
+- **Fresh exact-source full integration** [run 38260916703](https://github.com/Electro-Anurag/employee-onboarding-companion/actions/runs/38260916703) at `944d9768` **IN PROGRESS at checkpoint**. **FIRST ACTION in new chat:** check this run's final logs before changing code or asking for a rerun. If FAIL, correct only evidenced next failure and qualify new exact SHA. Do not claim full app PASS until this run finishes successfully.
+
+The latest application/test code SHA now is `944d9768c77da63f5965a4644107efff68e81471` (subsequent handoff-only docs commit may change branch HEAD, but not app code). Real local video artifact PASS 38235666178 and hosted J01–J05 0/5 unchanged. No Render deployment or cost authorized.
+
+---
+
 # Employee Onboarding Companion — authoritative evaluation-focused new-chat handoff
 
 **Snapshot:** 12 October 2026, current GitHub inspection after GitHub Actions runner recovery, latest candidate source `495276e307b22f3d24b6b23f09df8e654385f8e4`.
