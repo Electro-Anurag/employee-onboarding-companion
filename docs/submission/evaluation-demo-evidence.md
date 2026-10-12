@@ -1,3 +1,5 @@
+> **Owner clarification 12 October:** This is a senior's **evaluation** assignment, not a real production deployment. Keep the functional hosted demo, four roles, genuine AI evidence if claimed, real tests, documentation and real screen recording. Mock external HR/IT and use synthetic data with clear labels. The YouTube-specific requirement described below comes from an older brief; a recorded demo/video is required, but posting specifically to YouTube depends on the evaluator's latest instructions. The [evaluation first delivery contract](evaluation-first-delivery-contract-20261012.md) takes precedence over production-only gating below.
+
 # EOC submission evidence, business value and video capture guide
 
 **Status 11 October 2026: PLAN ONLY. No hosted J01–J05, source-security

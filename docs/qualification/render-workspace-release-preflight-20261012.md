@@ -1,3 +1,5 @@
+> **Evaluation scope update:** The production-oriented plan below is retained for architecture transparency, but does not require paid production infrastructure for the senior's evaluation assignment. Follow [evaluation submission contract](../submission/evaluation-first-delivery-contract-20261012.md). A current-source no-cost synthetic Render demonstration may be sufficient with real business flows, clearly bounded mocks and disclosures. Never deploy or pay for services without owner authorization.
+
 # Render My Workspace — EOC release preflight and immutable delivery plan
 
 **Inspected:** 12 October 2026, read-only through the connected Render workspace selected by the owner. **Status: RELEASE STOP / NO MUTATIONS AUTHORIZED BY THIS PLAN.**
