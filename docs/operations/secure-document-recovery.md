@@ -38,3 +38,9 @@ A nonzero exit, `INTEGRITY_ERRORS>0`, `INCOMPLETE>0` or `SCOPE_EXCEEDED=True` is
 ## CI evidence
 
 [New live workflow 38218007489](https://github.com/Electro-Anurag/employee-onboarding-companion/actions/runs/38218007489) targets real versioned MinIO plus current ClamAV, one actual clean promoted synthetic PDF, a missing exact-version adverse case, and an over-limit refusal. It is **NOT YET QUALIFIED** at document creation. The integrated run [38218007460](https://github.com/Electro-Anurag/employee-onboarding-companion/actions/runs/38218007460) separately verifies the new source with general regressions; real-storage cases deliberately skip when MinIO/ClamAV is disabled. Check final results before declaring any PASS.
+
+## 12 October qualification update — actual PASS
+
+- The **read-only exact-version verifier** is now qualified by [live CI run 38219586182](https://github.com/Electro-Anurag/employee-onboarding-companion/actions/runs/38219586182): 8 passed, including deleted historical version → STOP, and over-bound → STOP.
+- The isolated **coordinated offline full-data MinIO physical snapshot and PostgreSQL restore** is qualified by [CI run 38221427909](https://github.com/Electro-Anurag/employee-onboarding-companion/actions/runs/38221427909). It restored synthetic receipts with their original MinIO VersionIds and identical database fingerprint, from a stopped filesystem-backed MinIO backup and PostgreSQL dump.
+- This changes neither live-hosted storage availability nor provider backup capability. The method only establishes a **local same-engine filesystem restore**. See `docs/operations/d6-coordinated-restore-qualification.md`; real hosting requires independent security review, object retention, keys, replication semantics, measured RPO/RTO and approval before enabling storage.
