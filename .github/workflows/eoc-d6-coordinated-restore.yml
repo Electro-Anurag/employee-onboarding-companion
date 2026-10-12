@@ -1,0 +1,216 @@
+name: D6 isolated quiesced PostgreSQL plus MinIO full-state recovery
+on:
+  push:
+    branches: ['feature/eoc-completion-development']
+    paths:
+      - '.github/workflows/eoc-d6-coordinated-restore.yml'
+      - 'scripts/d6_cross_store_restore_qualification.py'
+      - 'backend/documents/recovery_integrity.py'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: eoc-d6-disposable-cross-store-restore
+  cancel-in-progress: false
+jobs:
+  coordinated-dr:
+    runs-on: [self-hosted, Linux, ARM64, eoc-mac-ci]
+    timeout-minutes: 28
+    services:
+      postgres:
+        image: postgres:17@sha256:2d2b8998d31037bf721cfdf764d76ba74171b4fab3431b7f72c27c56ddbdf9e3
+        env:
+          POSTGRES_USER: onboarding
+          POSTGRES_PASSWORD: ci-temporary-only
+          POSTGRES_DB: onboarding_m0
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready -U onboarding
+          --health-interval 3s --health-timeout 3s --health-retries 15
+    env:
+      DJANGO_SECRET_KEY: ci-only-locked-no-credentials
+      DJANGO_DEBUG: '0'
+      DJANGO_ALLOWED_HOSTS: localhost,127.0.0.1,testserver
+      EOC_AI_PROVIDER: DISABLED
+      OPENAI_API_KEY: ''
+      POSTGRES_HOST: localhost
+      POSTGRES_PORT: '5432'
+      POSTGRES_DB: onboarding_m0
+      POSTGRES_USER: onboarding
+      POSTGRES_PASSWORD: ci-temporary-only
+      AWS_ACCESS_KEY_ID: ci-minio-only
+      AWS_SECRET_ACCESS_KEY: ci-minio-temporary-password
+      M3_REAL_DOCUMENT_ENABLED: '1'
+      M3_S3_QUARANTINE_BUCKET: ci-d6-private-quarantine
+      M3_S3_CLEAN_BUCKET: ci-d6-private-clean
+      M3_S3_ENDPOINT_URL: http://127.0.0.1:9000
+      M3_S3_ALLOW_LOCAL_TEST_ENDPOINT: '1'
+      M3_S3_REGION: us-east-1
+      M3_CLAMAV_HOST: 127.0.0.1
+      M3_CLAMAV_PORT: '3310'
+      EOC_D6_DR_PROBE: isolated-synthetic-only
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e
+        with:
+          python-version: '3.13'
+          version: '0.12.23'
+      - name: Locked application, schema, no existing employee data
+        run: |
+          set -euo pipefail
+          uv lock --check
+          uv sync --locked
+          uv run python -m compileall -q scripts/d6_cross_store_restore_qualification.py
+          uv run python manage.py check
+          uv run python manage.py makemigrations --check --dry-run
+          uv run python manage.py migrate --noinput
+      - name: Start disposable MinIO and real ClamAV only
+        run: |
+          set -euo pipefail
+          src="$RUNNER_TEMP/eoc-d6-src-$GITHUB_RUN_ID"
+          mkdir -p "$src"
+          chmod 0700 "$src"
+          docker run --detach --name d6-src-minio --rm \
+            --user "$(id -u):$(id -g)" --volume "$src:/data" \
+            -e MINIO_ROOT_USER=ci-minio-only \
+            -e MINIO_ROOT_PASSWORD=ci-minio-temporary-password \
+            -p 127.0.0.1:9000:9000 \
+            chainguard/minio:latest server /data
+          docker run --detach --name d6-clamd --rm \
+            -p 127.0.0.1:3310:3310 clamav/clamav-debian:1.4.6
+      - name: Require actual bucket versioning and fresh scanner signatures
+        run: |
+          set -euo pipefail
+          uv run python - <<'PY'
+          import os,time
+          os.environ.setdefault('DJANGO_SETTINGS_MODULE','backend.config.settings')
+          import django
+          django.setup()
+          from backend.documents import storage
+          from backend.documents.scanner import clamav_signature_provenance,ScannerUnavailable
+          client=storage.client()
+          for attempt in range(80):
+              try:
+                  client.list_buckets()
+                  break
+              except Exception:
+                  time.sleep(2)
+          else:
+              raise RuntimeError('Disposable MinIO never became ready')
+          for bucket in (storage.settings.M3_S3_QUARANTINE_BUCKET,storage.settings.M3_S3_CLEAN_BUCKET):
+              client.create_bucket(Bucket=bucket)
+              client.put_bucket_versioning(Bucket=bucket,VersioningConfiguration={'Status':'Enabled'})
+          storage.buckets(client)
+          reload_requested=False
+          for attempt in range(100):
+              try:
+                  provenance=clamav_signature_provenance()
+                  assert provenance.startswith('ClamAV ')
+                  print('EOC_D6_ACTUAL_FRESH_SCANNER_PASS')
+                  break
+              except ScannerUnavailable as exc:
+                  if str(exc)=='STALE_SCANNER_SIGNATURES' and not reload_requested:
+                      import socket
+                      try:
+                          with socket.create_connection(('127.0.0.1',3310),timeout=3) as conn:
+                              conn.settimeout(3)
+                              conn.sendall(b'zRELOAD'+bytes([0]))
+                              assert conn.recv(128).strip(bytes([0,10,13]))==b'RELOADING'
+                          reload_requested=True
+                      except OSError:
+                          pass
+                  time.sleep(2)
+          else:
+              raise RuntimeError('Fresh actual ClamAV did not qualify')
+          PY
+      - name: Seed one actual accepted scanned PDF with versioned receipts
+        run: |
+          set -euo pipefail
+          umask 077
+          uv run python -m scripts.d6_cross_store_restore_qualification seed \
+            > "$RUNNER_TEMP/eoc-d6-before.txt"
+          grep '^EOC_D6_CROSS_STORE_FINGERPRINT_SHA256=' \
+            "$RUNNER_TEMP/eoc-d6-before.txt" > "$RUNNER_TEMP/eoc-d6-before-fingerprint.txt"
+      - name: Quiesce, snapshot database and full MinIO filesystem, restart from separate copy
+        env:
+          PG_CONTAINER: ${{ job.services.postgres.id }}
+        run: |
+          set -euo pipefail
+          umask 077
+          test -n "$PG_CONTAINER"
+          dbcopy="$RUNNER_TEMP/eoc-d6-synthetic-postgres.dump"
+          objcopy="$RUNNER_TEMP/eoc-d6-synthetic-minio.tar"
+          src="$RUNNER_TEMP/eoc-d6-src-$GITHUB_RUN_ID"
+          restored="$RUNNER_TEMP/eoc-d6-restored-$GITHUB_RUN_ID"
+          mkdir -p "$restored"
+          chmod 0700 "$restored"
+          # No app server/worker is running. Source S3 is now stopped, so
+          # all object versions/metadata are fixed before both backups.
+          docker stop d6-src-minio
+          docker exec "$PG_CONTAINER" pg_dump -U onboarding -d onboarding_m0 \
+            --format=custom --no-owner --no-privileges > "$dbcopy"
+          test -s "$dbcopy"
+          tar -C "$src" -cf "$objcopy" .
+          test -s "$objcopy"
+          tar -C "$restored" -xf "$objcopy"
+          # Start a SEPARATE blank MinIO instance using only the restored copy.
+          # Same local port is intentional because production runtime guards
+          # refuse unapproved storage endpoints and never permit version rebind.
+          docker run --detach --name d6-restored-minio --rm \
+            --user "$(id -u):$(id -g)" --volume "$restored:/data" \
+            -e MINIO_ROOT_USER=ci-minio-only \
+            -e MINIO_ROOT_PASSWORD=ci-minio-temporary-password \
+            -p 127.0.0.1:9000:9000 \
+            chainguard/minio:latest server /data
+          uv run python - <<'PY'
+          import os,time
+          os.environ.setdefault('DJANGO_SETTINGS_MODULE','backend.config.settings')
+          import django
+          django.setup()
+          from backend.documents import storage
+          for attempt in range(75):
+              try:
+                  s3=storage.client()
+                  s3.list_buckets()
+                  storage.buckets(s3)
+                  print('EOC_D6_RESTORED_MINIO_VERSIONS_READY')
+                  break
+              except Exception:
+                  time.sleep(1)
+          else:
+              raise RuntimeError('Restored separate MinIO not ready')
+          PY
+          uv run python - <<'PY'
+          import os,psycopg
+          assert os.environ.get('GITHUB_ACTIONS')=='true'
+          assert os.environ.get('EOC_D6_DR_PROBE')=='isolated-synthetic-only'
+          assert os.environ.get('POSTGRES_HOST')=='localhost'
+          assert os.environ.get('POSTGRES_DB')=='onboarding_m0'
+          with psycopg.connect(dbname='onboarding_m0',host='localhost',port=5432,
+                  user='onboarding',password=os.environ['POSTGRES_PASSWORD'],
+                  autocommit=True) as conn:
+              conn.execute('CREATE DATABASE ci_d6_restored TEMPLATE template0')
+          PY
+          docker exec -i "$PG_CONTAINER" pg_restore -U onboarding \
+            -d ci_d6_restored --exit-on-error --no-owner --no-privileges < "$dbcopy"
+          POSTGRES_DB=ci_d6_restored \
+            uv run python -m scripts.d6_cross_store_restore_qualification verify \
+            > "$RUNNER_TEMP/eoc-d6-after.txt"
+          grep '^EOC_D6_CROSS_STORE_FINGERPRINT_SHA256=' \
+            "$RUNNER_TEMP/eoc-d6-after.txt" > "$RUNNER_TEMP/eoc-d6-after-fingerprint.txt"
+          diff -u "$RUNNER_TEMP/eoc-d6-before-fingerprint.txt" \
+            "$RUNNER_TEMP/eoc-d6-after-fingerprint.txt"
+          grep -q '^EOC_D6_EXACT_S3_VERSION_IDENTITIES_SURVIVED_RESTORE$' \
+            "$RUNNER_TEMP/eoc-d6-after.txt"
+          echo "EOC_D6_COORDINATED_DISPOSABLE_DB_AND_S3_FULL_RESTORE_PASS@$GITHUB_SHA"
+      - name: Clean disposable containers and all local backup copies
+        if: always()
+        run: |
+          docker rm --force d6-clamd d6-src-minio d6-restored-minio 2>/dev/null || true
+          rm -rf -- "$RUNNER_TEMP/eoc-d6-src-$GITHUB_RUN_ID" \
+            "$RUNNER_TEMP/eoc-d6-restored-$GITHUB_RUN_ID"
+          rm -f -- "$RUNNER_TEMP/eoc-d6-synthetic-postgres.dump" \
+            "$RUNNER_TEMP/eoc-d6-synthetic-minio.tar" \
+            "$RUNNER_TEMP/eoc-d6-before.txt" "$RUNNER_TEMP/eoc-d6-after.txt" \
+            "$RUNNER_TEMP/eoc-d6-before-fingerprint.txt" \
+            "$RUNNER_TEMP/eoc-d6-after-fingerprint.txt"
