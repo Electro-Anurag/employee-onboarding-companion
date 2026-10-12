@@ -92,6 +92,62 @@ else
   fi
   pgshare="$(dirname "$pgshare_file")"
   echo "Using formula-local PostgreSQL shared files: $pgshare"
+  # The server backend independently resolves timezone and extension files
+  # from the executable's COMPILED bindir/sharedir relationship. initdb -L
+  # changes only initdb's own inputs. A partially installed Homebrew keg
+  # can therefore still fail despite a valid postgres.bki.
+  #
+  # Make an entirely PRIVATE relocatable layout inside our temporary test
+  # directory. Copy executable bytes (not global links) to the compiled
+  # bindir-relative location, and point its sibling share/lib dirs at the
+  # already downloaded formula-local content. No /opt/homebrew mutation.
+  [ -x "$pgbin/pg_config" ] && [ -x "$pgbin/postgres" ] || {
+    echo "STOP: incomplete PostgreSQL keg: pg_config or postgres missing." >&2
+    exit 2
+  }
+  compiled_bind="$("$pgbin/pg_config" --bindir)"
+  compiled_share="$("$pgbin/pg_config" --sharedir)"
+  compiled_pkglib="$("$pgbin/pg_config" --pkglibdir)"
+  compiled_root="$(python3 - "$compiled_bind" "$compiled_share" "$compiled_pkglib" <<'PY'
+import os, sys
+p = sys.argv[1:]
+if any(not os.path.isabs(x) for x in p):
+    raise SystemExit("postgres paths must be absolute")
+root = os.path.commonpath(p)
+if root == "/" or not root.startswith("/opt/homebrew"):
+    raise SystemExit("STOP: unexpected compiled PostgreSQL prefix")
+print(root)
+PY
+)"
+  stage_root="$workspace/staged-install"
+  stage_bin="$stage_root/${compiled_bind#"$compiled_root"/}"
+  stage_share="$stage_root/${compiled_share#"$compiled_root"/}"
+  stage_pkglib="$stage_root/${compiled_pkglib#"$compiled_root"/}"
+  if [ "$stage_bin" = "$stage_share" ] || [ "$stage_pkglib" = "$stage_share" ]; then
+    echo "STOP: unsafe PostgreSQL relocation layout." >&2; exit 2
+  fi
+  mkdir -p "$stage_bin" "$(dirname "$stage_share")" "$(dirname "$stage_pkglib")"
+  for exe in postgres initdb pg_ctl pg_isready createdb; do
+    cp "$pgbin/$exe" "$stage_bin/$exe"
+    chmod u+x "$stage_bin/$exe"
+  done
+  ln -s "$pgshare" "$stage_share"
+  pkg_source=''
+  for candidate in "$pgprefix/lib/postgresql@17" "$pgprefix/lib/postgresql" \
+                   "$pgprefix/lib"; do
+    if [ -d "$candidate" ] && [ -f "$candidate/plpgsql.so" ]; then
+      pkg_source="$candidate"; break
+    fi
+  done
+  if [ -z "$pkg_source" ]; then
+    plpgsql_file="$(find "$pgcellar" -type f -name plpgsql.so -print -quit 2>/dev/null || true)"
+    [ -z "$plpgsql_file" ] || pkg_source="$(dirname "$plpgsql_file")"
+  fi
+  if [ -n "$pkg_source" ] && [ ! -e "$stage_pkglib" ]; then
+    ln -s "$pkg_source" "$stage_pkglib"
+  fi
+  pgbin="$stage_bin"
+  echo "Using isolated relocatable PostgreSQL executable layout (no Homebrew service)."
   # Bind only to local 127.0.0.1 on a currently unoccupied ephemeral port.
   host_port="$(python3 - <<'PY'
 import socket
