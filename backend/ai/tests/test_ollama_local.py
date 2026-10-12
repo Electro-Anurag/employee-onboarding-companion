@@ -50,6 +50,7 @@ def test_local_model_requires_explicit_opt_in_and_valid_model(monkeypatch):
 def test_local_model_uses_pinned_loopback_only_and_strict_schema(monkeypatch):
     monkeypatch.setenv("EOC_AI_PROVIDER", "OLLAMA_LOCAL")
     monkeypatch.setenv("EOC_OLLAMA_MODEL", "gpt-oss:20b")
+    monkeypatch.delenv("EOC_OLLAMA_LOCAL_PORT", raising=False)
     calls = []
     def fake(req, timeout):
         calls.append((req.full_url, timeout))
@@ -158,3 +159,33 @@ def test_local_model_mode_reuses_actual_auth_citation_relevance_audit_and_no_wri
         actor=user, event_type="AI_MODEL_VALIDATED").count() == 1
     assert AuditEvent.objects.filter(
         actor=user, event_type="AI_MODEL_FAILED").count() == 1
+
+
+@pytest.mark.parametrize("bad_port", ["", "11435", "0", "80", "65536", "11534/path", "http://evil.test", " 11534", "11534 "])
+def test_local_ollama_port_rejects_any_nonapproved_port_before_network(monkeypatch, bad_port):
+    monkeypatch.setenv("EOC_AI_PROVIDER", "OLLAMA_LOCAL")
+    monkeypatch.setenv("EOC_OLLAMA_MODEL", "gpt-oss:20b")
+    monkeypatch.setenv("EOC_OLLAMA_LOCAL_PORT", bad_port)
+    with patch("backend.ai.provider.request.urlopen") as outbound:
+        with pytest.raises(ProviderFailure, match="PROVIDER_NOT_CONFIGURED"):
+            infer_local({"sources": []}, "Who owns Manager Preparation?")
+        outbound.assert_not_called()
+
+
+def test_private_ssh_tunnel_alternate_loopback_port_11534(monkeypatch):
+    monkeypatch.setenv("EOC_AI_PROVIDER", "OLLAMA_LOCAL")
+    monkeypatch.setenv("EOC_OLLAMA_MODEL", "gpt-oss:20b")
+    monkeypatch.setenv("EOC_OLLAMA_LOCAL_PORT", "11534")
+    called = []
+    def fake(request, timeout):
+        called.append((request.full_url, timeout))
+        assert request.full_url == "http://127.0.0.1:11534/api/chat"
+        return Response(json.dumps({
+            "model": "gpt-oss:20b", "done": True,
+            "message": {"role": "assistant", "content": json.dumps(allowed())},
+        }).encode())
+    with patch("backend.ai.provider.request.urlopen", side_effect=fake):
+        answer, usage = infer_local({"sources": []}, "Does my policy guarantee a salary bonus?")
+    assert answer["answer_type"] == "UNSUPPORTED"
+    assert usage["model"] == "gpt-oss:20b"
+    assert called == [("http://127.0.0.1:11534/api/chat", 45)]
