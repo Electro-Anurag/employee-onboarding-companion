@@ -68,7 +68,7 @@ def seed():
     result,status = create_case(actor=people["HR"][0],
         employee_id=people["EMPLOYEE"][1].pk,
         template_version_id=uuid.UUID(published["version_id"]),
-        joining_date=timezone.localdate()+timedelta(days=2),
+        joining_date=timezone.localdate(),  # Due today: real in-app policy reminder
         owner_ids={"IT":people["IT"][1].pk,"MANAGER":people["MANAGER"][1].pk},
         key=uuid.uuid4())
     assert status == 201
