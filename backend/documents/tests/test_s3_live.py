@@ -173,6 +173,49 @@ receive(actor=User.objects.get(pk=UUID(sys.argv[1])),
 
 
 @pytest.mark.django_db(transaction=True)
+def test_live_clamav_daemon_pause_and_recovery_keeps_quarantine_unreleased(world):
+    """Actual clamd outage: no clean/HR evidence until the same daemon recovers."""
+    import subprocess
+    _,actors=world
+    made,_=create(world,published(world))
+    case=OnboardingCase.objects.get(pk=made['case_id'])
+    activate_case(actor=actors['HR'][0],case_id=case.pk,
+                  key=uuid.uuid4(),expected_version=1)
+    task=Task.objects.get(case=case,key='identity_document')
+    raw=generated_pdf()
+    intent,_=prepare(actor=actors['EMPLOYEE'][0],case_id=case.pk,task_id=task.pk,
+                     sha256=hashlib.sha256(raw).hexdigest(),size=len(raw),
+                     filename='scanner_outage.pdf',key=uuid.uuid4(),expected_version=2)
+    upload_id=uuid.UUID(intent['result']['upload_id'])
+    receive(actor=actors['EMPLOYEE'][0],case_id=case.pk,task_id=task.pk,
+            upload_id=upload_id,raw=raw,key=uuid.uuid4(),expected_version=3)
+    assert clamav_signature_provenance().startswith('ClamAV ')
+    subprocess.run(['docker','pause','m3-clamd'],check=True,
+                   capture_output=True,timeout=15)
+    try:
+        interrupted=scan_one(upload_id)
+        assert interrupted=={'outcome':'ERROR','state':'SCAN_FAILED'}
+        assert SecureScanAttempt.objects.filter(
+            upload_id=upload_id,outcome='ERROR').count()==1
+        assert not SecureCleanObject.objects.filter(upload_id=upload_id).exists()
+        assert not TaskCompletion.objects.filter(task=task).exists()
+    finally:
+        # Never leave the scanner stopped if an assertion raises; cleanup
+        # in the workflow is an additional independent last resort.
+        subprocess.run(['docker','unpause','m3-clamd'],check=True,
+                       capture_output=True,timeout=15)
+    assert clamav_signature_provenance().startswith('ClamAV ')
+    recovered=scan_one(upload_id)
+    assert recovered=={'outcome':'CLEAN','state':'AWAITING_HR_REVIEW'}
+    assert list(SecureScanAttempt.objects.filter(upload_id=upload_id)
+                .order_by('number').values_list('outcome',flat=True))==['ERROR','CLEAN']
+    assert SecureCleanObject.objects.filter(upload_id=upload_id).count()==1
+    assert scan_one(upload_id)==recovered
+    assert SecureScanAttempt.objects.filter(upload_id=upload_id).count()==2
+    assert not TaskCompletion.objects.filter(task=task).exists()
+
+
+@pytest.mark.django_db(transaction=True)
 def test_live_m3_real_content_worker_hard_exit_redelivery(world):
     """Actual worker dies after committed clean evidence, before ACK; retry is idempotent."""
     import asyncio
