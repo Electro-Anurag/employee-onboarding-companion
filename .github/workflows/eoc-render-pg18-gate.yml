@@ -1,0 +1,112 @@
+name: D6 hosted Postgres 18 migration and regression compatibility
+on:
+  push:
+    branches: ['feature/eoc-completion-development']
+    paths:
+      - '.github/workflows/eoc-render-pg18-gate.yml'
+      - 'backend/**'
+      - 'scripts/m4_manager_upgrade_qualification.py'
+      - 'pyproject.toml'
+      - 'uv.lock'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: eoc-render-pg18-compatibility
+  cancel-in-progress: false
+jobs:
+  postgres18:
+    runs-on: [self-hosted, linux, ARM64, eoc-mac-ci]
+    timeout-minutes: 35
+    services:
+      postgres:
+        # Isolated test container only. Docker reports its pulled digest below;
+        # never touches or exposes the Render production/private database.
+        image: postgres:18
+        env:
+          POSTGRES_USER: onboarding
+          POSTGRES_PASSWORD: ci-temporary-only
+          POSTGRES_DB: onboarding_m0
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 3s --health-timeout 3s --health-retries 15
+    env:
+      DJANGO_SECRET_KEY: ci-only-postgres18-admission
+      DJANGO_DEBUG: '0'
+      DJANGO_ALLOWED_HOSTS: localhost,127.0.0.1,testserver
+      EOC_AI_PROVIDER: DISABLED
+      OPENAI_API_KEY: ''
+      POSTGRES_HOST: localhost
+      POSTGRES_PORT: '5432'
+      POSTGRES_DB: onboarding_m0
+      POSTGRES_USER: onboarding
+      POSTGRES_PASSWORD: ci-temporary-only
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e
+        with:
+          python-version: '3.13'
+          version: '0.12.23'
+      - name: Exact PostgreSQL 18 version, locked dependencies and current migrations
+        env:
+          PG_CONTAINER: ${{ job.services.postgres.id }}
+        run: |
+          set -euo pipefail
+          test -n "$PG_CONTAINER"
+          docker inspect --format='PG18_TEST_CONTAINER_IMAGE_ID={{.Image}}' "$PG_CONTAINER"
+          uv lock --check
+          uv sync --locked
+          uv run python - <<'PY'
+          import os,psycopg
+          with psycopg.connect(host=os.environ['POSTGRES_HOST'],
+              port=int(os.environ['POSTGRES_PORT']),
+              user=os.environ['POSTGRES_USER'],
+              password=os.environ['POSTGRES_PASSWORD'],
+              dbname=os.environ['POSTGRES_DB']) as conn:
+              with conn.cursor() as c:
+                  c.execute('SHOW server_version_num')
+                  version=int(c.fetchone()[0])
+                  assert 180000 <= version < 190000, 'STOP: expected real PostgreSQL 18'
+                  print('EOC_RENDER_POSTGRES18_SERVER_MAJOR_PASS')
+          PY
+          uv run python manage.py check
+          uv run python manage.py makemigrations --check --dry-run
+          uv run python manage.py migrate --noinput
+          uv run python manage.py procrastinate healthchecks
+      - name: Complete full Django/PostgreSQL 18 backend regression
+        run: |
+          set -euo pipefail
+          uv run pytest -q
+          echo "EOC_RENDER_POSTGRES18_BACKEND_REGRESSION_PASS@$GITHUB_SHA"
+      - name: Four populated PostgreSQL 18 historical installation upgrades
+        run: |
+          set -euo pipefail
+          for scenario in matching mismatched legacy_matching legacy_mismatched; do
+            uv run python - "$scenario" <<'PY'
+          import os,sys,psycopg
+          from psycopg import sql
+          scenario=sys.argv[1]
+          assert scenario in ('matching','mismatched','legacy_matching','legacy_mismatched')
+          assert os.environ.get('GITHUB_ACTIONS')=='true'
+          assert os.environ.get('POSTGRES_HOST')=='localhost'
+          assert os.environ.get('POSTGRES_DB')=='onboarding_m0'
+          dbname='ci_m4_upgrade_'+scenario
+          with psycopg.connect(dbname='onboarding_m0',host='localhost',port=5432,
+              user='onboarding',password=os.environ['POSTGRES_PASSWORD'],
+              autocommit=True) as conn:
+              conn.execute(sql.SQL('CREATE DATABASE {}').format(sql.Identifier(dbname)))
+          PY
+            POSTGRES_DB="ci_m4_upgrade_${scenario}" \
+              M4_MANAGER_UPGRADE_SCENARIO="$scenario" \
+              uv run python -m scripts.m4_manager_upgrade_qualification
+          done
+          echo "EOC_RENDER_POSTGRES18_FOUR_POPULATED_HISTORIES_PASS@$GITHUB_SHA"
+      - name: Verify no dependency or migration source was generated
+        run: git diff --exit-code -- uv.lock frontend/package-lock.json backend/
+      - name: Qualified source scope (not hosted acceptance)
+        if: success()
+        run: |
+          echo "EOC_RENDER_POSTGRES18_SOURCE_COMPATIBILITY_PASS@$GITHUB_SHA"
+          echo 'This disposable PG18 test does not open Render DB networking,'
+          echo 'upgrade a live database, qualify actual hosted data, or approve deployment.'
