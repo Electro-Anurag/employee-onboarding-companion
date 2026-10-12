@@ -149,7 +149,13 @@ def infer(context, question):
 # Explicit synthetic-evaluation option. Fixed LOOPBACK endpoint prevents
 # accidental calls to a network or remotely configured model server.
 # This path never sets OPENAI_API_KEY or calls the paid OpenAI API.
-OLLAMA_LOCAL_ENDPOINT = "http://127.0.0.1:11434/api/chat"
+# Only the standard Ollama loopback port and the SSH-tunnel fallback are
+# permitted. No host, scheme, path or arbitrary URL may be configured.
+def _ollama_local_endpoint():
+    port = os.environ.get("EOC_OLLAMA_LOCAL_PORT", "11434")
+    if port not in ("11434", "11534"):
+        raise ProviderFailure("PROVIDER_NOT_CONFIGURED")
+    return "http://127.0.0.1:" + port + "/api/chat"
 
 
 def infer_local(context, question):
@@ -179,7 +185,7 @@ def infer_local(context, question):
         ],
     }
     req = request.Request(
-        OLLAMA_LOCAL_ENDPOINT,
+        _ollama_local_endpoint(),
         data=json.dumps(payload, separators=(",", ":")).encode("utf-8"),
         headers={"Content-Type": "application/json"},
         method="POST",
