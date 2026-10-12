@@ -322,3 +322,11 @@ Historical evidence must not be re-labelled.
   security certification or completed PRD J02. T03/T05 retain **hosted/
   release gates**, T17/T19–T25 remain unqualified, and hosted J01–J05
   remain 0/5. Overall delivery estimate remains conservatively 70/30.
+
+
+### 12 October — D3 last integrated cancellation, immutable-SHA retry
+
+- [Integrated run 38197120335](https://github.com/Electro-Anurag/employee-onboarding-companion/actions/runs/38197120335) **attempt 1 FAIL at `4cda23d3d7da07d98104e3d51f05f273c232baaf`**. Its log explicitly verifies **255 backend PASS, 6 real-storage SKIP** in the general suite, React tests/build PASS and production Docker build PASS. The Chromium step was **cancelled during the standalone npm install of @playwright/test**, before starting the Django browser server or executing a Chromium assertion. The runner printed `The operation was canceled` after approximately 65 seconds in that step; reason for cancellation **not established**. Do not call it a failed browser assertion or an integrated PASS.
+- [Live S3/ClamAV run 38197120380](https://github.com/Electro-Anurag/employee-onboarding-companion/actions/runs/38197120380) **SUCCESS at the same application/test SHA**, **6 passed** with **no PostgreSQL teardown warning** and a positive no-extra-connections assertion.
+- The cancelled integration **job 114642892177 was explicitly rerun using GitHub Actions**, reusing the **same immutable SHA** with run ID 38197120335, **attempt 2 QUEUED at last check**. This does not alter application source, require paid CI, or qualify Chromium before the rerun finishes.
+- **T03/T05 isolated qualification remains PASS** within tested MinIO/ClamAV scope. **T18 final exact-SHA integration is OPEN** pending attempt 2. Do not deploy, restart hosted J01–J05, or modify synthetic hosted data. Conservative overall weighted estimate remains 70/30; hosted acceptance 0/5, release GO STOP.
