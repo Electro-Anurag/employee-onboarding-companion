@@ -8,6 +8,7 @@ from unittest.mock import patch
 import pytest
 
 from backend.ai.provider import ProviderFailure, infer_local
+from backend.onboarding.tests.test_m2_workflow import world
 
 
 class Response:
