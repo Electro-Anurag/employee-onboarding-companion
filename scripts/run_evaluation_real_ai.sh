@@ -71,6 +71,27 @@ else
       echo "STOP: PostgreSQL 17 binary missing ($exe). Run: brew install postgresql@17" >&2; exit 2;
     }
   done
+  # Homebrew pre-release macOS may stage versioned files in Cellar but fail
+  # linking sharedir when the service's post-install setup fails. Never touch
+  # Homebrew's global/default database or modify its symlinks. Point initdb
+  # directly to a REAL postgres.bki from this formula's local keg (-L).
+  pgcellar="$(brew --cellar postgresql@17 2>/dev/null || true)"
+  pgshare_file=''
+  for candidate in "$pgprefix/share/postgresql@17/postgres.bki" \
+                   "$pgprefix/share/postgresql/postgres.bki"; do
+    if [ -f "$candidate" ]; then pgshare_file="$candidate"; break; fi
+  done
+  if [ -z "$pgshare_file" ] && [ -d "$pgcellar" ]; then
+    pgshare_file="$(find "$pgcellar" -type f -name postgres.bki -print -quit 2>/dev/null || true)"
+  fi
+  if [ -z "$pgshare_file" ] || [ ! -f "$pgshare_file" ]; then
+    echo "STOP: Homebrew PostgreSQL 17 install incomplete: postgres.bki is absent." >&2
+    echo "Inspect: find \"$(brew --cellar postgresql@17)\" -name postgres.bki -print" >&2
+    echo "Do not copy or link PostgreSQL system directories into place." >&2
+    exit 2
+  fi
+  pgshare="$(dirname "$pgshare_file")"
+  echo "Using formula-local PostgreSQL shared files: $pgshare"
   # Bind only to local 127.0.0.1 on a currently unoccupied ephemeral port.
   host_port="$(python3 - <<'PY'
 import socket
@@ -81,11 +102,13 @@ PY
 )"
   printf '%s\n' 'eoc-ephemeral-local-ai-only' > "$workspace/db-password"
   chmod 600 "$workspace/db-password"
-  "$pgbin/initdb" -D "$workspace/data" --username=onboarding \
+  "$pgbin/initdb" -L "$pgshare" -D "$workspace/data" --username=onboarding \
     --auth-host=scram-sha-256 --auth-local=scram-sha-256 \
     --pwfile="$workspace/db-password" --no-instructions \
     > "$workspace/initdb.log" 2>&1 || {
-      echo "STOP: isolated initdb failed; no existing database was used." >&2; exit 2;
+      echo "STOP: isolated initdb failed; no existing database was used." >&2
+      tail -n 12 "$workspace/initdb.log" >&2 || true
+      exit 2;
     }
   "$pgbin/pg_ctl" -D "$workspace/data" -w -t 30 \
     -o "-h 127.0.0.1 -p $host_port -k /tmp" \
