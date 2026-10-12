@@ -46,3 +46,6 @@ details[open]>summary{margin-bottom:12px}
   .topbar h1{font-size:1.5rem}
   .sidebar nav button{flex:1 1 auto}
 }
+
+/* WCAG AA: selected case has a tinted surface; use darker status text. */
+.case-list>button.selected small{color:#334155}
