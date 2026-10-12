@@ -1,0 +1,103 @@
+name: D5 disposable PostgreSQL physical backup and restore
+on:
+  push:
+    branches: ['feature/eoc-completion-development']
+    paths:
+      - '.github/workflows/eoc-d5-restore.yml'
+      - 'scripts/d5_backup_restore_qualification.py'
+      - 'backend/onboarding/migrations/**'
+      - 'backend/audit/migrations/**'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: eoc-d5-isolated-db-restore
+  cancel-in-progress: false
+jobs:
+  backup-restore:
+    runs-on: [self-hosted, linux, ARM64, eoc-mac-ci]
+    timeout-minutes: 18
+    services:
+      postgres:
+        image: postgres:17@sha256:2d2b8998d31037bf721cfdf764d76ba74171b4fab3431b7f72c27c56ddbdf9e3
+        env:
+          POSTGRES_USER: onboarding
+          POSTGRES_PASSWORD: ci-temporary-only
+          POSTGRES_DB: onboarding_m0
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 3s --health-timeout 3s --health-retries 15
+    env:
+      DJANGO_SECRET_KEY: ci-only-not-a-production-credential
+      DJANGO_DEBUG: '1'
+      DJANGO_ALLOWED_HOSTS: localhost,127.0.0.1,testserver
+      EOC_AI_PROVIDER: DISABLED
+      OPENAI_API_KEY: ''
+      POSTGRES_HOST: localhost
+      POSTGRES_PORT: '5432'
+      POSTGRES_DB: onboarding_m0
+      POSTGRES_USER: onboarding
+      POSTGRES_PASSWORD: ci-temporary-only
+      GITHUB_ACTIONS: 'true'
+      EOC_D5_BACKUP_PROBE: '1'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e
+        with:
+          python-version: '3.13'
+          version: '0.12.23'
+      - name: Verify source, migrate and seed genuine synthetic typed state
+        run: |
+          set -euo pipefail
+          uv lock --check
+          uv sync --locked
+          uv run python manage.py check
+          uv run python manage.py makemigrations --check --dry-run
+          uv run python manage.py migrate --noinput
+          umask 077
+          uv run python -m scripts.d5_backup_restore_qualification seed \
+            > "$RUNNER_TEMP/eoc-d5-backup-before.txt"
+          grep '^D5_BACKUP_STATE_FINGERPRINT ' \
+            "$RUNNER_TEMP/eoc-d5-backup-before.txt" \
+            > "$RUNNER_TEMP/eoc-d5-backup-before-fingerprint.txt"
+      - name: Dump and restore PostgreSQL using same-version service container tools
+        env:
+          PG_CONTAINER: ${{ job.services.postgres.id }}
+        run: |
+          set -euo pipefail
+          umask 077
+          backup="$RUNNER_TEMP/eoc-d5-backup-ONLY-SYNTHETIC.dump"
+          before="$RUNNER_TEMP/eoc-d5-backup-before-fingerprint.txt"
+          after="$RUNNER_TEMP/eoc-d5-backup-after-fingerprint.txt"
+          trap 'rm -f "$backup" "$before" "$after" "$RUNNER_TEMP/eoc-d5-backup-before.txt"' EXIT
+          test -n "$PG_CONTAINER"
+          docker exec "$PG_CONTAINER" pg_dump -U onboarding -d onboarding_m0 \
+            --format=custom --no-owner --no-privileges > "$backup"
+          test -s "$backup"
+          uv run python - <<'PY'
+          import os,psycopg
+          if (os.environ.get('EOC_D5_BACKUP_PROBE')!='1'
+              or os.environ.get('POSTGRES_HOST')!='localhost'
+              or os.environ.get('POSTGRES_DB')!='onboarding_m0'
+              or os.environ.get('GITHUB_ACTIONS')!='true'):
+              raise SystemExit('Refusing to create restore database')
+          with psycopg.connect(dbname='onboarding_m0',host='localhost',
+              port=5432,user='onboarding',password=os.environ['POSTGRES_PASSWORD'],
+              autocommit=True) as conn:
+              conn.execute('CREATE DATABASE ci_d5_restored TEMPLATE template0')
+          PY
+          docker exec -i "$PG_CONTAINER" pg_restore -U onboarding \
+            -d ci_d5_restored --exit-on-error --no-owner --no-privileges < "$backup"
+          POSTGRES_DB=ci_d5_restored \
+            uv run python -m scripts.d5_backup_restore_qualification verify \
+            > "$RUNNER_TEMP/eoc-d5-backup-after.txt"
+          grep '^D5_BACKUP_STATE_FINGERPRINT ' \
+            "$RUNNER_TEMP/eoc-d5-backup-after.txt" > "$after"
+          diff -u "$before" "$after"
+          grep '^D5_RESTORED_AUDIT_AND_COMPLETION_IMMUTABILITY_PASS' \
+            "$RUNNER_TEMP/eoc-d5-backup-after.txt"
+          rm -f "$RUNNER_TEMP/eoc-d5-backup-after.txt"
+          echo "EOC_D5_DISPOSABLE_POSTGRES_BACKUP_RESTORE_PASS@$GITHUB_SHA"
+      - name: Lockfile unchanged
+        run: git diff --exit-code -- uv.lock frontend/package-lock.json
