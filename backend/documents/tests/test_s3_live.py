@@ -339,6 +339,7 @@ def test_live_m3_real_content_worker_hard_exit_redelivery(world):
     def start_worker(crash):
         env=os.environ.copy()
         env['POSTGRES_DB']=connection.settings_dict['NAME']
+        env['PGAPPNAME']='eoc_m3_worker_crash' if crash else 'eoc_m3_worker_recovery'
         if crash:env['M3_CI_CRASH_AFTER_SCAN']='1'
         else:env.pop('M3_CI_CRASH_AFTER_SCAN',None)
         return subprocess.Popen([sys.executable,'manage.py','procrastinate','worker'],
@@ -394,10 +395,23 @@ def test_live_m3_real_content_worker_hard_exit_redelivery(world):
     # PostgreSQL session metadata is logged, never query text or credentials.
     with connection.cursor() as cursor:
         cursor.execute("""
-            SELECT pid, state, backend_type, application_name
+            SELECT pid, state, backend_type, application_name, client_port
             FROM pg_stat_activity
             WHERE datname=current_database() AND pid<>pg_backend_pid()
             ORDER BY pid
         """)
         sessions=cursor.fetchall()
     print('M3_POST_WORKER_PG_SESSIONS='+repr(sessions),flush=True)
+    # Identify only local test DB TCP socket ownership. No process arguments,
+    # SQL text, environment or credentials are emitted.
+    try:
+        socket_list=subprocess.run(['ss','-tnpH'],check=False,
+                                   capture_output=True,text=True,timeout=5)
+        owners=[]
+        for session in sessions:
+            client_port=session[-1]
+            owners.extend(line for line in socket_list.stdout.splitlines()
+                          if client_port and ':'+str(client_port) in line)
+        print('M3_POST_WORKER_SOCKET_OWNERS='+repr(owners),flush=True)
+    except (OSError,subprocess.TimeoutExpired):
+        print('M3_POST_WORKER_SOCKET_OWNERS=UNAVAILABLE',flush=True)
