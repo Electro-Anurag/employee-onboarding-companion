@@ -175,3 +175,48 @@ Historical evidence must not be re-labelled.
 - **Conservative weighted estimate remains 70/100 earned, 30/100 pending** with
   the handoff's ±10–15 point uncertainty. These unqualified D3 changes earn no
   additional progress credit.
+
+
+### 12 October D3 subsequent exact-run evidence — service-level PASS and open final candidate
+
+- [Full integrated 38194157099](https://github.com/Electro-Anurag/employee-onboarding-companion/actions/runs/38194157099)
+  **PASS@bb66033885eca6f6c48de8662e3bd0acbd60bf58**: 254 backend passed,
+  2 live-service skipped in the general suite, React tests/build, Docker build,
+  compiled assets and real four-role Chromium pass. No real S3 in this workflow.
+- [Live M3 38194301113](https://github.com/Electro-Anurag/employee-onboarding-companion/actions/runs/38194301113)
+  **PASS@553b0b049fc6f66428a5772a2accf99666fa3e4e**: 2 real MinIO
+  and ClamAV tests, with one non-fatal PostgreSQL teardown warning.
+  Corrected ARM64 Docker service configuration actually ran.
+- [Live M3 38194374320](https://github.com/Electro-Anurag/employee-onboarding-companion/actions/runs/38194374320)
+  **PASS@3cfa126e79aa9c8784ea84f9633e40c559dec2f8**: 3 real-service
+  tests, including actual process hard-exit after S3 PUT and exact same-intent
+  re-delivery without duplicate version, audit or scan job; one teardown warning.
+- [Full integrated 38194374258](https://github.com/Electro-Anurag/employee-onboarding-companion/actions/runs/38194374258)
+  **PASS@3cfa126e79aa9c8784ea84f9633e40c559dec2f8**: 254 backend
+  passed, 3 real-service skipped in general suite, React, production Docker,
+  real four-role Chromium all pass. Real-service tests are separately qualified,
+  never counted as general-suite passes.
+- [Live M3 38194704739](https://github.com/Electro-Anurag/employee-onboarding-companion/actions/runs/38194704739)
+  **PASS@2b7ea753117ddabaa47489f22732136b128320cc**: 4 real MinIO/ClamAV
+  tests including actual scanner pause, refusal to issue clean evidence while
+  unavailable, unpause and recovery on same object, with one teardown warning.
+  The broader T05 release gate still needs further negative/restart review.
+- **Clean-promotion retry fix** at `6d0201cffc839931ae0238fafac8aa1b5790b00b`:
+  verifies an existing exact-version clean object before recopying after lost
+  database receipt. Offline failure tests and actual post-S3-copy/finalization
+  interruption regression committed. [Integrated 38194890046](https://github.com/Electro-Anurag/employee-onboarding-companion/actions/runs/38194890046)
+  and [live 38194890025](https://github.com/Electro-Anurag/employee-onboarding-companion/actions/runs/38194890025)
+  were RUNNING/QUEUED respectively at this ledger update; **NOT YET PASS**.
+- **Private object denial test** added at current code candidate
+  `d2cad8f206e661d668d35893dd3eb784dc42fc31`:
+  unsigned reads of both quarantine and clean S3 versions must fail.
+  [Live 38195127881](https://github.com/Electro-Anurag/employee-onboarding-companion/actions/runs/38195127881)
+  and [integrated 38195127902](https://github.com/Electro-Anurag/employee-onboarding-companion/actions/runs/38195127902)
+  were **QUEUED/PENDING; no credit yet**.
+- **Current scope**: D3 ongoing; T03/T05 **partially qualified in isolated real
+  services, not production-complete**; T18 most recent PASS is older `3cfa126e`,
+  latest exact source pending. No real hosted S3/ClamAV, persistent worker or
+  AI provider. T19–T25 unchanged; hosted J01–J05 **0/5**.
+  Weighted estimated delivery remains **70/100, uncertainty ±10–15 points**.
+  Next action: inspect current exact-run outcomes, resolve failures, verify
+  private access and clean-promotion retry, then complete remaining D3 before D4.
