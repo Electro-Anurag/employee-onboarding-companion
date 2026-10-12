@@ -123,3 +123,55 @@ Source commits: `bf9e69a33fa1139270297514f0f34f74f8469f76` (offline source answe
 - Earlier [M6 focused new relevance/transport suite 38179953152](https://github.com/Electro-Anurag/employee-onboarding-companion/actions/runs/38179953152) **PASS** at `e65cd7936ddb8020ebc441925be0d06ee9da0807`: 60 tests PASS. [Prior M6 established contract suite 38179953115](https://github.com/Electro-Anurag/employee-onboarding-companion/actions/runs/38179953115) **PASS**, 36 backend contract, 6 frontend source and 26 React tests. The complete integration run above also covers the newer source.
 - **M6 offline source admission/transport hardening: QUALIFIED.** Narrow exact question-to-evidence relevance admission blocks true-but-unrelated canonical answers, and provider transport malformed envelopes fail closed. This remains a deliberately limited task/policy assistant; neither independent real-model semantics nor broad natural-language relevance has been demonstrated.
 - **M6 hosted J04: BLOCKED.** No owner approval for paid inference or real external model provider, no live model semantic/adversarial dataset evaluation, no hosted provider cost/reliability evidence. The current Free Render web continues running its older qualified application and `EOC_AI_PROVIDER=DISABLED`; new source commits were NOT deployed. Hosted J01–J05 0/5 complete PASS.
+
+
+## 12 October — D3 secure-storage correction and real-service qualification (current overlay)
+
+This section **supersedes older T03/T05/T18 rows for current work only**; the complete
+T01–T25 status overlay and 70/30 weights remain in
+[`docs/handoffs/eoc-continuation-2026-10-12.md`](../handoffs/eoc-continuation-2026-10-12.md).
+Historical evidence must not be re-labelled.
+
+- **Current D3 application source candidate:** `3cfa126e79aa9c8784ea84f9633e40c559dec2f8`.
+  GitHub branch `feature/eoc-completion-development`. This is **COMMITTED, NOT YET QUALIFIED**.
+- **D3-01 storage endpoint trust boundary** introduced at `bb66033885eca6f6c48de8662e3bd0acbd60bf58`:
+  custom S3 endpoints now require explicit local-test authorization *and* strict loopback,
+  port 9000, no embedded credentials, query, fragment or path; rejects before boto3 I/O.
+  The new negative test checks remote redirection and absent AWS KMS fail-closed.
+  This is a source correction, not evidence of deployed production storage.
+- **D3-02 genuine live-service runner setup**: first live run
+  [38194157132](https://github.com/Electro-Anurag/employee-onboarding-companion/actions/runs/38194157132)
+  at `bb66033885eca6f6c48de8662e3bd0acbd60bf58` **FAIL**, prior to tests.
+  Job log: `clamav/clamav:1.4` lacks an ARM64 manifest; MinIO also logged a
+  cross-device directory rename. Correction at
+  `553b0b049fc6f66428a5772a2accf99666fa3e4e` uses the published ARM64
+  `clamav/clamav-debian:1.4.6` image and a runner-owned temporary host bind
+  mount for MinIO, cleaned up after the job. **Correction NOT YET QUALIFIED**.
+- **D3-03 real interrupted PUT**: candidate
+  `3cfa126e79aa9c8784ea84f9633e40c559dec2f8` adds a real MinIO
+  process hard-exit *after* the S3 PUT but *before* Django stores the object
+  receipt, then checks exact-upload-ID and idempotency-key recovery, one
+  quarantine version, one audit receipt, one queued scan job, and no task
+  completion. This is a real-service test candidate, **not a recorded PASS**.
+- Current exact candidate workflows:
+  [live MinIO + ClamAV 38194374320](https://github.com/Electro-Anurag/employee-onboarding-companion/actions/runs/38194374320)
+  and [full PostgreSQL + React + Docker + Chromium 38194374258](https://github.com/Electro-Anurag/employee-onboarding-companion/actions/runs/38194374258)
+  were **QUEUED/PENDING at this ledger write**, not PASS.
+  Intermediate [live 38194301113](https://github.com/Electro-Anurag/employee-onboarding-companion/actions/runs/38194301113)
+  is also queued at the preceding workflow-only SHA; an older integrated
+  [38194157099](https://github.com/Electro-Anurag/employee-onboarding-companion/actions/runs/38194157099)
+  was running at `bb66033885eca6f6c48de8662e3bd0acbd60bf58`,
+  **not current D3 application source**.
+- **T03:** OPEN pending real S3 interrupted PUT/resume, object version verification,
+  malware rejection, revision replacement, negative authorization and audits.
+  **T05:** OPEN pending actual ClamAV clean/malware and scan-worker kill/recovery,
+  including scanner failure/restart. **T18:** prior integrated PASS@ `c2e0d8b3`
+  remains historical only; current D3 integrated run PENDING.
+- **Remaining D3:** resolve any live-service failures with actual logs; prove all
+  new and existing live tests; inspect scanner-outage recovery, promotion-after-crash,
+  private-bucket security and frontend integration; do not prematurely close T03/T05.
+  **D4–D6, T17 and T19–T25 still OPEN/BLOCKED**. Hosted J01–J05 **0/5 PASS**.
+  Keep the synthetic hosted case unchanged; no Render deployment or paid services.
+- **Conservative weighted estimate remains 70/100 earned, 30/100 pending** with
+  the handoff's ±10–15 point uncertainty. These unqualified D3 changes earn no
+  additional progress credit.
