@@ -1,7 +1,7 @@
 name: D6 hosted Postgres 18 migration and regression compatibility
 on:
   push:
-    branches: ['feature/eoc-completion-development']
+    branches: ['feature/eoc-completion-development', 'feature/eoc-postsubmission-completion']
     paths:
       - '.github/workflows/eoc-render-pg18-gate.yml'
       - 'backend/**'
