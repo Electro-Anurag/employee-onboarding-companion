@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import App,{preferNewerCase} from './App';
 import {FormRevisionEntry} from './EvidenceWorkflows';
+import EvaluationGuide,{evaluationSteps,type EvaluationRole} from './EvaluationGuide';
 
 describe('M2 authenticated workspace UI boundaries', () => {
   it('renders truthful unauthenticated state and working sign-in form', () => {
@@ -84,5 +85,33 @@ describe('D5 semantic navigation and keyboard entry points',()=>{
     expect(markup.match(/<main\b/g)).toHaveLength(1);
     expect(markup.indexOf('<header')).toBeLessThan(markup.indexOf('<main'));
     expect(markup).toContain('tabindex="-1"');
+  });
+});
+
+describe('evaluation walkthrough presents truthful role-specific guidance',()=>{
+  it('exposes the right steps and only allowed navigation for each role',()=>{
+    const allowed:Record<EvaluationRole,string[]>={
+      HR:['templates','cases','portfolio','inbox'],
+      EMPLOYEE:['cases','work','cases'],
+      IT:['work','cases','inbox'],
+      MANAGER:['work','cases','inbox'],
+    };
+    for(const role of Object.keys(allowed) as EvaluationRole[]){
+      expect(evaluationSteps[role].map(x=>x.section)).toEqual(allowed[role]);
+      const html=renderToStaticMarkup(<EvaluationGuide role={role} onNavigate={()=>{}}/>);
+      expect(html).toContain('Evaluation walkthrough');
+      expect(html).toContain('Fictional organization and identities');
+      expect(html).toContain('deterministic guidance is not model AI');
+      expect(html).toContain('never changes a case');
+      expect(html).not.toContain('Sign in');
+    }
+  });
+  it('does not create operational buttons that bypass owner commands',()=>{
+    for(const role of ['HR','IT','MANAGER','EMPLOYEE'] as const){
+      const html=renderToStaticMarkup(<EvaluationGuide role={role} enabled={false} onNavigate={()=>{}}/>);
+      expect(html).toContain('disabled=""');
+      expect(html).not.toContain('Confirm final onboarding closeout');
+      expect(html).not.toContain('Submit recorded evidence');
+    }
   });
 });

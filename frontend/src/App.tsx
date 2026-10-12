@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import './App.css';
+import EvaluationGuide from './EvaluationGuide';
 import EvidenceWorkflows from './EvidenceWorkflows';
 import CaseDashboard,{type CaseDashboardData} from './CaseDashboard';
 import PortfolioOverview,{type PortfolioCase,type PortfolioPage} from './PortfolioOverview';
@@ -666,6 +667,8 @@ export default function App(){
           {me.role==='HR'&&<button aria-pressed={tab==='templates'} className={tab==='templates'?'selected':'quiet'} onClick={()=>setTab('templates')}>Templates ({templates.length})</button>}
         </nav>
         <button className="quiet" disabled={busy} onClick={()=>void perform(async()=>{await refresh(me);if(selected)await reloadCase(selected.id,me);})}>Refresh</button>
+        <EvaluationGuide role={me.role} enabled={!busy}
+          onNavigate={section=>{setTab(section);if(section==='portfolio')void loadPortfolio();}}/>
       </aside>
       <main id="main-content" tabIndex={-1} className="content">
         {tab==='portfolio'&&me.role==='HR'&&(
