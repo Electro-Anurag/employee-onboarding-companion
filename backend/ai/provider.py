@@ -144,3 +144,73 @@ def infer(context, question):
             ValueError, TypeError, AttributeError, KeyError) as exc:
         # Never expose the provider error body, credential, or unvalidated text.
         raise ProviderFailure("PROVIDER_TRANSPORT_OR_FORMAT_FAILURE") from exc
+
+
+# Explicit synthetic-evaluation option. Fixed LOOPBACK endpoint prevents
+# accidental calls to a network or remotely configured model server.
+# This path never sets OPENAI_API_KEY or calls the paid OpenAI API.
+OLLAMA_LOCAL_ENDPOINT = "http://127.0.0.1:11434/api/chat"
+
+
+def infer_local(context, question):
+    """Untrusted local Ollama output; caller MUST run validator + relevance.
+
+    Only direct opt-in `EOC_AI_PROVIDER=OLLAMA_LOCAL` may use this path.
+    This is intentionally NOT a freeform chat or workflow command engine.
+    """
+    if os.environ.get("EOC_AI_PROVIDER") != "OLLAMA_LOCAL":
+        raise ProviderFailure("PROVIDER_NOT_CONFIGURED")
+    model = os.environ.get("EOC_OLLAMA_MODEL", "")
+    if not re.fullmatch(r"[A-Za-z0-9_.:-]{3,80}", model):
+        raise ProviderFailure("PROVIDER_NOT_CONFIGURED")
+    serialized = json.dumps(
+        {"question": question, "context": context},
+        ensure_ascii=False, sort_keys=True,
+    )
+    if len(serialized.encode("utf-8")) > 16000:
+        raise ProviderFailure("CONTEXT_TOO_LARGE")
+    payload = {
+        "model": model, "stream": False, "format": OUTPUT_SCHEMA,
+        "keep_alive": "2m",
+        "options": {"temperature": 0, "num_predict": 650},
+        "messages": [
+            {"role": "system", "content": SYSTEM},
+            {"role": "user", "content": serialized},
+        ],
+    }
+    req = request.Request(
+        OLLAMA_LOCAL_ENDPOINT,
+        data=json.dumps(payload, separators=(",", ":")).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with request.urlopen(req, timeout=45) as stream:
+            raw = stream.read(65537)
+        if len(raw) > 65536:
+            raise ProviderFailure("PROVIDER_RESPONSE_TOO_LARGE")
+        response = json.loads(raw.decode("utf-8"))
+        if response.get("model") != model or response.get("done") is not True:
+            raise ProviderFailure("PROVIDER_RESPONSE_INCOMPLETE")
+        message = response.get("message") or {}
+        if not isinstance(message, dict) or message.get("role") != "assistant":
+            raise ProviderFailure("PROVIDER_OUTPUT_MISSING")
+        content = message.get("content")
+        if not isinstance(content, str) or len(content.encode("utf-8")) > 65536:
+            raise ProviderFailure("PROVIDER_OUTPUT_MISSING")
+        result = json.loads(content)
+        if not isinstance(result, dict):
+            raise ProviderFailure("INVALID_PROVIDER_JSON")
+        usage = {
+            "model": model,
+            "input_tokens": min(max(int(response.get("prompt_eval_count") or 0), 0), 1000000),
+            "output_tokens": min(max(int(response.get("eval_count") or 0), 0), 1000000),
+            "response_id": "local-ollama",  # no user data and no remote tracking
+        }
+        return result, usage
+    except ProviderFailure:
+        raise
+    except (HTTPError, URLError, TimeoutError, OSError, UnicodeError,
+            ValueError, TypeError, AttributeError, KeyError) as exc:
+        # Never reflect local model response, question or raw socket errors.
+        raise ProviderFailure("PROVIDER_TRANSPORT_OR_FORMAT_FAILURE") from exc

@@ -1,0 +1,100 @@
+"""Local-only Ollama transport is opt-in and shares source/claim validation.
+
+Entire suite is fake HTTP in CI: passing does not claim a real model run.
+"""
+import json
+from unittest.mock import patch
+
+import pytest
+
+from backend.ai.provider import ProviderFailure, infer_local
+
+
+class Response:
+    def __init__(self, body):
+        self.body = body
+    def __enter__(self):
+        return self
+    def __exit__(self, *_args):
+        return False
+    def read(self, n):
+        return self.body[:n]
+
+
+def allowed():
+    return {
+        "answer_type": "UNSUPPORTED",
+        "answer": "The available authorized sources do not establish that claim.",
+        "citations": [], "recommended_actions": [], "blockers": [],
+        "clarification": None, "escalation_draft": None,
+        "limitations": ["No verified fact supports the requested claim."],
+    }
+
+
+def test_local_model_requires_explicit_opt_in_and_valid_model(monkeypatch):
+    monkeypatch.delenv("EOC_AI_PROVIDER", raising=False)
+    monkeypatch.delenv("EOC_OLLAMA_MODEL", raising=False)
+    with patch("backend.ai.provider.request.urlopen") as outbound:
+        with pytest.raises(ProviderFailure, match="PROVIDER_NOT_CONFIGURED"):
+            infer_local({}, "What is this?")
+        outbound.assert_not_called()
+    monkeypatch.setenv("EOC_AI_PROVIDER", "OLLAMA_LOCAL")
+    monkeypatch.setenv("EOC_OLLAMA_MODEL", "https://malicious.invalid/api")
+    with patch("backend.ai.provider.request.urlopen") as outbound:
+        with pytest.raises(ProviderFailure, match="PROVIDER_NOT_CONFIGURED"):
+            infer_local({}, "Question")
+        outbound.assert_not_called()
+
+
+def test_local_model_uses_pinned_loopback_only_and_strict_schema(monkeypatch):
+    monkeypatch.setenv("EOC_AI_PROVIDER", "OLLAMA_LOCAL")
+    monkeypatch.setenv("EOC_OLLAMA_MODEL", "gpt-oss:20b")
+    calls = []
+    def fake(req, timeout):
+        calls.append((req.full_url, timeout))
+        body = json.loads(req.data)
+        assert req.full_url == "http://127.0.0.1:11434/api/chat"
+        assert "Authorization" not in req.headers
+        assert body["stream"] is False and body["format"]["additionalProperties"] is False
+        assert body["options"]["num_predict"] == 650
+        assert body["model"] == "gpt-oss:20b"
+        assert len(body["messages"]) == 2
+        return Response(json.dumps({
+            "model": "gpt-oss:20b", "done": True,
+            "message": {"role": "assistant", "content": json.dumps(allowed())},
+            "prompt_eval_count": 22, "eval_count": 18,
+        }).encode())
+    monkeypatch.setattr("backend.ai.provider.request.urlopen", fake)
+    answer,usage = infer_local({"sources":[]}, "Is my salary guaranteed?")
+    assert answer["answer_type"] == "UNSUPPORTED"
+    assert usage["model"] == "gpt-oss:20b"
+    assert usage["input_tokens"] == 22
+    assert usage["output_tokens"] == 18
+    assert usage["response_id"] == "local-ollama"
+    assert calls == [("http://127.0.0.1:11434/api/chat",45)]
+
+
+@pytest.mark.parametrize("message", [
+    {"model": "gpt-oss:20b", "done": False, "message": {"role":"assistant","content":"{}"}},
+    {"model": "other-model", "done": True, "message": {"role":"assistant","content":"{}"}},
+    {"model": "gpt-oss:20b", "done": True, "message": {"role":"user","content":"{}"}},
+    {"model": "gpt-oss:20b", "done": True, "message": {"role":"assistant","content":"bad json"}},
+    {"model": "gpt-oss:20b", "done": True, "message": {"role":"assistant","content":[]}},
+])
+def test_local_model_invalid_output_refused_without_data_leak(monkeypatch,message):
+    monkeypatch.setenv("EOC_AI_PROVIDER", "OLLAMA_LOCAL")
+    monkeypatch.setenv("EOC_OLLAMA_MODEL", "gpt-oss:20b")
+    with patch("backend.ai.provider.request.urlopen",return_value=Response(json.dumps(message).encode())):
+        with pytest.raises(ProviderFailure) as e:
+            infer_local({"secret":"synthetic-private-token"}, "synthetic-private-question")
+        assert "synthetic-private-question" not in str(e.value)
+        assert "synthetic-private-token" not in str(e.value)
+
+
+def test_local_model_bounded_context_refuses_before_network(monkeypatch):
+    monkeypatch.setenv("EOC_AI_PROVIDER", "OLLAMA_LOCAL")
+    monkeypatch.setenv("EOC_OLLAMA_MODEL", "gpt-oss:20b")
+    with patch("backend.ai.provider.request.urlopen") as outbound:
+        with pytest.raises(ProviderFailure, match="CONTEXT_TOO_LARGE"):
+            infer_local({"untrusted_text": "x"*20000}, "Question")
+        outbound.assert_not_called()
