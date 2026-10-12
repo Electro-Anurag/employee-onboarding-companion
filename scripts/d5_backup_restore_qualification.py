@@ -75,7 +75,7 @@ def seed():
     case_id = uuid.UUID(result["case_id"])
     activated,status = activate_case(actor=people["HR"][0],
         case_id=case_id,key=uuid.uuid4(),expected_version=1)
-    assert status==200 and activated["result"]["status"]=="PRE_JOINING"
+    assert status==200 and activated["result"]["status"]=="ACTIVE"  # Joining today
     manager_task = Task.objects.get(case_id=case_id,key="manager_preparation")
     started,code = start_task(actor=people["MANAGER"][0],
         case_id=case_id,task_id=manager_task.pk,
