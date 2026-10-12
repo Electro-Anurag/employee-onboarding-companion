@@ -12,6 +12,10 @@ import pytest
 from backend.onboarding.tests.test_m2_workflow import create, published, world
 
 
+@pytest.mark.skipif(
+    os.environ.get("EOC_RUN_REAL_OLLAMA_TEST") != "1",
+    reason="real Ollama admission is never automatic in CI",
+)
 @pytest.mark.django_db(transaction=True)
 def test_real_ollama_case_bound_answers_and_unsupported_claim(world):
     if os.environ.get("EOC_RUN_REAL_OLLAMA_TEST") != "1":
