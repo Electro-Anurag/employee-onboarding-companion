@@ -259,3 +259,38 @@ Historical evidence must not be re-labelled.
   separately reviewed. Preserve hosted service SHA, synthetic case and credentials.
   No hosted J01–J05 tests authorized now. **Production/evaluation GO remains STOP;
   hosted acceptance 0/5; conservative weighted estimate 70/30 unchanged**.
+
+
+### D3 PostgreSQL teardown root-cause correction and final invariant — 12 Oct
+
+- Previously observed non-fatal test cleanup warning was reproducible with
+  six otherwise-passing real S3/ClamAV cases. Isolated PostgreSQL
+  `pg_stat_activity` diagnosed exactly one extra idle client backend
+  (test-only backend PID varies between runs); the worker tests did not
+  demonstrate a production data-integrity failure.
+- Source test correction
+  [`a92f2f0f52b2dc4eaea1c88c5c04d2a5afd0270b`](https://github.com/Electro-Anurag/employee-onboarding-companion/commit/a92f2f0f52b2dc4eaea1c88c5c04d2a5afd0270b)
+  moves the genuine Procrastinate stalled-job retry controller out of the
+  pytest process into a short-lived subprocess with actual isolated PostgreSQL.
+  No scan verdict, task completion or production behavior was relaxed.
+- [Live run 38196770355](https://github.com/Electro-Anurag/employee-onboarding-companion/actions/runs/38196770355):
+  **SUCCESS, 6 PASS, no PostgreSQL teardown warning**. Diagnostic output
+  recorded `M3_POST_WORKER_PG_SESSIONS=[]` and
+  `M3_POST_WORKER_SOCKET_OWNERS=[]`; this supports closure of the
+  observed test-hygiene defect at that SHA. Root-cause assignment to the
+  in-process async controller remains an engineering inference based on the
+  changed execution boundary and reproduced clean behavior.
+- Final cleanup candidate at
+  [`4cda23d3d7da07d98104e3d51f05f273c232baaf`](https://github.com/Electro-Anurag/employee-onboarding-companion/commit/4cda23d3d7da07d98104e3d51f05f273c232baaf)
+  replaces diagnostic printing with a positive **zero-other-PostgreSQL-sessions
+  assertion** in the actual crash/retry test, restoring concise pytest CI
+  output. [Final real-service run 38197120380](https://github.com/Electro-Anurag/employee-onboarding-companion/actions/runs/38197120380)
+  and [integrated 38197120335](https://github.com/Electro-Anurag/employee-onboarding-companion/actions/runs/38197120335)
+  were **QUEUED/PENDING** when recorded; do **not** mark `4cda23d3` PASS
+  until both exact-SHA checks complete.
+- T03/T05 isolated real-service paths at `d2cad8f2` were previously
+  qualified 6/6 PASS; no changes to hosted permissions, external storage,
+  credentials, actual employee data or Render were made. This does **not**
+  close T17 independent security, T19 release approval or T20–T24 hosted
+  acceptance. Hosted J01–J05 remains 0/5; delivery remains 70/30 estimated,
+  subject to remaining D4–D6 and release gates.
