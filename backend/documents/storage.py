@@ -1,6 +1,6 @@
 """Private, versioned S3 storage. No presigned URLs or browser credentials."""
 import hashlib
-import os
+from urllib.parse import urlsplit
 from django.conf import settings
 from backend.onboarding.services import CommandFailure
 
@@ -11,8 +11,32 @@ def configured():
         and bool(getattr(settings,'M3_S3_CLEAN_BUCKET',''))
         and getattr(settings,'M3_S3_QUARANTINE_BUCKET')!=getattr(settings,'M3_S3_CLEAN_BUCKET'))
 
+def _validate_custom_endpoint():
+    """Only an explicitly opted-in loopback MinIO endpoint may omit AWS KMS.
+
+    Validate before constructing the network client, even for HEAD/list reads.
+    A local-testing flag must never authorize a remote, unencrypted S3 host.
+    """
+    endpoint=getattr(settings,'M3_S3_ENDPOINT_URL','')
+    if not endpoint:
+        return
+    try:
+        parsed=urlsplit(endpoint)
+        allowed=(getattr(settings,'M3_S3_ALLOW_LOCAL_TEST_ENDPOINT',False)
+            and parsed.scheme in ('http','https')
+            and parsed.hostname in ('127.0.0.1','localhost','::1')
+            and parsed.port==9000
+            and parsed.username is None and parsed.password is None
+            and parsed.path in ('','/')
+            and not parsed.query and not parsed.fragment)
+    except ValueError:
+        allowed=False
+    if not allowed:
+        raise CommandFailure('UNAPPROVED_STORAGE_ENDPOINT',503)
+
 def client():
     if not configured():raise CommandFailure('REAL_DOCUMENT_STORAGE_DISABLED',404)
+    _validate_custom_endpoint()
     import boto3
     from botocore.config import Config
     return boto3.client('s3',endpoint_url=getattr(settings,'M3_S3_ENDPOINT_URL',None) or None,
@@ -34,8 +58,7 @@ def encryption_options():
     # The local MinIO test endpoint may not offer SSE-KMS. Genuine AWS S3
     # requires a configured KMS key; never silently downgrade cloud encryption.
     if getattr(settings,'M3_S3_ENDPOINT_URL',''):
-        if not getattr(settings,'M3_S3_ALLOW_LOCAL_TEST_ENDPOINT',False):
-            raise CommandFailure('UNAPPROVED_STORAGE_ENDPOINT',503)
+        _validate_custom_endpoint()
         return {}
     key=getattr(settings,'M3_S3_KMS_KEY_ID','')
     if not key:raise CommandFailure('KMS_KEY_REQUIRED',503)

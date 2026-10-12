@@ -50,6 +50,47 @@ def s3_doubles():
           patch.object(storage,'download',side_effect=lambda clean:generated_pdf())):
         yield
 
+def test_m3_custom_s3_endpoint_must_be_explicit_loopback_before_network_access():
+    """A local-test flag cannot bypass KMS by redirecting PDFs to remote S3."""
+    from backend.documents import storage
+    from backend.onboarding.services import CommandFailure
+    rejected=[
+        'https://remote.example.invalid:9000',
+        'http://10.1.2.3:9000',
+        'http://127.0.0.1:9001',
+        'http://127.0.0.1:9000@remote.example.invalid',
+        'http://127.0.0.1:9000/quarantine',
+        'http://127.0.0.1:9000/?redirect=remote',
+        'http://[::1]:notaport',
+    ]
+    for endpoint in rejected:
+        with override_settings(
+                M3_REAL_DOCUMENT_ENABLED=True,
+                M3_S3_QUARANTINE_BUCKET='ci-quarantine',
+                M3_S3_CLEAN_BUCKET='ci-clean',
+                M3_S3_ALLOW_LOCAL_TEST_ENDPOINT=True,
+                M3_S3_ENDPOINT_URL=endpoint):
+            with patch('boto3.client') as cloud_client:
+                with pytest.raises(CommandFailure) as refused:
+                    storage.client()
+                assert refused.value.code=='UNAPPROVED_STORAGE_ENDPOINT'
+                cloud_client.assert_not_called()
+            with pytest.raises(CommandFailure) as refused:
+                storage.encryption_options()
+            assert refused.value.code=='UNAPPROVED_STORAGE_ENDPOINT'
+    with override_settings(M3_S3_ENDPOINT_URL='http://127.0.0.1:9000',
+                           M3_S3_ALLOW_LOCAL_TEST_ENDPOINT=False):
+        with pytest.raises(CommandFailure):
+            storage.encryption_options()
+    with override_settings(M3_S3_ENDPOINT_URL='http://127.0.0.1:9000',
+                           M3_S3_ALLOW_LOCAL_TEST_ENDPOINT=True):
+        assert storage.encryption_options()=={}
+    with override_settings(M3_S3_ENDPOINT_URL='',M3_S3_KMS_KEY_ID=''):
+        with pytest.raises(CommandFailure) as missing:
+            storage.encryption_options()
+        assert missing.value.code=='KMS_KEY_REQUIRED'
+
+
 @pytest.mark.django_db(transaction=True)
 def test_m3_s3_complete_clean_document_hr_acceptance_unlocks_only_real_dependencies(world,s3_doubles):
     org,people=world

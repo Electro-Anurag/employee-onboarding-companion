@@ -1,7 +1,7 @@
 name: M3 live S3 and ClamAV document saga
 on:
   push:
-    branches: ['feature/m3-m4-integrated-workflows']
+    branches: ['feature/eoc-completion-development']
     paths:
       - 'backend/documents/**'
       - 'backend/onboarding/migrations/0017_secure_s3_document_completion.py'
