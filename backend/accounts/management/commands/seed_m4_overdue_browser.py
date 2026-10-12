@@ -49,11 +49,21 @@ class Command(BaseCommand):
                      title='Followup After Overdue',required=True,
                      available_offset_days=-30,due_offset_days=5,
                      evidence_spec={'type':'CHECK_IN'}),
+                dict(key='manager_recovery_checkin',kind='CHECK_IN',owner_role='MANAGER',
+                     title='Manager Recovery Check-in',required=True,
+                     available_offset_days=-30,due_offset_days=5,
+                     evidence_spec={'type':'CHECK_IN'}),
+                dict(key='hr_after_manager',kind='ACTIVITY',owner_role='HR',
+                     title='HR Followup After Manager',required=True,
+                     available_offset_days=-30,due_offset_days=7,
+                     evidence_spec={'type':'ACTIVITY'}),
             ]
             draft=create_template(actor=users['HR'],key='m4_overdue_browser',
                 name='Overdue real elapsed browser qualification',
-                tasks=tasks,edges=[{'predecessor':'overdue_orientation',
-                                    'successor':'overdue_successor'}])
+                tasks=tasks,edges=[
+                    {'predecessor':'overdue_orientation','successor':'overdue_successor'},
+                    {'predecessor':'manager_recovery_checkin','successor':'hr_after_manager'},
+                ])
             published=publish_template(actor=users['HR'],
                 template_id=uuid.UUID(draft['id']),revision=1)
             made,_=create_case(actor=users['HR'],
@@ -69,6 +79,10 @@ class Command(BaseCommand):
             assert task.due_at<timezone.now()
             assert Task.objects.get(case_id=cid,
                 key='overdue_successor').execution_state=='BLOCKED'
+            assert Task.objects.get(case_id=cid,
+                key='manager_recovery_checkin').execution_state=='READY'
+            assert Task.objects.get(case_id=cid,
+                key='hr_after_manager').execution_state=='BLOCKED'
         self.stdout.write('CASE '+str(cid))
         for role in roles:
             self.stdout.write(role+' '+users[role].email+' '+credentials[role])

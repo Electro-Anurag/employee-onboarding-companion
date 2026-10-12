@@ -1,0 +1,106 @@
+name: D4 real elapsed manager meeting and missed recovery
+on:
+  push:
+    branches: ['feature/eoc-completion-development']
+    paths:
+      - '.github/workflows/eoc-d4-elapsed-meetings.yml'
+      - 'browser/m4-overdue.spec.cjs'
+      - 'backend/accounts/management/commands/seed_m4_overdue_browser.py'
+      - 'backend/activities/**'
+      - 'frontend/src/EvidenceWorkflows.tsx'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: eoc-d4-real-elapsed-meeting
+  cancel-in-progress: false
+jobs:
+  elapsed-meeting:
+    runs-on: [self-hosted, linux, ARM64, eoc-mac-ci]
+    timeout-minutes: 35
+    services:
+      postgres:
+        image: postgres:17@sha256:2d2b8998d31037bf721cfdf764d76ba74171b4fab3431b7f72c27c56ddbdf9e3
+        env:
+          POSTGRES_USER: onboarding
+          POSTGRES_PASSWORD: ci-temporary-only
+          POSTGRES_DB: onboarding_m0
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 3s --health-timeout 3s --health-retries 15
+    env:
+      DJANGO_SECRET_KEY: ci-only-not-a-production-credential
+      DJANGO_DEBUG: '1'
+      DJANGO_ALLOWED_HOSTS: localhost,127.0.0.1,testserver
+      EOC_AI_PROVIDER: DISABLED
+      OPENAI_API_KEY: ''
+      POSTGRES_HOST: localhost
+      POSTGRES_PORT: '5432'
+      POSTGRES_DB: onboarding_m0
+      POSTGRES_USER: onboarding
+      POSTGRES_PASSWORD: ci-temporary-only
+      TZ: UTC
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e
+        with:
+          python-version: '3.13'
+          version: '0.12.23'
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+      - name: Locked Django environment and activity regression
+        run: |
+          set -euo pipefail
+          uv lock --check
+          uv sync --locked
+          uv run python manage.py check
+          uv run python manage.py makemigrations --check --dry-run
+          uv run python manage.py migrate --noinput
+          uv run pytest -q backend/activities/tests/test_activities.py
+      - name: Compile actual UI and isolate Chromium runtime
+        run: |
+          set -euo pipefail
+          npm --prefix frontend ci
+          npm --prefix frontend run build
+          mkdir -p "$RUNNER_TEMP/eoc-d4-browser"
+          cp browser/playwright.config.cjs browser/m4-overdue.spec.cjs "$RUNNER_TEMP/eoc-d4-browser/"
+          npm --prefix "$RUNNER_TEMP/eoc-d4-browser" install --no-save --package-lock=false --ignore-scripts @playwright/test@1.64.0
+          "$RUNNER_TEMP/eoc-d4-browser/node_modules/.bin/playwright" install chromium
+      - name: Real manager missed and HR overdue Chromium recoveries
+        run: |
+          set -euo pipefail
+          umask 077
+          export M4_OVERDUE_BROWSER_CREDENTIAL_FILE="$RUNNER_TEMP/eoc-d4-synthetic-credentials.txt"
+          uv run python manage.py seed_m4_overdue_browser --confirm-synthetic > "$M4_OVERDUE_BROWSER_CREDENTIAL_FILE"
+          uv run python manage.py runserver --nostatic --noreload 127.0.0.1:8000 > "$RUNNER_TEMP/eoc-d4-server.log" 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true; rm -f "$M4_OVERDUE_BROWSER_CREDENTIAL_FILE"' EXIT
+          ready=0
+          for attempt in $(seq 1 50); do
+            if curl --fail --silent --output /dev/null http://127.0.0.1:8000/health/ready; then ready=1; break; fi
+            sleep 1
+          done
+          if [ "$ready" != 1 ]; then
+            echo 'D4 real Django readiness gate failed'
+            tail -50 "$RUNNER_TEMP/eoc-d4-server.log"
+            exit 1
+          fi
+          uv run python - <<'PY'
+          import re
+          from urllib.request import urlopen
+          base='http://127.0.0.1:8000'
+          html=urlopen(base+'/').read().decode('utf-8')
+          urls=re.findall(r'(?:src|href)="(/static/[^"]+)"',html)
+          assert urls, 'D4 browser refuses uncompiled UI'
+          for url in urls:
+              with urlopen(base+url) as r:
+                  assert r.status==200 and r.read(), url
+          print('EOC_D4_COMPILED_ASSETS_PASS',len(urls))
+          PY
+          cd "$RUNNER_TEMP/eoc-d4-browser"
+          ./node_modules/.bin/playwright test -c playwright.config.cjs m4-overdue.spec.cjs
+          echo "EOC_D4_ACTUAL_ELAPSED_HR_MANAGER_MISSED_RECOVERY_PASS@$GITHUB_SHA"
+      - name: Dependency locks remain immutable
+        run: git diff --exit-code -- uv.lock frontend/package-lock.json

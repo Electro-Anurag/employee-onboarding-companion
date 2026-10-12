@@ -23,11 +23,17 @@ async function login(page,role){
 }
 async function open(page){
   await page.getByRole('button',{name:/^Cases \(/}).click();
+  const response=page.waitForResponse(r=>
+    r.url().includes('/cases/'+caseId+'/tasks')&&r.status()===200);
   await page.locator('.case-list').first().getByRole('button').first().click();
+  await response;
   await expect(page.getByRole('region',{name:'Case tasks'})).toBeVisible();
-  // Test prerequisite details using explicitly opened administrative view.
+  // Await asynchronous case selection before opening the complete plan.
   const full=page.getByRole('button',{name:'View all steps (advanced)'});
-  if(await full.isVisible())await full.click();
+  await expect(full).toBeVisible();
+  await full.click();
+  await expect(page.getByRole('region',{name:'Case tasks'})
+    .locator('article.task')).toHaveCount(4);
 }
 function card(page,name){
   return page.getByRole('region',{name:'Case tasks'}).locator('article.task')
@@ -110,5 +116,97 @@ test('R6: real Chromium overdue cancel-reschedule genuinely elapses, attendance 
     await expect(card(manager,'Followup After Overdue')).toContainText('READY');
   }finally{
     await Promise.allSettled([hrContext.close(),managerContext.close()]);
+  }
+});
+
+
+test('D4 E04: manager missed real meeting remains blocked until an actually elapsed reschedule is attended',async({browser})=>{
+  test.setTimeout(900000);
+  const managerContext=await browser.newContext(),hrContext=await browser.newContext();
+  const manager=await managerContext.newPage(),hr=await hrContext.newPage();
+  const scheduleAt=()=>{const start=Math.ceil(Date.now()/60000)*60000+60000;
+    return {start,end:start+60000};};
+  const elapse=async(page,end)=>{
+    const remaining=end-Date.now()+1750;
+    if(remaining>0)await page.waitForTimeout(remaining);
+    expect(Date.now()).toBeGreaterThan(end);
+  };
+  try{
+    await login(manager,'MANAGER');await open(manager);
+    await login(hr,'HR');await open(hr);
+    const meeting=card(manager,'Manager Recovery Check-in');
+    await expect(meeting).toContainText('READY');
+    await expect(card(hr,'HR Followup After Manager')).toContainText('PREREQUISITE_INCOMPLETE');
+    await meeting.getByRole('button',{name:'Load activity schedule'}).click();
+    await expect(meeting).toContainText('No meeting scheduled');
+
+    const first=scheduleAt();
+    await meeting.getByLabel('Meeting start (local)').fill(asDatetimeLocal(first.start));
+    await meeting.getByLabel('Meeting end (local)').fill(asDatetimeLocal(first.end));
+    await meeting.getByLabel('Meeting medium').selectOption('VIDEO');
+    await meeting.getByLabel('Room or approved meeting reference').fill('Synthetic manager initial check-in');
+    await meeting.getByLabel('Scheduling/rescheduling reason').fill(
+      'Arrange assigned manager check-in with real elapsed attendance');
+    await meeting.getByRole('button',{name:'Schedule meeting occurrence'}).click();
+    await expect(meeting).toContainText('Revision 1:');
+    await expect(meeting).toContainText('IN_PROGRESS');
+    await expect(meeting.getByRole('button',{name:'Record organizer attendance'})).toHaveCount(0);
+
+    await hr.reload();await expect(hr.getByText('Role: HR')).toBeVisible();await open(hr);
+    const hrMeeting=card(hr,'Manager Recovery Check-in');
+    await hrMeeting.getByRole('button',{name:'Load activity schedule'}).click();
+    await expect(hrMeeting).toContainText('Synthetic manager initial check-in');
+    await expect(hrMeeting.getByRole('button',{name:'Record organizer attendance'})).toHaveCount(0);
+    await expect(hrMeeting.getByRole('button',{name:'Record reschedule'})).toHaveCount(0);
+
+    await elapse(manager,first.end);
+    await manager.reload();await expect(manager.getByText('Role: MANAGER')).toBeVisible();await open(manager);
+    const elapsed=card(manager,'Manager Recovery Check-in');
+    await elapsed.getByRole('button',{name:'Load activity schedule'}).click();
+    await expect(elapsed.getByRole('button',{name:'Record organizer attendance'})).toBeVisible();
+    await elapsed.getByLabel('Actual attendance outcome').selectOption('MISSED');
+    await elapsed.getByLabel('Organizer attendance evidence').fill(
+      'Assigned manager confirms employee missed the elapsed check-in');
+    await elapsed.getByRole('button',{name:'Record organizer attendance'}).click();
+    await expect(elapsed).toContainText('Attendance MISSED');
+    await expect(elapsed).toContainText('IN_PROGRESS');
+    await expect(elapsed).not.toContainText('COMPLETED');
+
+    await hr.reload();await expect(hr.getByText('Role: HR')).toBeVisible();await open(hr);
+    await expect(card(hr,'HR Followup After Manager')).toContainText('PREREQUISITE_INCOMPLETE');
+
+    const replacement=scheduleAt();
+    await elapsed.getByLabel('Meeting start (local)').fill(asDatetimeLocal(replacement.start));
+    await elapsed.getByLabel('Meeting end (local)').fill(asDatetimeLocal(replacement.end));
+    await elapsed.getByLabel('Meeting medium').selectOption('IN_PERSON');
+    await elapsed.getByLabel('Room or approved meeting reference').fill('Synthetic manager recovery room');
+    await elapsed.getByLabel('Scheduling/rescheduling reason').fill(
+      'Reschedule following documented missed employee check-in');
+    await elapsed.getByRole('button',{name:'Record reschedule'}).click();
+    await expect(elapsed).toContainText('Revision 2:');
+    await expect(elapsed).toContainText('Synthetic manager recovery room');
+    await expect(elapsed.getByRole('button',{name:'Record organizer attendance'})).toHaveCount(0);
+    await expect(card(hr,'HR Followup After Manager')).toContainText('PREREQUISITE_INCOMPLETE');
+
+    await elapse(manager,replacement.end);
+    await manager.reload();await expect(manager.getByText('Role: MANAGER')).toBeVisible();await open(manager);
+    const recovered=card(manager,'Manager Recovery Check-in');
+    await recovered.getByRole('button',{name:'Load activity schedule'}).click();
+    await expect(recovered).toContainText('Attendance MISSED');
+    await expect(recovered).toContainText('Revision 2:');
+    await recovered.getByLabel('Actual attendance outcome').selectOption('ATTENDED');
+    await recovered.getByLabel('Organizer attendance evidence').fill(
+      'Assigned manager confirms the replacement check-in was attended after its end');
+    await recovered.getByRole('button',{name:'Record organizer attendance'}).click();
+    await expect(recovered).toContainText('Attendance ATTENDED');
+    await expect(recovered).toContainText('COMPLETED');
+    await manager.reload();await expect(manager.getByText('Role: MANAGER')).toBeVisible();await open(manager);
+    await card(manager,'Manager Recovery Check-in').getByRole('button',{name:'Load activity schedule'}).click();
+    await expect(card(manager,'Manager Recovery Check-in')).toContainText('Attendance MISSED');
+    await expect(card(manager,'Manager Recovery Check-in')).toContainText('Attendance ATTENDED');
+    await hr.reload();await expect(hr.getByText('Role: HR')).toBeVisible();await open(hr);
+    await expect(card(hr,'HR Followup After Manager')).toContainText('READY');
+  } finally {
+    await Promise.allSettled([managerContext.close(),hrContext.close()]);
   }
 });
