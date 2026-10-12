@@ -1,0 +1,92 @@
+name: Evaluation-only real four-role UI recording and evidence
+on:
+  push:
+    branches: ['feature/eoc-completion-development']
+    paths:
+      - '.github/workflows/eoc-evaluation-demo-capture.yml'
+      - 'browser/evaluation-capture.spec.cjs'
+      - 'frontend/src/EvaluationGuide.tsx'
+      - 'frontend/src/App.tsx'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: eoc-evaluation-synthetic-recording
+  cancel-in-progress: false
+jobs:
+  capture:
+    runs-on: [self-hosted, linux, ARM64, eoc-mac-ci]
+    timeout-minutes: 23
+    services:
+      postgres:
+        image: postgres:17@sha256:2d2b8998d31037bf721cfdf764d76ba74171b4fab3431b7f72c27c56ddbdf9e3
+        env:
+          POSTGRES_USER: onboarding
+          POSTGRES_PASSWORD: ci-temporary-only
+          POSTGRES_DB: onboarding_m0
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 3s --health-timeout 3s --health-retries 15
+    env:
+      DJANGO_SECRET_KEY: ephemeral-ci-evaluation-recording
+      DJANGO_DEBUG: '1'
+      DJANGO_ALLOWED_HOSTS: localhost,127.0.0.1,testserver
+      EOC_AI_PROVIDER: DISABLED
+      OPENAI_API_KEY: ''
+      POSTGRES_HOST: localhost
+      POSTGRES_PORT: '5432'
+      POSTGRES_DB: onboarding_m0
+      POSTGRES_USER: onboarding
+      POSTGRES_PASSWORD: ci-temporary-only
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e
+        with:
+          python-version: '3.13'
+          version: '0.12.23'
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+      - name: Verify synthetic application and compile exact real frontend
+        run: |
+          set -euo pipefail
+          uv lock --check
+          uv sync --locked
+          uv run python manage.py check
+          uv run python manage.py migrate --noinput
+          (cd frontend && npm ci && npm run test && npm run build)
+      - name: Capture real local Chromium demo with synthetic identities
+        run: |
+          set -euo pipefail
+          umask 077
+          export M2_BROWSER_CREDENTIAL_FILE="$RUNNER_TEMP/eoc-evaluation-demo-roles"
+          export EOC_EVALUATION_CAPTURE_DIR="$RUNNER_TEMP/eoc-evaluation-demo-capture"
+          mkdir -p "$EOC_EVALUATION_CAPTURE_DIR"
+          uv run python manage.py seed_m2_demo --confirm-synthetic > "$M2_BROWSER_CREDENTIAL_FILE"
+          mkdir -p "$RUNNER_TEMP/eoc-evaluation-capture-runner"
+          cp browser/playwright.config.cjs browser/evaluation-capture.spec.cjs "$RUNNER_TEMP/eoc-evaluation-capture-runner/"
+          npm --prefix "$RUNNER_TEMP/eoc-evaluation-capture-runner" install --no-save --package-lock=false --ignore-scripts @playwright/test@1.64.0
+          "$RUNNER_TEMP/eoc-evaluation-capture-runner/node_modules/.bin/playwright" install chromium
+          uv run python manage.py runserver --nostatic --noreload 127.0.0.1:8000 > "$RUNNER_TEMP/eoc-evaluation-server.log" 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true; rm -f "$M2_BROWSER_CREDENTIAL_FILE"' EXIT
+          ok=0
+          for attempt in $(seq 1 50); do
+            if curl --fail --silent --output /dev/null http://127.0.0.1:8000/health/ready; then ok=1; break; fi
+            sleep 1
+          done
+          test "$ok" = 1 || { echo 'Synthetic Django server not ready'; exit 1; }
+          (cd "$RUNNER_TEMP/eoc-evaluation-capture-runner" && \
+            ./node_modules/.bin/playwright test -c playwright.config.cjs evaluation-capture.spec.cjs)
+          test -s "$EOC_EVALUATION_CAPTURE_DIR/capture-manifest.json"
+          test "$(find "$EOC_EVALUATION_CAPTURE_DIR" -maxdepth 1 -name '*.webm' | wc -l)" -ge 1
+          echo "EOC_EVALUATION_LOCAL_FOUR_ROLE_VIDEO_AND_SCREENSHOTS_PASS@$GITHUB_SHA"
+      - name: Upload short-lived private synthetic-only screenshots and actual Chromium video
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: eoc-evaluation-local-video-${{ github.run_id }}
+          path: ${{ runner.temp }}/eoc-evaluation-demo-capture/
+          retention-days: 3
+          if-no-files-found: warn
