@@ -87,6 +87,8 @@ test('D5 authenticated HR navigation is keyboard-operable and responsive',async(
     await noHorizontalPageOverflow(page,'Authenticated HR width '+width);
   }
   await page.setViewportSize({width:320,height:760});
+  await page.reload();
+  await expect(page.getByRole('navigation',{name:'Workspace'})).toBeVisible();
   await page.keyboard.press('Tab');
   await expect(page.getByRole('link',{name:'Skip to main content'})).toBeFocused();
   await page.keyboard.press('Enter');
