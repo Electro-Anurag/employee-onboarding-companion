@@ -220,3 +220,42 @@ Historical evidence must not be re-labelled.
   Weighted estimated delivery remains **70/100, uncertainty ±10–15 points**.
   Next action: inspect current exact-run outcomes, resolve failures, verify
   private access and clean-promotion retry, then complete remaining D3 before D4.
+
+
+### 12 October — latest D3 code qualification verified (supersedes earlier pending rows)
+
+- **Application code exact SHA:** `d2cad8f206e661d668d35893dd3eb784dc42fc31`.
+  Newer branch commits before this overlay are CI diagnostics/workflow edits, not a new
+  production behavior claim.
+- **T03/T05 isolated live integration:** [38195127881](https://github.com/Electro-Anurag/employee-onboarding-companion/actions/runs/38195127881)
+  **SUCCESS / 6 passed** on real, local isolated versioned S3-compatible
+  storage and live ClamAV with fresh signatures. Includes actual hard process
+  exit after PUT then exact upload-ID recovery, scanner rejection, clean
+  quarantine promotion, pause/unpause service outage, post-copy DB failure
+  recovery, post-scan worker hard exit/retry, anonymous bucket-version denial.
+  These are **isolated real-service PASS**, **not a hosted deploy** or blanket
+  third-party security certification.
+- **T18 current D3 application code integration:** [38195127902](https://github.com/Electro-Anurag/employee-onboarding-companion/actions/runs/38195127902)
+  **SUCCESS / 255 backend passed, 6 expected live-storage skipped in the
+  general suite**, React tests/build PASS, production Docker PASS and real
+  four-role Chromium PASS. Those six skipped tests passed separately in
+  38195127881; do not double-count them in the general suite.
+- **One remaining observed hygiene issue:** pytest-django reports
+  `database "test_onboarding_m0" is being accessed by other users`
+  during teardown (one PostgreSQL session), despite test-step PASS. This is
+  a **non-fatal cleanup warning, not resolved**; it must not be hidden or
+  counted as a production defect without identifying the session owner.
+  Diagnostic commit `9ba789f516c674328b3c5d7fbb0b69e75a14aa39`
+  added test-only session metadata. Live diagnostic
+  [38196021734](https://github.com/Electro-Anurag/employee-onboarding-companion/actions/runs/38196021734)
+  **SUCCESS, 6 PASS / same warning**; output capture was not visible under
+  default pytest settings. Workflow-only `1ee831768d4f2f6038c6fd260175ea03c3176910`
+  enables pytest passed-test stdout display; [38196143451](https://github.com/Electro-Anurag/employee-onboarding-companion/actions/runs/38196143451)
+  was QUEUED at this entry. Do not assert the warning is closed until verified.
+- **D3 scoped status:** all six current live-service tests and current D3
+  application-code integration passed. Remaining before complete D3 release
+  acceptance: resolve teardown hygiene, reconcile any uncovered negative cases,
+  and ensure the full PRD/user-journey and independent security gates are
+  separately reviewed. Preserve hosted service SHA, synthetic case and credentials.
+  No hosted J01–J05 tests authorized now. **Production/evaluation GO remains STOP;
+  hosted acceptance 0/5; conservative weighted estimate 70/30 unchanged**.
