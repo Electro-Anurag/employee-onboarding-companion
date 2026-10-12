@@ -132,20 +132,32 @@ PY
     chmod u+x "$stage_bin/$exe"
   done
   ln -s "$pgshare" "$stage_share"
-  pkg_source=''
-  for candidate in "$pgprefix/lib/postgresql@17" "$pgprefix/lib/postgresql" \
-                   "$pgprefix/lib"; do
-    if [ -d "$candidate" ] && [ -f "$candidate/plpgsql.so" ]; then
-      pkg_source="$candidate"; break
-    fi
-  done
-  if [ -z "$pkg_source" ]; then
-    plpgsql_file="$(find "$pgcellar" -type f -name plpgsql.so -print -quit 2>/dev/null || true)"
-    [ -z "$plpgsql_file" ] || pkg_source="$(dirname "$plpgsql_file")"
+  # initdb's post-bootstrap step loads "$libdir/dict_snowball".
+  # The extension directory has to contain that file, not merely plpgsql.so.
+  # Locate the real installed module from this PostgreSQL 17 Cellar keg and
+  # provide exactly that parent directory at the isolated relocated pkglibdir.
+  snowball_file="$(find "$pgcellar" -type f -name dict_snowball.so -print -quit 2>/dev/null || true)"
+  if [ -z "$snowball_file" ] || [ ! -f "$snowball_file" ]; then
+    echo "STOP: Homebrew PostgreSQL 17 package is missing dict_snowball.so." >&2
+    echo "Inspect: find \"$pgcellar\" -name dict_snowball.so -print" >&2
+    echo "This is an incomplete formula installation, not an AI failure." >&2
+    exit 2
   fi
-  if [ -n "$pkg_source" ] && [ ! -e "$stage_pkglib" ]; then
-    ln -s "$pkg_source" "$stage_pkglib"
+  pkg_source="$(dirname "$snowball_file")"
+  if [ ! -f "$pkg_source/plpgsql.so" ]; then
+    echo "STOP: PostgreSQL extension package is incomplete (plpgsql.so missing)." >&2
+    exit 2
   fi
+  if [ -e "$stage_pkglib" ] || [ -L "$stage_pkglib" ]; then
+    echo "STOP: isolated staged PostgreSQL lib destination already occupied." >&2
+    exit 2
+  fi
+  ln -s "$pkg_source" "$stage_pkglib"
+  [ -f "$stage_pkglib/dict_snowball.so" ] || {
+    echo "STOP: staged PostgreSQL library path is invalid." >&2
+    exit 2
+  }
+  echo "Verified formula-local dict_snowball and plpgsql libraries."
   pgbin="$stage_bin"
   echo "Using isolated relocatable PostgreSQL executable layout (no Homebrew service)."
   # Bind only to local 127.0.0.1 on a currently unoccupied ephemeral port.
