@@ -1,0 +1,39 @@
+name: Submission evidence runner static safety check
+on:
+  push:
+    branches: ['feature/eoc-completion-development']
+    paths:
+      - '.github/workflows/eoc-submission-evidence-check.yml'
+      - 'scripts/run_evaluation_real_ai.sh'
+      - 'backend/ai/tests/test_ollama_live_synthetic.py'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  static-check:
+    runs-on: [self-hosted, linux, ARM64, eoc-mac-ci]
+    timeout-minutes: 5
+    steps:
+      - name: Checkout exact SHA
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Parse safe opt-in AI runner and test source (no model access)
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "EOC_SUBMISSION_STATIC_SOURCE_SHA=$GITHUB_SHA"
+          bash -n scripts/run_evaluation_real_ai.sh
+          python3 - <<'PY'
+          import ast
+          from pathlib import Path
+          source=Path('backend/ai/tests/test_ollama_live_synthetic.py').read_text()
+          ast.parse(source)
+          assert 'EOC_RUN_REAL_OLLAMA_TEST' in source
+          script=Path('scripts/run_evaluation_real_ai.sh').read_text()
+          assert '127.0.0.1:11434/api/tags' in script
+          assert 'unset OPENAI_API_KEY' in script
+          assert 'DATABASE_URL' in script
+          assert 'EOC_RUN_REAL_OLLAMA_TEST=1' in script
+          assert 'docker rm -f' in script
+          PY
+          echo "EOC_SUBMISSION_EVIDENCE_STATIC_CHECK_PASS@$GITHUB_SHA"
+          echo "No real model inference or external deployment was performed."
