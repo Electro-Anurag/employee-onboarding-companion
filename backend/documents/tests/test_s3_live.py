@@ -93,6 +93,86 @@ def test_live_s3_exact_versions_and_actual_antivirus_rejection_then_hr_approval(
     assert not SecureCleanObject.objects.filter(upload_id=id1).exists()
 
 @pytest.mark.django_db(transaction=True)
+def test_live_s3_receive_hard_exit_after_object_put_recovers_same_upload_intent(world):
+    """Real MinIO persisted PUT + process hard exit; resume without duplicate evidence."""
+    import subprocess
+    import sys
+    from pathlib import Path
+    from django.db import connection
+    from backend.audit.models import AuditEvent, CommandReceipt
+    from backend.documents.real_models import SecureUpload, StoredQuarantineObject
+
+    _,actors=world
+    made,_=create(world,published(world))
+    case=OnboardingCase.objects.get(pk=made['case_id'])
+    activate_case(actor=actors['HR'][0],case_id=case.pk,
+                  key=uuid.uuid4(),expected_version=1)
+    task=Task.objects.get(case=case,key='identity_document')
+    raw=generated_pdf()
+    intent,_=prepare(actor=actors['EMPLOYEE'][0],case_id=case.pk,task_id=task.pk,
+                     sha256=hashlib.sha256(raw).hexdigest(),size=len(raw),
+                     filename='crash_recovery.pdf',key=uuid.uuid4(),expected_version=2)
+    upload_id=uuid.UUID(intent['result']['upload_id'])
+    upload=SecureUpload.objects.get(pk=upload_id)
+    receive_key=uuid.uuid4()
+    worker_code="""
+import os,sys,django
+django.setup()
+from backend.accounts.models import User
+from backend.documents.real_commands import receive
+from uuid import UUID
+receive(actor=User.objects.get(pk=UUID(sys.argv[1])),
+        case_id=UUID(sys.argv[2]),task_id=UUID(sys.argv[3]),
+        upload_id=UUID(sys.argv[4]),raw=sys.stdin.buffer.read(),
+        key=UUID(sys.argv[5]),expected_version=3)
+"""
+    env=os.environ.copy()
+    env['POSTGRES_DB']=connection.settings_dict['NAME']
+    env['M3_CI_CRASH_AFTER_PUT']='1'
+    # This crash switch is restricted by production code to loopback:9000.
+    child=subprocess.run(
+        [sys.executable,'-c',worker_code,str(actors['EMPLOYEE'][0].pk),
+         str(case.pk),str(task.pk),str(upload_id),str(receive_key)],
+        cwd=str(Path(__file__).resolve().parents[3]),input=raw,
+        stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=40,env=env)
+    assert child.returncode==79,child.stderr[-1200:].decode('utf-8','replace')
+    s3=storage.client()
+    quarantine,_=storage.buckets(s3)
+    original=s3.head_object(Bucket=quarantine,Key=upload.object_key)
+    original_version=original['VersionId']
+    assert original_version and original_version!='null'
+    assert not StoredQuarantineObject.objects.filter(upload=upload).exists()
+    assert not CommandReceipt.objects.filter(route='m3-secure-receive').exists()
+    assert not AuditEvent.objects.filter(event_type='DOCUMENT_QUARANTINED').exists()
+    assert OnboardingCase.objects.get(pk=case.pk).version==3
+
+    # Resume the SAME intent and command key; do not create a replacement or
+    # silently repeat the successful S3 write. Storage SHA/version are checked.
+    resumed,code=receive(actor=actors['EMPLOYEE'][0],case_id=case.pk,
+                         task_id=task.pk,upload_id=upload_id,raw=raw,
+                         key=receive_key,expected_version=3)
+    assert code==201 and resumed['result']['state']=='QUARANTINED'
+    stored=StoredQuarantineObject.objects.get(upload=upload)
+    assert stored.version_id==original_version
+    assert OnboardingCase.objects.get(pk=case.pk).version==4
+    assert receive(actor=actors['EMPLOYEE'][0],case_id=case.pk,
+                   task_id=task.pk,upload_id=upload_id,raw=raw,
+                   key=receive_key,expected_version=3)==(resumed,201)
+    versions=s3.list_object_versions(Bucket=quarantine,Prefix=upload.object_key)
+    exact=[v for v in versions.get('Versions',[]) if v['Key']==upload.object_key]
+    assert len(exact)==1 and exact[0]['VersionId']==original_version
+    assert CommandReceipt.objects.filter(route='m3-secure-receive').count()==1
+    assert AuditEvent.objects.filter(event_type='DOCUMENT_QUARANTINED').count()==1
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "SELECT COUNT(*) FROM procrastinate_jobs "
+            "WHERE task_name=%s AND args->>'upload_id'=%s",
+            ['m3.secure_document_scan',str(upload_id)])
+        assert cursor.fetchone()[0]==1
+    assert not TaskCompletion.objects.filter(task=task).exists()
+
+
+@pytest.mark.django_db(transaction=True)
 def test_live_m3_real_content_worker_hard_exit_redelivery(world):
     """Actual worker dies after committed clean evidence, before ACK; retry is idempotent."""
     import asyncio
