@@ -140,7 +140,7 @@ def test_local_model_mode_reuses_actual_auth_citation_relevance_audit_and_no_wri
     assert good["answer"]["citations"] == [source]
     assert TaskCompletion.objects.count() == before
     attempt = AuditEvent.objects.get(actor=user, event_type="AI_MODEL_ATTEMPT")
-    assert attempt.changes["provider"] == "OLLAMA_LOCAL"
+    assert attempt.sanitized_change["provider"] == "OLLAMA_LOCAL"
 
     def invented(_ctx, _question):
         data, usage = result(_ctx, "Who owns Manager Preparation?")
