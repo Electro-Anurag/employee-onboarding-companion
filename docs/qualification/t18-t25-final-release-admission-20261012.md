@@ -44,3 +44,7 @@ Before hosted mutation, the owner should explicitly approve: **target Render wor
 - **HOSTED ACCEPTANCE T20–T24:** J01 ___ / J02 ___ / J03 ___ / J04 ___ / J05 ___ (evidence links, dates, deployed SHA).
 - **SUBMISSION T25:** GO/STOP with repo, hosted URL, documentation/demo/video, known limitations.
 - **OVERALL:** GO only after **all mandatory gates pass** and the owner explicitly authorizes final submission. Production use with real employee data is a separate privacy/operational approval, never implied by submission readiness.
+
+## Live Render workspace inspection addendum — 12 October 2026
+
+[Detailed observed current-state preflight](render-workspace-release-preflight-20261012.md). In confirmed `My Workspace`, the currently LIVE deployment SHA is **`ec781ab7362da10648eea496b1402b8c317dcd4c`**, not the old `ded82f9` from historical hosted smoke. Render has **one free web service only**, no control worker. PostgreSQL **18** free database expires **2026-11-09 15:02:21 UTC**; empty IP allowlist blocked safe external query so current hosted migrations cannot be claimed verified. Migration rehearsal and preservation are STOP gates prior to deployment. Selected workspace does not constitute budget, production data, model usage or secret-management approval.
