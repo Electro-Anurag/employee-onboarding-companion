@@ -54,7 +54,17 @@ test('D5 authenticated HR navigation is keyboard-operable and responsive',async(
   await page.goto('/');
   await page.getByLabel('Email').fill(hr.email);
   await page.getByLabel('Password').fill(hr.password);
-  await page.getByRole('button',{name:'Sign in'}).press('Enter');
+  const submit=page.getByRole('button',{name:'Sign in'});
+  // Login is intentionally disabled until the real CSRF bootstrap finishes.
+  // Pressing Enter on a disabled button is a no-op, not a login attempt.
+  await expect(submit).toBeEnabled();
+  const [loginResponse]=await Promise.all([
+    page.waitForResponse(r=>r.url().endsWith('/api/v1/auth/login')&&
+      r.request().method()==='POST'),
+    submit.press('Enter'),
+  ]);
+  expect(loginResponse.status(),
+    'Real keyboard form submit must authenticate before navigation').toBe(200);
   await expect(page.getByText('Role: HR')).toBeVisible();
   await expect(page.getByRole('main')).toHaveCount(1);
   const nav=page.getByRole('navigation',{name:'Workspace'});
