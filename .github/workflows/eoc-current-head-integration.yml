@@ -1,7 +1,7 @@
 name: EOC completion-branch integrated PostgreSQL React Chromium
 on:
   push:
-    branches: ['feature/eoc-completion-development']
+    branches: ['feature/eoc-completion-development', 'feature/eoc-postsubmission-completion']
     paths:
       - '.github/workflows/eoc-current-head-integration.yml'
       - 'backend/ai/**'
