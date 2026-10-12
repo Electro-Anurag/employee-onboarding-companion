@@ -1,6 +1,6 @@
 # EOC — authoritative next-chat development and testing handoff (12 October 2026)
 
-> **Instructions to continuing GPT-6 developer:** This is a state snapshot and execution contract, not permission to silently change scope or enable paid services. Fetch the actual private GitHub branch HEAD before editing; repository source, exact-run logs and owner instructions outrank this summary. Immediately resume **D3 secure document implementation and isolated verification**. The owner explicitly postponed manual hosted J01–J05 flow tests until development is complete. Do **not** make the owner repeat already-observed hosted actions.
+> **Instructions to continuing GPT-6 developer (updated 12 October):** This is a cumulative state snapshot, not permission to silently change scope or enable paid services. Fetch the actual private GitHub branch HEAD and exact CI logs; repository source and current owner instructions outrank historical narrative below. **D3 isolated real storage/scan and integrated CI have PASSED. D4 elapsed manager/HR meetings, missed recovery, owner handoff, joining-date and terminal-case guard have now PASSED focused/integrated CI** at the exact SHAs in the latest overlay at the end. Continue outstanding verified product gaps and D5 security/reliability plus D6 operations/delivery without reopening prior green checks by default. Hosted J01–J05 are still deferred and 0/5. Do not make the owner repeat earlier hosted actions.
 
 ## 1. Mission and fixed contract
 
@@ -114,3 +114,14 @@ The prior historical ledger's initial planning table was **63/100**, and is now 
 5. A task is complete only when source, executed test evidence, documentation and corresponding release gate agree; distinguish **SOURCE PASS**, **HOSTED PASS**, **BLOCKED**, **PENDING**, **SKIPPED**, **REVIEW STOP** at all times.
 
 **No work is complete merely because it was listed here. Continue development until genuine full functionality, verified acceptance and submission requirements are satisfied.**
+
+
+## Superseding current checkpoint — after D4 green CI, 12 October 2026
+
+- **Active branch:** `feature/eoc-completion-development`. Historical branch/source references earlier in this handoff are snapshots only.
+- **Latest full source-integrated application evidence:** [38205540765](https://github.com/Electro-Anurag/employee-onboarding-companion/actions/runs/38205540765), **PASS** at `afaa448a28fd98fc54a5600eab942e75a2e8065f`, **257 PostgreSQL passed / 6 intentionally skipped live storage cases**, **26 React passed**, Docker and genuine four-role Chromium PASS.
+- **D3 true MinIO/S3 + ClamAV:** [38197120380](https://github.com/Electro-Anurag/employee-onboarding-companion/actions/runs/38197120380), **6/6 real services PASS**, no test teardown warning, exact `4cda23d3...`. No new D4 changes to the D3 storage/scanner subsystem.
+- **D4 true elapsed HR and manager missed-meeting flow:** [38204925335](https://github.com/Electro-Anurag/employee-onboarding-companion/actions/runs/38204925335), **10 PostgreSQL + 2 Chromium PASS**, exact `b91b01d7...`; two real-wall-clock meeting sequences and actual persisted attendance.
+- **D4 E05/E06 and exception/owner-handoff browser:** [38205540661](https://github.com/Electro-Anurag/employee-onboarding-companion/actions/runs/38205540661), **4 Chromium PASS** plus actual periodic reminder; exact `afaa448a...`. New owner reassignment on a terminal case now denied, preexisting idempotency replay preserved, both statuses tested.
+- **PRD/Journey traceability:** `docs/qualification/d4-requirements-exception-traceability-20261012.md` maps F01–F28 and E01–E10 to current source candidates and unclosed acceptance; use it to prevent goal drift. This **does not mean 28/28 FRs are end-to-end accepted**.
+- **Next:** Complete any demonstrable remaining D4 business gaps; advance D5 independent final source/security (cross-org/employee, role/CSRF, populated old database forward-only migration, concurrent mutation, resilient restarts, accessible responsive Chromium) and D6 operational recovery, backups, owner-approved exact SHA hosting, real AI admission/evaluation where authorized, video and docs. Do not permit paid services or deployment without approval. **Hosted J01–J05 = 0/5; production GO STOP; 70% ±10–15 point engineering estimate, unchanged.**

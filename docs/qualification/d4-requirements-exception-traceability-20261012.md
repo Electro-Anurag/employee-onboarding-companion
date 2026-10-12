@@ -48,4 +48,4 @@ E08 unauthorized case | M1 scoping; cross-tenant release/J05 open
 E09 duplicate/conflicting write | receipts/locks; J05 open
 E10 provider/integration outage | offline fail-closed; real hosted J04/J03 open
 
-D3 local/source QUALIFIED; D4 T04 PENDING; D5 independent final security/migration/a11y OPEN; D6 hosted operations/real AI/demo OPEN. No authorized deployment, paid service or hosted data change. 70% conservative estimate (±10–15 points), J01–J05 0/5, production GO STOP.
+D3 local/source QUALIFIED; D4 T04 QUALIFIED in isolated actual elapsed Chromium run 38204925335 (10 PostgreSQL and 2 real Chromium tests PASS); E05/E06 current-source browser exception/owner cases PASS at 38205540661 (4 Chromium and real periodic worker), plus integrated full application PASS at 38205540765 (257 backend/6 real-services skipped, 26 React, Docker, four-role Chromium). D5 independent final security/migration/a11y OPEN; D6 hosted operations/real AI/demo OPEN. No authorized deployment, paid service or hosted data change. 70% conservative estimate (±10–15 points), J01–J05 0/5, production GO STOP.
