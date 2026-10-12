@@ -1,7 +1,14 @@
 name: M5-M6 real exception Chromium acceptance
 on:
   push:
-    branches: ['feature/m5-m6-parallel-development']
+    branches: ['feature/m5-m6-parallel-development', 'feature/eoc-completion-development']
+    paths:
+      - '.github/workflows/m5-m6-browser-ci.yml'
+      - 'browser/m5-exceptions.spec.cjs'
+      - 'backend/accounts/management/commands/seed_m5_browser.py'
+      - 'backend/onboarding/**'
+      - 'backend/notifications/**'
+      - 'frontend/src/App.tsx'
   workflow_dispatch:
 permissions:
   contents: read
